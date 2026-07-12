@@ -105,7 +105,7 @@ local observeWalkSpeedChange = function() end
 local perkTrackerState = {
 	ghost = nil,
 	evidenceMode = "Normal",
-	speedForcerEnabled = true,
+	speedForcerEnabled = false,
 	speedForceAccumulator = 0,
 	visualModelChecked = false,
 	sampleAccumulator = 0,
@@ -2732,19 +2732,20 @@ local function getRoomBoundingParts(room)
 		if boundingBox:IsA("BasePart") then
 			addPart(boundingBox)
 		else
+			local countBeforeBoundingBox = #parts
 			for _, child in ipairs(boundingBox:GetChildren()) do
 				if child:IsA("BasePart") and child.Name == "Part" then
 					addPart(child)
 				end
 			end
-			if #parts == 0 then
+			if #parts == countBeforeBoundingBox then
 				for _, child in ipairs(boundingBox:GetChildren()) do
 					if child:IsA("BasePart") then
 						addPart(child)
 					end
 				end
 			end
-			if #parts == 0 then
+			if #parts == countBeforeBoundingBox then
 				for _, descendant in ipairs(boundingBox:GetDescendants()) do
 					if descendant:IsA("BasePart") then
 						addPart(descendant)
@@ -5729,11 +5730,6 @@ local function teleportToRoomBoundingBoxCenter(room)
 	for _, boundingPart in ipairs(boundingParts) do
 		boundingPartSet[boundingPart] = true
 		table.insert(excludedInstances, boundingPart)
-
-		local parent = boundingPart.Parent
-		if parent and parent.Name == "BoundingBox" then
-			table.insert(excludedInstances, parent)
-		end
 	end
 
 	local ghost = getGhostModel()
@@ -5744,56 +5740,32 @@ local function teleportToRoomBoundingBoxCenter(room)
 		table.insert(excludedInstances, ghostProxyModel)
 	end
 
-	local function isHelperGeometry(part)
-		if not part or not part:IsA("BasePart") then
-			return true
-		end
-		if boundingPartSet[part] then
-			return true
-		end
-
-		for _, boundingPart in ipairs(boundingParts) do
-			local container = boundingPart.Parent
-			if container
-				and container.Name == "BoundingBox"
-				and part:IsDescendantOf(container) then
-				return true
-			end
-		end
-
-		local name = string.lower(part.Name)
-		for _, token in ipairs({
-			"boundingbox",
-			"hitbox",
-			"trigger",
-			"region",
-			"volume",
-			"detector",
-			"boundary",
-			"roomzone",
-		}) do
-			if string.find(name, token, 1, true) then
-				return true
-			end
-		end
-
-		return false
-	end
-
 	local standingOffset =
-		humanoid.HipHeight + root.Size.Y * 0.5 + 0.16
+		humanoid.HipHeight + root.Size.Y * 0.5 + 0.12
+	local footprintHalfX = root.Size.X * 0.5 + 0.22
+	local footprintHalfZ = root.Size.Z * 0.5 + 0.22
+	local avatarRadius =
+		math.max(footprintHalfX, footprintHalfZ) + 0.18
 	local horizontalInset =
-		math.max(root.Size.X, root.Size.Z) * 0.65 + 0.55
-	local bodyProbeSize = Vector3.new(
-		math.max(root.Size.X + 0.8, 2.2),
-		math.max(root.Size.Y + humanoid.HipHeight + 1.2, 4.2),
-		math.max(root.Size.Z + 0.8, 2.2)
+		math.sqrt(footprintHalfX ^ 2 + footprintHalfZ ^ 2) + 0.18
+	local bodyHeight = math.max(
+		root.Size.Y + humanoid.HipHeight + 2.35,
+		5.1
 	)
+	local bodyProbeSize = Vector3.new(
+		math.max(root.Size.X + 0.72, 2.3),
+		bodyHeight,
+		math.max(root.Size.Z + 0.72, 2.3)
+	)
+	local bodyGeometryProbe = nil
 
 	local overlapParams = OverlapParams.new()
 	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 	overlapParams.FilterDescendantsInstances = excludedInstances
-	overlapParams.MaxParts = 80
+	overlapParams.MaxParts = 0
+	pcall(function()
+		overlapParams.RespectCanCollide = true
+	end)
 
 	local function safelyInsideXZ(position, boundingPart)
 		local localPosition =
@@ -5806,21 +5778,487 @@ local function teleportToRoomBoundingBoxCenter(room)
 				<= math.max(0, half.Z - horizontalInset)
 	end
 
-	local function bodyAreaIsClear(candidate, supportingPart)
+	local function isCollidableInstance(instance)
+		if instance == workspace.Terrain then
+			return true
+		end
+		return instance
+			and instance:IsA("BasePart")
+			and instance.CanCollide
+	end
+
+	local function newRaycastParams(excludes)
+		local raycastParams = RaycastParams.new()
+		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+		raycastParams.FilterDescendantsInstances = excludes
+		raycastParams.IgnoreWater = true
+		pcall(function()
+			raycastParams.RespectCanCollide = true
+		end)
+		return raycastParams
+	end
+
+	local function raycastFirstCollidable(
+		origin,
+		direction,
+		additionalExcludes
+	)
+		local excludes = table.clone(excludedInstances)
+		for _, instance in ipairs(additionalExcludes or {}) do
+			if instance and instance ~= workspace.Terrain then
+				table.insert(excludes, instance)
+			end
+		end
+		local raycastParams = newRaycastParams(excludes)
+		local seen = setmetatable({}, {__mode = "k"})
+
+		for _ = 1, 12 do
+			raycastParams.FilterDescendantsInstances = excludes
+			local result = workspace:Raycast(
+				origin,
+				direction,
+				raycastParams
+			)
+			if not result then
+				return nil
+			end
+			if isCollidableInstance(result.Instance) then
+				return result
+			end
+			if not result.Instance
+				or result.Instance == workspace.Terrain
+				or seen[result.Instance] then
+				return nil
+			end
+			seen[result.Instance] = true
+			table.insert(excludes, result.Instance)
+		end
+
+		return nil
+	end
+
+	local footprintOffsets = {
+		Vector3.zero,
+		Vector3.new(footprintHalfX, 0, 0),
+		Vector3.new(-footprintHalfX, 0, 0),
+		Vector3.new(0, 0, footprintHalfZ),
+		Vector3.new(0, 0, -footprintHalfZ),
+		Vector3.new(footprintHalfX, 0, footprintHalfZ),
+		Vector3.new(footprintHalfX, 0, -footprintHalfZ),
+		Vector3.new(-footprintHalfX, 0, footprintHalfZ),
+		Vector3.new(-footprintHalfX, 0, -footprintHalfZ),
+	}
+
+	local function inspectFootprint(floorPosition)
+		local supportHits = 0
+		local flatSupportHits = 0
+		local centerSupported = false
+		local supportSet = setmetatable({}, {__mode = "k"})
+
+		for index, offset in ipairs(footprintOffsets) do
+			local result = raycastFirstCollidable(
+				floorPosition + offset + Vector3.new(0, 1.35, 0),
+				Vector3.new(0, -2.85, 0)
+			)
+			if result and result.Normal.Y >= 0.5 then
+				local heightDifference = math.abs(
+					result.Position.Y - floorPosition.Y
+				)
+				if heightDifference <= 0.9 then
+					supportHits = supportHits + 1
+					if index == 1 then
+						centerSupported = true
+					end
+				end
+				if heightDifference <= 0.38 then
+					supportSet[result.Instance] = true
+					if result.Normal.Y >= 0.62 then
+						flatSupportHits = flatSupportHits + 1
+					end
+				end
+			end
+		end
+
+		return {
+			CenterSupported = centerSupported,
+			SupportHits = supportHits,
+			FlatSupportHits = flatSupportHits,
+			SupportSet = supportSet,
+		}
+	end
+
+	local function worldHalfExtents(part)
+		local half = part.Size * 0.5
+		local frame = part.CFrame
+		return Vector3.new(
+			math.abs(frame.XVector.X) * half.X
+				+ math.abs(frame.YVector.X) * half.Y
+				+ math.abs(frame.ZVector.X) * half.Z,
+			math.abs(frame.XVector.Y) * half.X
+				+ math.abs(frame.YVector.Y) * half.Y
+				+ math.abs(frame.ZVector.Y) * half.Z,
+			math.abs(frame.XVector.Z) * half.X
+				+ math.abs(frame.YVector.Z) * half.Y
+				+ math.abs(frame.ZVector.Z) * half.Z
+		)
+	end
+
+	local function inspectBodyArea(candidate, floorY, supportSet)
+		local probeBottom = floorY + 0.12
+		local probeTop = probeBottom + bodyProbeSize.Y
 		local probe = CFrame.new(
-			candidate + Vector3.new(0, bodyProbeSize.Y * 0.18, 0)
+			candidate.X,
+			probeBottom + bodyProbeSize.Y * 0.5,
+			candidate.Z
+		)
+		local blockerCount = 0
+		local coreBlockers = 0
+		local penalty = 0
+		local intersectingParts = nil
+		if bodyGeometryProbe and bodyGeometryProbe.Parent then
+			bodyGeometryProbe.CFrame = probe
+			bodyGeometryProbe.Size = bodyProbeSize
+			local exactOk, exactParts = pcall(function()
+				return workspace:GetPartsInPart(
+					bodyGeometryProbe,
+					overlapParams
+				)
+			end)
+			bodyGeometryProbe.CFrame = CFrame.new(0, -100000, 0)
+			if exactOk then
+				intersectingParts = exactParts
+			end
+		end
+		if not intersectingParts then
+			intersectingParts = workspace:GetPartBoundsInBox(
+				probe,
+				bodyProbeSize,
+				overlapParams
+			)
+		end
+
+		for _, part in ipairs(intersectingParts) do
+			if part:IsA("BasePart")
+				and part.CanCollide
+				and part ~= bodyGeometryProbe
+				and not boundingPartSet[part] then
+				local halfExtents = worldHalfExtents(part)
+				local partBottom = part.Position.Y - halfExtents.Y
+				local partTop = part.Position.Y + halfExtents.Y
+				local supportOnly = supportSet[part]
+					and partTop <= floorY + 0.45
+				local belowFeet = partTop <= floorY + 0.24
+
+				if not supportOnly and not belowFeet then
+					blockerCount = blockerCount + 1
+					local distanceX = math.max(
+						math.abs(part.Position.X - candidate.X)
+							- halfExtents.X,
+						0
+					)
+					local distanceZ = math.max(
+						math.abs(part.Position.Z - candidate.Z)
+							- halfExtents.Z,
+						0
+					)
+					local horizontalDistance = math.sqrt(
+						distanceX ^ 2 + distanceZ ^ 2
+					)
+					local verticalOverlap = math.max(
+						0,
+						math.min(partTop, probeTop)
+							- math.max(partBottom, probeBottom)
+					)
+					local core = horizontalDistance
+						<= avatarRadius * 0.55
+					if core then
+						coreBlockers = coreBlockers + 1
+					end
+					penalty = penalty
+						+ 900
+						+ verticalOverlap * 420
+						+ (core and 4200 or 0)
+						+ (partBottom < floorY + 1.25 and 650 or 0)
+				end
+			end
+		end
+
+		return {
+			BlockerCount = blockerCount,
+			CoreBlockers = coreBlockers,
+			Penalty = penalty,
+		}
+	end
+
+	local clearanceDirections = {
+		Vector3.new(1, 0, 0),
+		Vector3.new(-1, 0, 0),
+		Vector3.new(0, 0, 1),
+		Vector3.new(0, 0, -1),
+		Vector3.new(1, 0, 1).Unit,
+		Vector3.new(1, 0, -1).Unit,
+		Vector3.new(-1, 0, 1).Unit,
+		Vector3.new(-1, 0, -1).Unit,
+	}
+
+	local function horizontalClearance(candidate, floorY, supportSet)
+		local supportExcludes = {}
+		for instance in pairs(supportSet) do
+			if instance ~= workspace.Terrain then
+				table.insert(supportExcludes, instance)
+			end
+		end
+
+		local minimum = 9
+		for _, height in ipairs({0.75, 2.65}) do
+			local origin = Vector3.new(
+				candidate.X,
+				floorY + height,
+				candidate.Z
+			)
+			for _, direction in ipairs(clearanceDirections) do
+				local result = raycastFirstCollidable(
+					origin,
+					direction * 9,
+					supportExcludes
+				)
+				if result then
+					minimum = math.min(minimum, result.Distance)
+				end
+			end
+		end
+
+		return minimum
+	end
+
+	local function calculateRisk(
+		bodyInspection,
+		footprintInspection,
+		clearance
+	)
+		return bodyInspection.Penalty
+			+ bodyInspection.CoreBlockers * 10000
+			+ bodyInspection.BlockerCount * 500
+			+ (#footprintOffsets
+				- footprintInspection.FlatSupportHits) * 180
+			+ (#footprintOffsets
+				- footprintInspection.SupportHits) * 70
+			+ math.max(0, 2.1 - clearance) * 120
+	end
+
+	local function assessCandidate(candidate)
+		candidate.Position = candidate.FloorPosition
+			+ Vector3.new(0, standingOffset, 0)
+		if not safelyInsideXZ(
+			candidate.Position,
+			candidate.BoundingPart
+		) then
+			return false
+		end
+
+		local footprintInspection = inspectFootprint(
+			candidate.FloorPosition
+		)
+		if not footprintInspection.CenterSupported then
+			return false
+		end
+
+		local bodyInspection = inspectBodyArea(
+			candidate.Position,
+			candidate.FloorPosition.Y,
+			footprintInspection.SupportSet
+		)
+		local clearance = horizontalClearance(
+			candidate.Position,
+			candidate.FloorPosition.Y,
+			footprintInspection.SupportSet
 		)
 
-		for _, part in ipairs(workspace:GetPartBoundsInBox(
-			probe,
-			bodyProbeSize,
-			overlapParams
-		)) do
-			if part ~= supportingPart
-				and part.CanCollide
-				and not isHelperGeometry(part) then
-				-- MeshPart, UnionOperation, Part, and other collidable BasePart
-				-- subclasses are all rejected here.
+		candidate.SupportHits = footprintInspection.SupportHits
+		candidate.FlatSupportHits =
+			footprintInspection.FlatSupportHits
+		candidate.SupportSet = footprintInspection.SupportSet
+		candidate.BlockerCount = bodyInspection.BlockerCount
+		candidate.CoreBlockers = bodyInspection.CoreBlockers
+		candidate.BlockerPenalty = bodyInspection.Penalty
+		candidate.Clearance = clearance
+		candidate.StrictSafe = candidate.NormalY >= 0.62
+			and candidate.FlatSupportHits == #footprintOffsets
+			and candidate.BlockerCount == 0
+		candidate.Risk = calculateRisk(
+			bodyInspection,
+			footprintInspection,
+			clearance
+		)
+		return true
+	end
+
+	local rawCandidates = {}
+	local minimumBottomByBoundingPart = setmetatable({}, {__mode = "k"})
+	local function addColumnCandidates(
+		boundingPart,
+		localX,
+		localZ
+	)
+		local half = boundingPart.Size * 0.5
+		local origin = boundingPart.CFrame:PointToWorldSpace(
+			Vector3.new(localX, half.Y + 24, localZ)
+		)
+		local direction = Vector3.new(
+			0,
+			-(boundingPart.Size.Y + 72),
+			0
+		)
+		local columnExcludes = table.clone(excludedInstances)
+		local raycastParams = newRaycastParams(columnExcludes)
+		local pierced = setmetatable({}, {__mode = "k"})
+
+		for _ = 1, 8 do
+			raycastParams.FilterDescendantsInstances = columnExcludes
+			local result = workspace:Raycast(
+				origin,
+				direction,
+				raycastParams
+			)
+			if not result then
+				break
+			end
+
+			local instance = result.Instance
+			if isCollidableInstance(instance)
+				and result.Normal.Y >= 0.5 then
+				local localFloor =
+					boundingPart.CFrame:PointToObjectSpace(
+						result.Position
+					)
+				local bottomDistance = localFloor.Y + half.Y
+				if bottomDistance >= -1.5
+					and bottomDistance
+						<= boundingPart.Size.Y + 1.5 then
+					local candidate = {
+						FloorPosition = result.Position,
+						Surface = instance,
+						BoundingPart = boundingPart,
+						BottomDistance = bottomDistance,
+						NormalY = result.Normal.Y,
+						CenterDistance = math.sqrt(
+							localX ^ 2 + localZ ^ 2
+						),
+						SampleOrder = #rawCandidates + 1,
+					}
+					table.insert(rawCandidates, candidate)
+					minimumBottomByBoundingPart[boundingPart] = math.min(
+						minimumBottomByBoundingPart[boundingPart]
+							or math.huge,
+						bottomDistance
+					)
+				end
+			end
+
+			if not instance
+				or instance == workspace.Terrain
+				or pierced[instance] then
+				break
+			end
+			pierced[instance] = true
+			table.insert(columnExcludes, instance)
+		end
+	end
+
+	-- Keep at least the original 6 x 3 coverage, then add cells for
+	-- larger rooms so safe gaps between the old fixed centers are found.
+	for _, boundingPart in ipairs(boundingParts) do
+		local usableX =
+			math.max(0, boundingPart.Size.X - horizontalInset * 2)
+		local usableZ =
+			math.max(0, boundingPart.Size.Z - horizontalInset * 2)
+
+		if usableX > 0 and usableZ > 0 then
+			local spacing = math.max(avatarRadius * 1.65, 2)
+			local xCount = math.clamp(
+				math.ceil(usableX / spacing) + 1,
+				6,
+				12
+			)
+			local zCount = math.clamp(
+				math.ceil(usableZ / spacing) + 1,
+				3,
+				10
+			)
+			local sampledColumns = {}
+			local function sample(localX, localZ)
+				local key = string.format("%.3f:%.3f", localX, localZ)
+				if sampledColumns[key] then
+					return
+				end
+				sampledColumns[key] = true
+				addColumnCandidates(boundingPart, localX, localZ)
+			end
+
+			for xIndex = 1, xCount do
+				local xRatio = (xIndex - 0.5) / xCount - 0.5
+				local localX = xRatio * usableX
+
+				for zIndex = 1, zCount do
+					local zRatio = (zIndex - 0.5) / zCount - 0.5
+					local localZ = zRatio * usableZ
+					sample(localX, localZ)
+				end
+				if xIndex % 3 == 0 then
+					Services.RunService.Heartbeat:Wait()
+				end
+			end
+			sample(0, 0)
+		end
+	end
+
+	if #rawCandidates == 0 then
+		return false,
+			"no grounded floor point was found inside the room"
+	end
+
+	bodyGeometryProbe = Instance.new("Part")
+	bodyGeometryProbe.Name = "__DemonologyTeleportProbe"
+	bodyGeometryProbe.Anchored = true
+	bodyGeometryProbe.CanCollide = false
+	bodyGeometryProbe.CanTouch = false
+	bodyGeometryProbe.CanQuery = true
+	bodyGeometryProbe.CastShadow = false
+	bodyGeometryProbe.Transparency = 1
+	bodyGeometryProbe.Size = bodyProbeSize
+	bodyGeometryProbe.CFrame = CFrame.new(0, -100000, 0)
+	bodyGeometryProbe.Parent = workspace
+	table.insert(excludedInstances, bodyGeometryProbe)
+	overlapParams.FilterDescendantsInstances = excludedInstances
+	local function destroyBodyGeometryProbe()
+		if bodyGeometryProbe then
+			bodyGeometryProbe:Destroy()
+			bodyGeometryProbe = nil
+		end
+	end
+
+	local function surfaceLooksLikeGround(surface)
+		if surface == workspace.Terrain then
+			return true
+		end
+		if not surface
+			or not surface:IsA("BasePart")
+			or surface.Transparency >= 0.95 then
+			return false
+		end
+
+		local name = string.lower(surface.Name)
+		for _, token in ipairs({
+			"boundingbox",
+			"hitbox",
+			"trigger",
+			"region",
+			"volume",
+			"detector",
+			"boundary",
+			"roomzone",
+		}) do
+			if string.find(name, token, 1, true) then
 				return false
 			end
 		end
@@ -5828,143 +6266,134 @@ local function teleportToRoomBoundingBoxCenter(room)
 		return true
 	end
 
-	local function horizontalClearance(candidate, supportingPart)
-		local raycastParams = RaycastParams.new()
-		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-		raycastParams.IgnoreWater = true
-
-		local excludes = table.clone(excludedInstances)
-		table.insert(excludes, supportingPart)
-		raycastParams.FilterDescendantsInstances = excludes
-
-		local origin =
-			candidate + Vector3.new(0, root.Size.Y * 0.45, 0)
-		local minimum = 10
-		local directions = {
-			Vector3.new(1, 0, 0),
-			Vector3.new(-1, 0, 0),
-			Vector3.new(0, 0, 1),
-			Vector3.new(0, 0, -1),
-			Vector3.new(1, 0, 1).Unit,
-			Vector3.new(1, 0, -1).Unit,
-			Vector3.new(-1, 0, 1).Unit,
-			Vector3.new(-1, 0, -1).Unit,
-		}
-
-		for _, direction in ipairs(directions) do
-			local result =
-				workspace:Raycast(origin, direction * 10, raycastParams)
-			if result
-				and result.Instance
-				and result.Instance:IsA("BasePart")
-				and result.Instance.CanCollide
-				and not isHelperGeometry(result.Instance) then
-				minimum = math.min(minimum, result.Distance)
-			end
+	local candidatePools = {{}, {}, {}, {}}
+	for _, candidate in ipairs(rawCandidates) do
+		local minimumBottom =
+			minimumBottomByBoundingPart[candidate.BoundingPart]
+				or candidate.BottomDistance
+		local inGroundBand = candidate.BottomDistance
+			<= minimumBottom + 1
+		local looksLikeGround = surfaceLooksLikeGround(
+			candidate.Surface
+		)
+		if inGroundBand then
+			candidate.GroundTier = looksLikeGround and 0 or 1
+		else
+			candidate.GroundTier = looksLikeGround and 2 or 3
 		end
-
-		return minimum
+		table.insert(candidatePools[candidate.GroundTier + 1], candidate)
 	end
-
-	local raycastParams = RaycastParams.new()
-	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-	raycastParams.FilterDescendantsInstances = excludedInstances
-	raycastParams.IgnoreWater = true
 
 	local candidates = {}
-
-	-- Exact 6 × 3 cell-centre grid.
-	for _, boundingPart in ipairs(boundingParts) do
-		local half = boundingPart.Size * 0.5
-		local usableX =
-			math.max(0, boundingPart.Size.X - horizontalInset * 2)
-		local usableZ =
-			math.max(0, boundingPart.Size.Z - horizontalInset * 2)
-
-		if usableX > 0 and usableZ > 0 then
-			for xIndex = 1, 6 do
-				local xRatio = (xIndex - 0.5) / 6 - 0.5
-				local localX = xRatio * usableX
-
-				for zIndex = 1, 3 do
-					local zRatio = (zIndex - 0.5) / 3 - 0.5
-					local localZ = zRatio * usableZ
-					local origin =
-						boundingPart.CFrame:PointToWorldSpace(
-							Vector3.new(localX, half.Y + 24, localZ)
-						)
-					local result = workspace:Raycast(
-						origin,
-						Vector3.new(0, -(boundingPart.Size.Y + 72), 0),
-						raycastParams
-					)
-
-					if result
-						and result.Instance
-						and result.Instance:IsA("BasePart")
-						and result.Instance.CanCollide
-						and result.Instance.Transparency < 1
-						and result.Normal.Y >= 0.62
-						and not isHelperGeometry(result.Instance) then
-						local localFloor =
-							boundingPart.CFrame:PointToObjectSpace(
-								result.Position
-							)
-						local bottomDistance =
-							localFloor.Y + half.Y
-						local candidate =
-							result.Position
-							+ Vector3.new(0, standingOffset, 0)
-
-						if bottomDistance >= -1.5
-							and bottomDistance <= boundingPart.Size.Y
-							and safelyInsideXZ(candidate, boundingPart)
-							and bodyAreaIsClear(
-								candidate,
-								result.Instance
-							) then
-							table.insert(candidates, {
-								Position = candidate,
-								Surface = result.Instance,
-								BoundingPart = boundingPart,
-								BottomDistance = bottomDistance,
-								Clearance =
-									horizontalClearance(
-										candidate,
-										result.Instance
-									),
-							})
-						end
-					end
-				end
+	local evaluated = setmetatable({}, {__mode = "k"})
+	local evaluationCount = 0
+	local function evaluateCandidate(candidate)
+		if not candidate or evaluated[candidate] then
+			return
+		end
+		evaluated[candidate] = true
+		evaluationCount = evaluationCount + 1
+		if assessCandidate(candidate) then
+			table.insert(candidates, candidate)
+		end
+		if evaluationCount % 6 == 0 then
+			Services.RunService.Heartbeat:Wait()
+		end
+	end
+	local function evaluatePool(pool, limit)
+		local count = math.min(#pool, limit)
+		if count <= 0 then
+			return
+		end
+		if #pool <= limit then
+			for _, candidate in ipairs(pool) do
+				evaluateCandidate(candidate)
 			end
+			return
+		end
+
+		local closest = pool[1]
+		for _, candidate in ipairs(pool) do
+			if candidate.CenterDistance < closest.CenterDistance then
+				closest = candidate
+			end
+		end
+		evaluateCandidate(closest)
+
+		local remaining = math.max(count - 1, 0)
+		for index = 1, remaining do
+			local poolIndex = math.clamp(
+				math.floor((index - 0.5) * #pool / remaining) + 1,
+				1,
+				#pool
+			)
+			evaluateCandidate(pool[poolIndex])
 		end
 	end
 
+	-- Detailed body/footprint checks run only on a spatially distributed
+	-- shortlist. Ground-band candidates get most of the budget.
+	evaluatePool(candidatePools[1], 24)
+	evaluatePool(candidatePools[2], 10)
+	evaluatePool(candidatePools[3], 8)
+	evaluatePool(candidatePools[4], 4)
+
 	if #candidates == 0 then
+		destroyBodyGeometryProbe()
 		return false,
-			"no safe floor point was found on the 6x3 room grid"
+			"no grounded destination passed the detailed room checks"
 	end
 
 	table.sort(candidates, function(left, right)
-		local bottomDifference =
-			math.abs(left.BottomDistance - right.BottomDistance)
-
+		local leftCoreFree = left.CoreBlockers == 0
+		local rightCoreFree = right.CoreBlockers == 0
+		if leftCoreFree ~= rightCoreFree then
+			return leftCoreFree
+		end
+		if left.GroundTier ~= right.GroundTier then
+			return left.GroundTier < right.GroundTier
+		end
+		if left.StrictSafe ~= right.StrictSafe then
+			return left.StrictSafe
+		end
+		if left.StrictSafe then
+			local bottomDifference = math.abs(
+				left.BottomDistance - right.BottomDistance
+			)
+			if bottomDifference > 0.25 then
+				return left.BottomDistance < right.BottomDistance
+			end
+			if math.abs(left.Clearance - right.Clearance) > 0.1 then
+				return left.Clearance > right.Clearance
+			end
+			return left.CenterDistance < right.CenterDistance
+		end
+		if left.CoreBlockers ~= right.CoreBlockers then
+			return left.CoreBlockers < right.CoreBlockers
+		end
+		if left.BlockerCount ~= right.BlockerCount then
+			return left.BlockerCount < right.BlockerCount
+		end
+		if math.abs(left.Risk - right.Risk) > 1 then
+			return left.Risk < right.Risk
+		end
+		if left.FlatSupportHits ~= right.FlatSupportHits then
+			return left.FlatSupportHits > right.FlatSupportHits
+		end
+		if left.SupportHits ~= right.SupportHits then
+			return left.SupportHits > right.SupportHits
+		end
+		local bottomDifference = math.abs(
+			left.BottomDistance - right.BottomDistance
+		)
 		if bottomDifference > 0.25 then
 			return left.BottomDistance < right.BottomDistance
 		end
-
-		return left.Clearance > right.Clearance
+		if math.abs(left.Clearance - right.Clearance) > 0.1 then
+			return left.Clearance > right.Clearance
+		end
+		return left.CenterDistance < right.CenterDistance
 	end)
-
-	local selected = candidates[1]
-	if not selected
-		or not safelyInsideXZ(
-			selected.Position,
-			selected.BoundingPart
-		) then
-		return false, "the selected point was outside the safe room inset"
-	end
 
 	local look = Vector3.new(
 		root.CFrame.LookVector.X,
@@ -5972,10 +6401,11 @@ local function teleportToRoomBoundingBoxCenter(room)
 		root.CFrame.LookVector.Z
 	)
 	if look.Magnitude < 0.05 then
+		local firstCandidate = candidates[1]
 		look = Vector3.new(
-			selected.BoundingPart.CFrame.LookVector.X,
+			firstCandidate.BoundingPart.CFrame.LookVector.X,
 			0,
-			selected.BoundingPart.CFrame.LookVector.Z
+			firstCandidate.BoundingPart.CFrame.LookVector.Z
 		)
 	end
 	if look.Magnitude < 0.05 then
@@ -5983,11 +6413,7 @@ local function teleportToRoomBoundingBoxCenter(room)
 	end
 	look = look.Unit
 
-	local destination = CFrame.lookAt(
-		selected.Position,
-		selected.Position + look
-	)
-
+	local originalPivot = character:GetPivot()
 	local originalAnchored = root.Anchored
 	local originalAutoRotate = humanoid.AutoRotate
 	local originalPlatformStand = humanoid.PlatformStand
@@ -6016,32 +6442,141 @@ local function teleportToRoomBoundingBoxCenter(room)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 
-	for _ = 1, 6 do
-		character:PivotTo(destination)
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.AssemblyAngularVelocity = Vector3.zero
-		Services.RunService.Heartbeat:Wait()
-	end
-
-	if not bodyAreaIsClear(
-		root.Position,
-		selected.Surface
-	) or not safelyInsideXZ(
-		root.Position,
-		selected.BoundingPart
-	) then
-		root.Anchored = originalAnchored
-		humanoid.PlatformStand = originalPlatformStand
-		humanoid.AutoRotate = originalAutoRotate
-
-		for state, enabled in pairs(disabledStates) do
-			pcall(function()
-				humanoid:SetStateEnabled(state, enabled)
-			end)
+	local strictTeleportAttempts = 0
+	local fallbackTeleportAttempts = 0
+	local function tryCandidate(candidate, requireStrict)
+		if not root.Parent
+			or not humanoid.Parent
+			or not assessCandidate(candidate)
+			or candidate.CoreBlockers > 0
+			or (requireStrict and not candidate.StrictSafe) then
+			return false
 		end
 
+		if requireStrict then
+			if strictTeleportAttempts >= 10 then
+				return false
+			end
+			strictTeleportAttempts = strictTeleportAttempts + 1
+		else
+			if fallbackTeleportAttempts >= 12 then
+				return false
+			end
+			fallbackTeleportAttempts = fallbackTeleportAttempts + 1
+		end
+		local expectedRisk = candidate.Risk
+		local expectedSupportHits = candidate.SupportHits
+		local destination = CFrame.lookAt(
+			candidate.Position,
+			candidate.Position + look
+		)
+		local moved = pcall(function()
+			character:PivotTo(destination)
+		end)
+		if not moved then
+			return false
+		end
+
+		for _ = 1, 3 do
+			if not root.Parent then
+				return false
+			end
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			Services.RunService.Heartbeat:Wait()
+		end
+
+		local settledFloorPosition = Vector3.new(
+			root.Position.X,
+			root.Position.Y - standingOffset,
+			root.Position.Z
+		)
+		local footprintInspection = inspectFootprint(
+			settledFloorPosition
+		)
+		if not footprintInspection.CenterSupported
+			or not safelyInsideXZ(
+				root.Position,
+				candidate.BoundingPart
+			) then
+			return false
+		end
+
+		local bodyInspection = inspectBodyArea(
+			root.Position,
+			settledFloorPosition.Y,
+			footprintInspection.SupportSet
+		)
+		local clearance = horizontalClearance(
+			root.Position,
+			settledFloorPosition.Y,
+			footprintInspection.SupportSet
+		)
+		local settledStrict = candidate.NormalY >= 0.62
+			and footprintInspection.FlatSupportHits
+				== #footprintOffsets
+			and bodyInspection.BlockerCount == 0
+			and bodyInspection.CoreBlockers == 0
+
+		if requireStrict then
+			return settledStrict
+		end
+
+		local settledRisk = calculateRisk(
+			bodyInspection,
+			footprintInspection,
+			clearance
+		)
+		return bodyInspection.CoreBlockers == 0
+			and footprintInspection.SupportHits
+			>= math.max(1, expectedSupportHits - 1)
+			and settledRisk <= expectedRisk + 750
+	end
+
+	local selected = nil
+	for groundTier = 0, 3 do
+		for _, requireStrict in ipairs({true, false}) do
+			for _, candidate in ipairs(candidates) do
+				if candidate.GroundTier == groundTier
+					and candidate.StrictSafe == requireStrict
+					and tryCandidate(candidate, requireStrict) then
+					selected = candidate
+					break
+				end
+			end
+			if selected then
+				break
+			end
+		end
+		if selected then
+			break
+		end
+	end
+
+	if not selected then
+		if root.Parent and character.Parent then
+			pcall(function()
+				character:PivotTo(originalPivot)
+			end)
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			Services.RunService.Heartbeat:Wait()
+		end
+		if root.Parent then
+			root.Anchored = originalAnchored
+		end
+		if humanoid.Parent then
+			humanoid.PlatformStand = originalPlatformStand
+			humanoid.AutoRotate = originalAutoRotate
+			for state, enabled in pairs(disabledStates) do
+				pcall(function()
+					humanoid:SetStateEnabled(state, enabled)
+				end)
+			end
+		end
+		destroyBodyGeometryProbe()
 		return false,
-			"the destination became obstructed during teleport settling"
+			"no grounded destination remained stable during teleport"
 	end
 
 	pcall(function()
@@ -6072,6 +6607,7 @@ local function teleportToRoomBoundingBoxCenter(room)
 		end
 	end)
 
+	destroyBodyGeometryProbe()
 	return true, nil
 end
 
