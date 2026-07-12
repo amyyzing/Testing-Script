@@ -23,6 +23,7 @@ return function(dependencies)
 	local autoSpiritBoxButton = view.Buttons.AutoSpiritBox
 	local randomLightsButton = view.Buttons.RandomLights
 	local toggleFuseBoxButton = view.Buttons.ToggleFuseBox
+local walkSpeedForcerButton = view.Buttons.WalkSpeedForcer
 	local function new(className, properties)
 		local object = Instance.new(className)
 		for property, value in pairs(properties or {}) do
@@ -104,6 +105,8 @@ local observeWalkSpeedChange = function() end
 local perkTrackerState = {
 	ghost = nil,
 	evidenceMode = "Normal",
+	speedForcerEnabled = true,
+	speedForceAccumulator = 0,
 	visualModelChecked = false,
 	sampleAccumulator = 0,
 	slowScanAccumulator = 0,
@@ -1634,8 +1637,22 @@ local function getCharacterHumanoid()
 	end
 	return character:FindFirstChildOfClass("Humanoid")
 end
+local function applyForcedWalkSpeed()
+	if not perkTrackerState.speedForcerEnabled then
+		return
+	end
+
+	local humanoid = getCharacterHumanoid()
+	if humanoid
+		and humanoid.Health > 0
+		and humanoid.WalkSpeed ~= speed then
+		humanoid.WalkSpeed = speed
+	end
+end
+
 local function setSpeed(value)
-	speed = math.clamp(math.floor(value + 0.5), 0, 100)
+	speed = math.clamp(math.floor((tonumber(value) or 0) + 0.5), 0, 100)
+
 	if presenter and presenter.SetSpeed then
 		presenter:SetSpeed(speed)
 	else
@@ -1644,37 +1661,49 @@ local function setSpeed(value)
 		sliderFill.Size = UDim2.fromScale(ratio, 1)
 		sliderKnob.Position = UDim2.fromScale(ratio, 0.5)
 	end
-	local humanoid = getCharacterHumanoid()
-	if humanoid then
-		humanoid.WalkSpeed = speed
+
+	if perkTrackerState.speedForcerEnabled then
+		applyForcedWalkSpeed()
 	end
 end
+
 local function bindSpeedLock(humanoid)
 	if not runtimeIsActive() then
 		return
 	end
+
 	if speedLockConnection and speedLockConnection.Connected then
 		speedLockConnection:Disconnect()
 	end
 	speedLockConnection = nil
+
 	if not humanoid then
 		return
 	end
+
 	baseWalkSpeed = humanoid.WalkSpeed
-	if humanoid.WalkSpeed ~= speed then
-		humanoid.WalkSpeed = speed
+
+	-- Observe game-applied speed changes immediately, but do not overwrite them
+	-- here. The optional forcer reapplies the chosen value every 0.25 seconds.
+	speedLockConnection = connect(
+		humanoid:GetPropertyChangedSignal("WalkSpeed"),
+		function()
+			if closed or humanoid.Parent == nil then
+				return
+			end
+
+			local attemptedSpeed = humanoid.WalkSpeed
+			if attemptedSpeed ~= speed then
+				pcall(observeWalkSpeedChange, humanoid, attemptedSpeed)
+			end
+		end
+	)
+
+	if perkTrackerState.speedForcerEnabled then
+		applyForcedWalkSpeed()
 	end
-	speedLockConnection = connect(humanoid:GetPropertyChangedSignal("WalkSpeed"), function()
-		if closed or humanoid.Parent == nil then
-			return
-		end
-		local attemptedSpeed = humanoid.WalkSpeed
-		if attemptedSpeed ~= speed then
-			pcall(observeWalkSpeedChange, humanoid, attemptedSpeed)
-			humanoid.WalkSpeed = speed
-		end
-	end)
 end
+
 local function setButtonEnabled(button, enabled)
 	if presenter and presenter.SetButtonEnabled then
 		presenter:SetButtonEnabled(button, enabled)
@@ -4379,7 +4408,11 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 		end
 	end
 end
-perkTrackerState.holyOilEmitterMatchesSpirit = function(emitter)
+perkTrackerState.holyOilSequenceMatches = function(
+	emitter,
+	firstColor,
+	lastColor
+)
 	if not emitter
 		or not emitter:IsA("ParticleEmitter")
 		or (
@@ -4388,44 +4421,41 @@ perkTrackerState.holyOilEmitterMatchesSpirit = function(emitter)
 		) then
 		return false
 	end
+
 	local keypoints = emitter.Color.Keypoints
 	if #keypoints < 2 then
 		return false
 	end
+
 	local first = keypoints[1]
 	local last = keypoints[#keypoints]
+
 	local function close(left, right, tolerance)
 		return math.abs(left - right) <= tolerance
 	end
-	local function colorClose(color, red, green, blue)
-		return close(color.R, red, 0.02)
-			and close(color.G, green, 0.02)
-			and close(color.B, blue, 0.02)
+
+	local function colorClose(left, right)
+		return close(left.R, right.R, 0.012)
+			and close(left.G, right.G, 0.012)
+			and close(left.B, right.B, 0.012)
 	end
-	return close(first.Time, 0, 0.03)
-		and close(last.Time, 1, 0.03)
-		and colorClose(
-			first.Value,
-			0.384314,
-			0.541216,
-			1
-		)
-		and colorClose(
-			last.Value,
-			0,
-			0.263333,
-			1
-		)
+
+	return close(first.Time, 0, 0.02)
+		and close(last.Time, 1, 0.02)
+		and colorClose(first.Value, firstColor)
+		and colorClose(last.Value, lastColor)
 end
+
 perkTrackerState.getHolyOilWall = function(model)
-	local wall =
-		model and model:FindFirstChild("ClonedGhostWall", true)
+	local wall = model and model:FindFirstChild("GhostWall", true)
 	return wall and wall:IsA("BasePart") and wall or nil
 end
+
 perkTrackerState.ghostHasHolyOilFire = function(ghost)
 	if not ghost then
 		return false
 	end
+
 	for _, descendant in ipairs(ghost:GetDescendants()) do
 		if descendant:IsA("ParticleEmitter")
 			and descendant.Name == "Fire"
@@ -4433,105 +4463,143 @@ perkTrackerState.ghostHasHolyOilFire = function(ghost)
 			return true
 		end
 	end
+
 	return false
 end
-perkTrackerState.getHolyOilColorState = function(model)
-	local relevantCount = 0
-	local allMatch = true
-	local particleContainer =
+
+perkTrackerState.getHolyOilColorKind = function(model)
+	local container =
 		model and model:FindFirstChild("ParticleContainer", true)
-	if particleContainer then
-		for _, descendant in ipairs(
-			particleContainer:GetDescendants()
-		) do
-			if descendant:IsA("ParticleEmitter")
-				and (
-					descendant.Name == "Primary"
-					or descendant.Name == "Secondary"
-				) then
-				relevantCount = relevantCount + 1
-				if not perkTrackerState.holyOilEmitterMatchesSpirit(
-					descendant
-				) then
-					allMatch = false
-				end
-			end
-		end
-	end
-	if relevantCount == 0 then
+	if not container then
 		return nil
 	end
-	return allMatch
+
+	local primary = container:FindFirstChild("Primary", true)
+	local secondary = container:FindFirstChild("Secondary", true)
+	if not primary
+		or not primary:IsA("ParticleEmitter")
+		or not secondary
+		or not secondary:IsA("ParticleEmitter") then
+		return nil
+	end
+
+	local spiritFirst = Color3.new(0.384314, 0.541216, 1)
+	local spiritLast = Color3.new(0, 0.263333, 1)
+	local nonSpiritFirst = Color3.new(1, 0.694118, 0.384314)
+	local nonSpiritLast = Color3.new(1, 0.333333, 0)
+
+	local primarySpirit =
+		perkTrackerState.holyOilSequenceMatches(
+			primary,
+			spiritFirst,
+			spiritLast
+		)
+	local secondarySpirit =
+		perkTrackerState.holyOilSequenceMatches(
+			secondary,
+			spiritFirst,
+			spiritLast
+		)
+
+	if primarySpirit and secondarySpirit then
+		return "Spirit"
+	end
+
+	local primaryNonSpirit =
+		perkTrackerState.holyOilSequenceMatches(
+			primary,
+			nonSpiritFirst,
+			nonSpiritLast
+		)
+	local secondaryNonSpirit =
+		perkTrackerState.holyOilSequenceMatches(
+			secondary,
+			nonSpiritFirst,
+			nonSpiritLast
+		)
+
+	if primaryNonSpirit and secondaryNonSpirit then
+		return "NonSpirit"
+	end
+
+	return nil
 end
+
 perkTrackerState.getHolyOilWallSide = function(wall, position)
 	if not wall or not position then
 		return nil, nil, nil
 	end
+
 	local localPosition =
 		wall.CFrame:PointToObjectSpace(position)
+
 	if wall.Size.X <= wall.Size.Z then
 		return localPosition.X, wall.Size.X * 0.5, "X"
 	end
+
 	return localPosition.Z, wall.Size.Z * 0.5, "Z"
 end
+
 perkTrackerState.holyOilGhostInside = function(model, ghost)
 	if not model or not model.Parent or not ghost then
 		return false
 	end
+
 	local ok, modelCFrame, modelSize = pcall(function()
 		return model:GetBoundingBox()
 	end)
 	if not ok then
 		return false
 	end
+
 	local overlapParams = OverlapParams.new()
 	overlapParams.FilterType = Enum.RaycastFilterType.Include
 	overlapParams.FilterDescendantsInstances = {ghost}
 	overlapParams.MaxParts = 1
+
 	return #workspace:GetPartBoundsInBox(
 		modelCFrame,
 		modelSize + Vector3.new(0.5, 1, 0.5),
 		overlapParams
 	) > 0
 end
+
 perkTrackerState.evaluateHolyOilWallStates = function()
-	local anyNonCollidable = false
+	local sawWall = false
+	local sawNonCollidable = false
+
 	for model in pairs(perkTrackerState.holyOilTrackedModels) do
 		if model.Parent then
 			local wall = perkTrackerState.getHolyOilWall(model)
 			if wall then
+				sawWall = true
 				if wall.CanCollide == false then
-					anyNonCollidable = true
+					sawNonCollidable = true
 					break
 				end
 			end
 		end
 	end
-	if anyNonCollidable then
+
+	if sawNonCollidable then
 		perkTrackerState.clearGhostRuleOut("Wisp")
-		local skinwalkerPossible = ghostSupportsConfirmedEvidence(
-			"Skinwalker",
-			getConfirmedEvidence()
-		)
 		recordPerkDetection(
 			"Wisp",
-			"ClonedGhostWall inside HolyOil had CanCollide disabled",
-			skinwalkerPossible and 60 or 95
+			"HolyOil.GhostWall.CanCollide was false",
+			99
 		)
-		if skinwalkerPossible then
-			recordPerkDetection(
-				"Skinwalker",
-				"Skinwalker may mimic walking through the Wisp Holy Oil wall",
-				60
-			)
-		end
 		updateGhostIdentification(getGhostModel())
+	elseif sawWall then
+		clearPerkDetection("Wisp")
+		perkTrackerState.ruleOutGhost(
+			"Wisp",
+			"all observed HolyOil.GhostWall parts had CanCollide enabled",
+			99
+		)
 	end
 end
-perkTrackerState.evaluateHolyOilColor = function(
-	model,
-	ghost
-)
+
+perkTrackerState.evaluateHolyOilColor = function(model, ghost)
 	if not model
 		or not model.Parent
 		or not ghost
@@ -4540,49 +4608,36 @@ perkTrackerState.evaluateHolyOilColor = function(
 		return nil
 	end
 
-	local blue =
-		perkTrackerState.getHolyOilColorState(model)
-	if blue == nil then
+	local kind = perkTrackerState.getHolyOilColorKind(model)
+	if kind == nil then
 		return nil
 	end
 
-	local previous =
-		perkTrackerState.holyOilColorStates[model]
-	if previous == blue then
-		return blue
+	if perkTrackerState.holyOilColorStates[model] == kind then
+		return kind
 	end
-	perkTrackerState.holyOilColorStates[model] = blue
+	perkTrackerState.holyOilColorStates[model] = kind
 
-	if blue then
+	if kind == "Spirit" then
 		perkTrackerState.clearGhostRuleOut("Spirit")
-		local skinwalkerPossible = ghostSupportsConfirmedEvidence(
-			"Skinwalker",
-			getConfirmedEvidence()
-		)
 		recordPerkDetection(
 			"Spirit",
-			"burning Holy Oil changed blue at hunt start",
-			skinwalkerPossible and 60 or 99
+			"burning Holy Oil Primary and Secondary matched the Spirit blue sequence",
+			99
 		)
-		if skinwalkerPossible then
-			recordPerkDetection(
-				"Skinwalker",
-				"Skinwalker may mimic the Spirit blue-flame ability",
-				60
-			)
-		end
 		updateGhostIdentification(ghost)
-		return true
+	elseif kind == "NonSpirit" then
+		clearPerkDetection("Spirit")
+		perkTrackerState.ruleOutGhost(
+			"Spirit",
+			"burning Holy Oil Primary and Secondary matched the non-Spirit orange sequence",
+			99
+		)
 	end
 
-	clearPerkDetection("Spirit")
-	perkTrackerState.ruleOutGhost(
-		"Spirit",
-		"burning Holy Oil did not change blue at hunt start",
-		99
-	)
-	return false
+	return kind
 end
+
 perkTrackerState.beginHolyOilContact = function(model)
 	local ghost = getGhostModel()
 	if not ghost
@@ -4593,21 +4648,19 @@ perkTrackerState.beginHolyOilContact = function(model)
 		or model:GetAttribute("Burning") ~= true then
 		return
 	end
-	local existing =
-		perkTrackerState.holyOilPendingContacts[model]
-	if existing then
+
+	if perkTrackerState.holyOilPendingContacts[model] then
 		return
 	end
+
 	local now = os.clock()
 	local ghostPosition = ghost:GetPivot().Position
 	local wall = perkTrackerState.getHolyOilWall(model)
 	local side, halfThickness, axis =
-		perkTrackerState.getHolyOilWallSide(
-			wall,
-			ghostPosition
-		)
+		perkTrackerState.getHolyOilWallSide(wall, ghostPosition)
 	local entrySign =
 		side and side ~= 0 and (side > 0 and 1 or -1) or 0
+
 	if entrySign == 0 and wall then
 		local ghostPart = getGhostPart(ghost)
 		local velocity =
@@ -4622,6 +4675,7 @@ perkTrackerState.beginHolyOilContact = function(model)
 			entrySign = direction > 0 and -1 or 1
 		end
 	end
+
 	perkTrackerState.holyOilPendingContacts[model] = {
 		StartedAt = now,
 		Ghost = ghost,
@@ -4635,16 +4689,15 @@ perkTrackerState.beginHolyOilContact = function(model)
 			perkTrackerState.ghostHasHolyOilFire(ghost),
 	}
 end
-perkTrackerState.holyOilPassedThrough = function(
-	pending,
-	ghost
-)
+
+perkTrackerState.holyOilPassedThrough = function(pending, ghost)
 	local currentPosition = ghost:GetPivot().Position
 	local wall =
 		pending.Wall
 		and pending.Wall.Parent
 		and pending.Wall
 		or nil
+
 	if wall then
 		local side, halfThickness =
 			perkTrackerState.getHolyOilWallSide(
@@ -4653,6 +4706,7 @@ perkTrackerState.holyOilPassedThrough = function(
 			)
 		local exitSign =
 			side and side ~= 0 and (side > 0 and 1 or -1) or 0
+
 		return pending.EntrySign ~= 0
 			and exitSign ~= 0
 			and pending.EntrySign ~= exitSign
@@ -4661,10 +4715,12 @@ perkTrackerState.holyOilPassedThrough = function(
 				>= (halfThickness or pending.HalfThickness or 0)
 					+ 0.15
 	end
+
 	return (
 		currentPosition - pending.EntryPosition
 	).Magnitude >= 3
 end
+
 perkTrackerState.bindHolyOilModel = function(model)
 	if not model
 		or not model:IsA("Model")
@@ -4672,72 +4728,95 @@ perkTrackerState.bindHolyOilModel = function(model)
 		or perkTrackerState.holyOilTrackedModels[model] then
 		return
 	end
+
 	perkTrackerState.holyOilTrackedModels[model] = true
+
 	local function updateBurnState()
 		if model:GetAttribute("Burning") == true then
 			perkTrackerState.holyOilBurnStartedAt[model] =
 				os.clock()
 			perkTrackerState.holyOilColorStates[model] = nil
+
+			local ghost = getGhostModel()
+			if ghost
+				and ghost:GetAttribute("Hunting") == true then
+				perkTrackerState.evaluateHolyOilColor(model, ghost)
+			end
 		else
 			perkTrackerState.holyOilBurnStartedAt[model] = nil
 			perkTrackerState.holyOilColorStates[model] = nil
 			perkTrackerState.holyOilPendingContacts[model] = nil
 		end
 	end
+
 	connect(
 		model:GetAttributeChangedSignal("Burning"),
 		updateBurnState
 	)
 	updateBurnState()
+
 	local function bindPart(part)
 		if not part:IsA("BasePart") then
 			return
 		end
-		if part.Name == "ClonedGhostWall" then
+
+		if part.Name == "GhostWall" then
 			connect(
 				part:GetPropertyChangedSignal("CanCollide"),
 				perkTrackerState.evaluateHolyOilWallStates
 			)
 		end
+
 		connect(part.Touched, function(otherPart)
 			if closed or not otherPart or not otherPart.Parent then
 				return
 			end
+
 			local ghost = getGhostModel()
 			if ghost and otherPart:IsDescendantOf(ghost) then
 				perkTrackerState.beginHolyOilContact(model)
 			end
 		end)
 	end
+
 	for _, descendant in ipairs(model:GetDescendants()) do
 		bindPart(descendant)
 	end
+
 	connect(model.DescendantAdded, function(descendant)
 		bindPart(descendant)
-		if descendant.Name == "ClonedGhostWall" then
+		if descendant.Name == "GhostWall" then
 			perkTrackerState.evaluateHolyOilWallStates()
 		end
 	end)
+
 	connect(model.AncestryChanged, function()
 		perkTrackerState.evaluateHolyOilWallStates()
 	end)
+
 	perkTrackerState.evaluateHolyOilWallStates()
 end
+
 perkTrackerState.ensureHolyOilTracker = function()
 	local folder = workspace:FindFirstChild("HolyOil")
+
 	if folder ~= perkTrackerState.holyOilFolder then
 		perkTrackerState.holyOilFolder = folder
 		perkTrackerState.holyOilTrackerInitialized = false
 		perkTrackerState.holyOilTrackedModels =
 			setmetatable({}, {__mode = "k"})
 	end
+
 	if not folder or perkTrackerState.holyOilTrackerInitialized then
 		return
 	end
+
 	perkTrackerState.holyOilTrackerInitialized = true
+
 	for _, child in ipairs(folder:GetChildren()) do
 		perkTrackerState.bindHolyOilModel(child)
 	end
+
 	connect(folder.ChildAdded, function(child)
 		task.defer(function()
 			if not closed and child.Parent == folder then
@@ -4753,6 +4832,8 @@ perkTrackerState.evaluateHolyOilAtHuntStart = function(ghost)
 		or ghost:GetAttribute("Hunting") ~= true then
 		return
 	end
+
+	perkTrackerState.evaluateHolyOilWallStates()
 
 	for model in pairs(perkTrackerState.holyOilTrackedModels) do
 		if model.Parent
@@ -5086,25 +5167,31 @@ perkTrackerState.updateRavagerTracker = function(
 	ghost,
 	now
 )
-	if roomItemPlacementState.busy or not ghost then
+	if roomItemPlacementState.busy
+		or not ghost
+		or ghost:GetAttribute("Hunting") ~= true then
 		perkTrackerState.ravagerMotionEvents = {}
 		perkTrackerState.ravagerTrackedObjects =
 			setmetatable({}, {__mode = "k"})
 		return
 	end
+
 	perkTrackerState.ravagerScanAccumulator =
 		perkTrackerState.ravagerScanAccumulator + deltaTime
-	if perkTrackerState.ravagerScanAccumulator < 0.11 then
+	if perkTrackerState.ravagerScanAccumulator < 0.1 then
 		return
 	end
 	perkTrackerState.ravagerScanAccumulator = 0
+
 	local ghostPosition = ghost:GetPivot().Position
-	local seenThisScan = setmetatable({}, {__mode = "k"})
+	local seen = setmetatable({}, {__mode = "k"})
+
 	for _, folderName in ipairs({"Items", "Interactables"}) do
 		local folder = workspace:FindFirstChild(folderName)
 		if folder then
 			for _, rootObject in ipairs(folder:GetChildren()) do
 				local parts = {}
+
 				if rootObject:IsA("BasePart") then
 					table.insert(parts, rootObject)
 				else
@@ -5116,14 +5203,16 @@ perkTrackerState.updateRavagerTracker = function(
 						end
 					end
 				end
+
 				for _, part in ipairs(parts) do
-					if part.Parent and part.Transparency < 1 then
-						seenThisScan[part] = true
+					if part.Parent
+						and not part.Anchored
+						and part.Transparency < 1 then
+						seen[part] = true
 						local position = part.Position
 						local previous =
-							perkTrackerState.ravagerTrackedObjects[
-								part
-							]
+							perkTrackerState.ravagerTrackedObjects[part]
+
 						local nextState = {
 							Position = position,
 							GhostPosition = ghostPosition,
@@ -5133,39 +5222,37 @@ perkTrackerState.updateRavagerTracker = function(
 							AngularTotal = 0,
 							OrbitAxis = nil,
 						}
+
 						if previous then
 							local elapsed = now - previous.Time
 							local displacementVector =
 								position - previous.Position
 							local displacement =
 								displacementVector.Magnitude
+
 							if elapsed > 0
-								and elapsed <= 0.32
+								and elapsed <= 0.3
 								and displacement >= 0.45 then
-								local speed =
-									displacement / elapsed
+								local speed = displacement / elapsed
 								local oldRadial =
 									previous.Position
 									- previous.GhostPosition
 								local newRadial =
 									position - ghostPosition
-								local oldRadius =
-									oldRadial.Magnitude
-								local newRadius =
-									newRadial.Magnitude
+								local oldRadius = oldRadial.Magnitude
+								local newRadius = newRadial.Magnitude
+
 								if oldRadius >= 3
-									and oldRadius <= 36
+									and oldRadius <= 34
 									and newRadius >= 3
-									and newRadius <= 36
-									and speed >= 4.8 then
+									and newRadius <= 34
+									and speed >= 5.5 then
 									local oldUnit = oldRadial.Unit
 									local newUnit = newRadial.Unit
 									local velocity =
 										displacementVector / elapsed
 									local radialSpeed =
-										math.abs(
-											velocity:Dot(newUnit)
-										)
+										math.abs(velocity:Dot(newUnit))
 									local tangentialRatio =
 										math.clamp(
 											1
@@ -5176,38 +5263,37 @@ perkTrackerState.updateRavagerTracker = function(
 										)
 									local radiusDifference =
 										math.abs(newRadius - oldRadius)
-									local angularDot =
-										math.clamp(
+									local angularChange =
+										math.deg(math.acos(math.clamp(
 											oldUnit:Dot(newUnit),
 											-1,
 											1
-										)
-									local angularChange =
-										math.deg(math.acos(angularDot))
+										)))
 									local axisVector =
 										oldUnit:Cross(newUnit)
-									local axisMagnitude =
-										axisVector.Magnitude
-									local orbitAxis =
-										axisMagnitude > 0.01
+									local axis =
+										axisVector.Magnitude > 0.01
 										and axisVector.Unit
 										or nil
 									local axisConsistent =
 										not previous.OrbitAxis
-										or not orbitAxis
-										or previous.OrbitAxis:Dot(
-											orbitAxis
-										) >= 0
+										or (
+											axis
+											and previous.OrbitAxis:Dot(axis)
+												>= 0.75
+										)
+
 									local orbitLike =
-										tangentialRatio >= 0.58
-										and angularChange >= 2.25
+										tangentialRatio >= 0.78
+										and angularChange >= 2.5
 										and radiusDifference
 											<= math.max(
-												2,
+												0.9,
 												(oldRadius + newRadius)
-													* 0.2
+													* 0.04
 											)
 										and axisConsistent
+
 									if orbitLike then
 										nextState.OrbitStreak =
 											(previous.OrbitStreak or 0) + 1
@@ -5215,10 +5301,10 @@ perkTrackerState.updateRavagerTracker = function(
 											(previous.AngularTotal or 0)
 											+ angularChange
 										nextState.OrbitAxis =
-											orbitAxis
-											or previous.OrbitAxis
-										if nextState.OrbitStreak >= 3
-											and nextState.AngularTotal >= 8 then
+											axis or previous.OrbitAxis
+
+										if nextState.OrbitStreak >= 4
+											and nextState.AngularTotal >= 14 then
 											table.insert(
 												perkTrackerState.ravagerMotionEvents,
 												{
@@ -5226,8 +5312,8 @@ perkTrackerState.updateRavagerTracker = function(
 													Part = part,
 													RootObject = rootObject,
 													Speed = speed,
-													OrbitStreak =
-														nextState.OrbitStreak,
+													Axis =
+														nextState.OrbitAxis,
 													AngularTotal =
 														nextState.AngularTotal,
 												}
@@ -5237,23 +5323,27 @@ perkTrackerState.updateRavagerTracker = function(
 								end
 							end
 						end
-						perkTrackerState.ravagerTrackedObjects[
-							part
-						] = nextState
+
+						perkTrackerState.ravagerTrackedObjects[part] =
+							nextState
 					end
 				end
 			end
 		end
 	end
+
 	for part in pairs(perkTrackerState.ravagerTrackedObjects) do
-		if not seenThisScan[part] or not part.Parent then
+		if not seen[part] or not part.Parent then
 			perkTrackerState.ravagerTrackedObjects[part] = nil
 		end
 	end
+
 	local latestByPart = setmetatable({}, {__mode = "k"})
 	for index = #perkTrackerState.ravagerMotionEvents, 1, -1 do
-		local event = perkTrackerState.ravagerMotionEvents[index]
-		if now - event.Time > 0.7 then
+		local event =
+			perkTrackerState.ravagerMotionEvents[index]
+
+		if now - event.Time > 0.5 then
 			table.remove(
 				perkTrackerState.ravagerMotionEvents,
 				index
@@ -5262,36 +5352,51 @@ perkTrackerState.updateRavagerTracker = function(
 			latestByPart[event.Part] = event
 		end
 	end
+
 	local distinctParts = 0
 	local distinctRoots = setmetatable({}, {__mode = "k"})
+	local referenceAxis
+	local alignedAxes = 0
 	local totalAngular = 0
 	local fastest = 0
+
 	for _, event in pairs(latestByPart) do
 		distinctParts = distinctParts + 1
 		distinctRoots[event.RootObject] = true
-		totalAngular = totalAngular
-			+ (event.AngularTotal or 0)
+		totalAngular =
+			totalAngular + (event.AngularTotal or 0)
 		fastest = math.max(fastest, event.Speed or 0)
+
+		if event.Axis then
+			if not referenceAxis then
+				referenceAxis = event.Axis
+				alignedAxes = alignedAxes + 1
+			elseif referenceAxis:Dot(event.Axis) >= 0.65 then
+				alignedAxes = alignedAxes + 1
+			end
+		end
 	end
+
 	local rootCount = 0
 	for _ in pairs(distinctRoots) do
 		rootCount = rootCount + 1
 	end
+
 	if distinctParts >= 3
 		and rootCount >= 2
-		and totalAngular / math.max(distinctParts, 1) >= 9
-		and fastest >= 5.5 then
+		and alignedAxes >= 3
+		and totalAngular / math.max(distinctParts, 1) >= 15
+		and fastest >= 6 then
 		recordPerkDetection(
 			"Ravager",
 			tostring(distinctParts)
-				.. " distinct BaseParts across "
-				.. tostring(rootCount)
-				.. " world objects sustained circular/orbital motion around the ghost",
+				.. " separate BaseParts sustained a near-circular orbit around the hunting ghost",
 			99
 		)
 		updateGhostIdentification(ghost)
 	end
 end
+
 local function updateObservablePerkTrackers(deltaTime)
 	perkTrackerState.sampleAccumulator = perkTrackerState.sampleAccumulator + deltaTime
 	perkTrackerState.slowScanAccumulator = perkTrackerState.slowScanAccumulator + deltaTime
@@ -5596,11 +5701,15 @@ local function findBaseCampRoom()
 end
 local function teleportToRoomBoundingBoxCenter(room)
 	local character = player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local root =
+		character and character:FindFirstChild("HumanoidRootPart")
+	local humanoid =
+		character and character:FindFirstChildOfClass("Humanoid")
+
 	if not room or not character or not root or not humanoid then
 		return false, "room or character unavailable"
 	end
+
 	local boundingParts = getRoomBoundingParts(room)
 	for _ = 1, 24 do
 		if #boundingParts > 0 then
@@ -5609,19 +5718,24 @@ local function teleportToRoomBoundingBoxCenter(room)
 		task.wait(0.05)
 		boundingParts = getRoomBoundingParts(room)
 	end
+
 	if #boundingParts == 0 then
 		return false, "no BoundingBox BasePart was found"
 	end
+
 	local boundingPartSet = setmetatable({}, {__mode = "k"})
 	local excludedInstances = {character}
+
 	for _, boundingPart in ipairs(boundingParts) do
 		boundingPartSet[boundingPart] = true
 		table.insert(excludedInstances, boundingPart)
+
 		local parent = boundingPart.Parent
 		if parent and parent.Name == "BoundingBox" then
 			table.insert(excludedInstances, parent)
 		end
 	end
+
 	local ghost = getGhostModel()
 	if ghost then
 		table.insert(excludedInstances, ghost)
@@ -5629,6 +5743,7 @@ local function teleportToRoomBoundingBoxCenter(room)
 	if ghostProxyModel then
 		table.insert(excludedInstances, ghostProxyModel)
 	end
+
 	local function isHelperGeometry(part)
 		if not part or not part:IsA("BasePart") then
 			return true
@@ -5636,6 +5751,7 @@ local function teleportToRoomBoundingBoxCenter(room)
 		if boundingPartSet[part] then
 			return true
 		end
+
 		for _, boundingPart in ipairs(boundingParts) do
 			local container = boundingPart.Parent
 			if container
@@ -5644,6 +5760,7 @@ local function teleportToRoomBoundingBoxCenter(room)
 				return true
 			end
 		end
+
 		local name = string.lower(part.Name)
 		for _, token in ipairs({
 			"boundingbox",
@@ -5659,355 +5776,305 @@ local function teleportToRoomBoundingBoxCenter(room)
 				return true
 			end
 		end
+
 		return false
 	end
-	local function _pointInsideAnyBoundingPartXZ(position, tolerance)
-		tolerance = tolerance or 1.25
-		for _, boundingPart in ipairs(boundingParts) do
-			local localPosition = boundingPart.CFrame:PointToObjectSpace(position)
-			local half = boundingPart.Size * 0.5
-			if math.abs(localPosition.X) <= half.X + tolerance
-				and math.abs(localPosition.Z) <= half.Z + tolerance then
-				return true
-			end
-		end
-		return false
-	end
-	local function pointSafelyInsideAnyBoundingPartXZ(position, inset)
-		inset = inset or 0.9
-		for _, boundingPart in ipairs(boundingParts) do
-			local localPosition =
-				boundingPart.CFrame:PointToObjectSpace(position)
-			local half = boundingPart.Size * 0.5
-			if math.abs(localPosition.X)
-				<= math.max(0, half.X - inset)
-				and math.abs(localPosition.Z)
-					<= math.max(0, half.Z - inset) then
-				return true
-			end
-		end
-		return false
-	end
-	local function surfaceBelongsToBoundingSection(position, boundingPart, tolerance)
-		tolerance = tolerance or 3
-		local localPosition = boundingPart.CFrame:PointToObjectSpace(position)
-		local halfY = boundingPart.Size.Y * 0.5
-		return localPosition.Y >= -halfY - tolerance
-			and localPosition.Y <= halfY + tolerance
-	end
-	local standingOffset = humanoid.HipHeight + root.Size.Y * 0.5 + 0.18
-	local rootProbeSize = Vector3.new(
-		math.max(root.Size.X * 0.9, 1.7),
-		math.max(root.Size.Y * 1.15, 2.25),
-		math.max(root.Size.Z * 0.9, 1.7)
+
+	local standingOffset =
+		humanoid.HipHeight + root.Size.Y * 0.5 + 0.16
+	local horizontalInset =
+		math.max(root.Size.X, root.Size.Z) * 0.65 + 0.55
+	local bodyProbeSize = Vector3.new(
+		math.max(root.Size.X + 0.8, 2.2),
+		math.max(root.Size.Y + humanoid.HipHeight + 1.2, 4.2),
+		math.max(root.Size.Z + 0.8, 2.2)
 	)
+
 	local overlapParams = OverlapParams.new()
 	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 	overlapParams.FilterDescendantsInstances = excludedInstances
-	overlapParams.MaxParts = 30
-	local function rootAreaIsClear(candidate, supportingPart)
-		local probeCFrame = CFrame.new(candidate + Vector3.new(0, 0.2, 0))
+	overlapParams.MaxParts = 80
+
+	local function safelyInsideXZ(position, boundingPart)
+		local localPosition =
+			boundingPart.CFrame:PointToObjectSpace(position)
+		local half = boundingPart.Size * 0.5
+
+		return math.abs(localPosition.X)
+			<= math.max(0, half.X - horizontalInset)
+			and math.abs(localPosition.Z)
+				<= math.max(0, half.Z - horizontalInset)
+	end
+
+	local function bodyAreaIsClear(candidate, supportingPart)
+		local probe = CFrame.new(
+			candidate + Vector3.new(0, bodyProbeSize.Y * 0.18, 0)
+		)
+
 		for _, part in ipairs(workspace:GetPartBoundsInBox(
-			probeCFrame,
-			rootProbeSize,
+			probe,
+			bodyProbeSize,
 			overlapParams
 		)) do
 			if part ~= supportingPart
 				and part.CanCollide
 				and not isHelperGeometry(part) then
+				-- MeshPart, UnionOperation, Part, and other collidable BasePart
+				-- subclasses are all rejected here.
 				return false
 			end
 		end
+
 		return true
 	end
-	local function findFloorAt(worldXZ, boundingPart)
+
+	local function horizontalClearance(candidate, supportingPart)
 		local raycastParams = RaycastParams.new()
 		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 		raycastParams.IgnoreWater = true
+
 		local excludes = table.clone(excludedInstances)
-		local localOrigin = boundingPart.CFrame:PointToObjectSpace(worldXZ)
-		local origin = boundingPart.CFrame:PointToWorldSpace(Vector3.new(
-			localOrigin.X,
-			math.max(2.5, boundingPart.Size.Y * 0.38),
-			localOrigin.Z
-		))
-		for _ = 1, 20 do
-			raycastParams.FilterDescendantsInstances = excludes
-			local result = workspace:Raycast(
-				origin,
-				Vector3.new(0, -120, 0),
-				raycastParams
-			)
-			if not result then
-				return nil
+		table.insert(excludes, supportingPart)
+		raycastParams.FilterDescendantsInstances = excludes
+
+		local origin =
+			candidate + Vector3.new(0, root.Size.Y * 0.45, 0)
+		local minimum = 10
+		local directions = {
+			Vector3.new(1, 0, 0),
+			Vector3.new(-1, 0, 0),
+			Vector3.new(0, 0, 1),
+			Vector3.new(0, 0, -1),
+			Vector3.new(1, 0, 1).Unit,
+			Vector3.new(1, 0, -1).Unit,
+			Vector3.new(-1, 0, 1).Unit,
+			Vector3.new(-1, 0, -1).Unit,
+		}
+
+		for _, direction in ipairs(directions) do
+			local result =
+				workspace:Raycast(origin, direction * 10, raycastParams)
+			if result
+				and result.Instance
+				and result.Instance:IsA("BasePart")
+				and result.Instance.CanCollide
+				and not isHelperGeometry(result.Instance) then
+				minimum = math.min(minimum, result.Distance)
 			end
-			local surface = result.Instance
-			if surface
-				and surface:IsA("BasePart")
-				and surface.CanCollide
-				and surface.Transparency < 1
-				and result.Normal.Y >= 0.55
-				and not isHelperGeometry(surface) then
-				local candidate = result.Position
-					+ Vector3.new(0, standingOffset, 0)
-				if pointSafelyInsideAnyBoundingPartXZ(candidate, 1.15)
-					and surfaceBelongsToBoundingSection(result.Position, boundingPart, 3)
-					and rootAreaIsClear(candidate, surface) then
-					return {
-						Position = candidate,
-						Surface = surface,
-						BoundingPart = boundingPart,
-					}
-				end
-			end
-			table.insert(excludes, surface)
 		end
-		return nil
+
+		return minimum
 	end
+
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.FilterDescendantsInstances = excludedInstances
+	raycastParams.IgnoreWater = true
+
 	local candidates = {}
-	local sampleFractions = {
-		0,
-		0.16,
-		-0.16,
-		0.32,
-		-0.32,
-		0.44,
-		-0.44,
-	}
+
+	-- Exact 6 × 3 cell-centre grid.
 	for _, boundingPart in ipairs(boundingParts) do
-		local halfX = boundingPart.Size.X * 0.5
-		local halfZ = boundingPart.Size.Z * 0.5
-		for _, xFraction in ipairs(sampleFractions) do
-			for _, zFraction in ipairs(sampleFractions) do
-				local localX = halfX * xFraction
-				local localZ = halfZ * zFraction
-				local point = boundingPart.CFrame:PointToWorldSpace(
-					Vector3.new(localX, 0, localZ)
-				)
-				local candidate = findFloorAt(point, boundingPart)
-				if candidate then
-					local horizontalDistance = Vector3.new(
-						candidate.Position.X - boundingPart.Position.X,
-						0,
-						candidate.Position.Z - boundingPart.Position.Z
-					).Magnitude
-					candidate.Score = horizontalDistance
-					table.insert(candidates, candidate)
-				end
-			end
-		end
-	end
-	if #candidates == 0 then
-		for _, part in ipairs(room:GetDescendants()) do
-			if part:IsA("BasePart")
-				and part.CanCollide
-				and part.Transparency < 1
-				and part.CFrame.UpVector.Y >= 0.6
-				and part.Size.X >= 2
-				and part.Size.Z >= 2
-				and not isHelperGeometry(part) then
-				local topPosition = part.CFrame:PointToWorldSpace(
-					Vector3.new(0, part.Size.Y * 0.5, 0)
-				)
-				local candidatePosition = topPosition
-					+ Vector3.new(0, standingOffset, 0)
-				if pointSafelyInsideAnyBoundingPartXZ(candidatePosition, 1)
-					and rootAreaIsClear(candidatePosition, part) then
-					table.insert(candidates, {
-						Position = candidatePosition,
-						Surface = part,
-						BoundingPart = boundingParts[1],
-						Score = 100,
-					})
-				end
-			end
-		end
-	end
-	if #candidates == 0 then
-		local relaxedCandidates = {}
-		local relaxedRaycastParams = RaycastParams.new()
-		relaxedRaycastParams.FilterType = Enum.RaycastFilterType.Exclude
-		relaxedRaycastParams.FilterDescendantsInstances = excludedInstances
-		relaxedRaycastParams.IgnoreWater = true
-		for _, boundingPart in ipairs(boundingParts) do
-			for _, xFraction in ipairs(sampleFractions) do
-				for _, zFraction in ipairs(sampleFractions) do
-					local point = boundingPart.CFrame:PointToWorldSpace(Vector3.new(
-						boundingPart.Size.X * 0.5 * xFraction,
-						math.max(3, boundingPart.Size.Y * 0.4),
-						boundingPart.Size.Z * 0.5 * zFraction
-					))
+		local half = boundingPart.Size * 0.5
+		local usableX =
+			math.max(0, boundingPart.Size.X - horizontalInset * 2)
+		local usableZ =
+			math.max(0, boundingPart.Size.Z - horizontalInset * 2)
+
+		if usableX > 0 and usableZ > 0 then
+			for xIndex = 1, 6 do
+				local xRatio = (xIndex - 0.5) / 6 - 0.5
+				local localX = xRatio * usableX
+
+				for zIndex = 1, 3 do
+					local zRatio = (zIndex - 0.5) / 3 - 0.5
+					local localZ = zRatio * usableZ
+					local origin =
+						boundingPart.CFrame:PointToWorldSpace(
+							Vector3.new(localX, half.Y + 24, localZ)
+						)
 					local result = workspace:Raycast(
-						point,
-						Vector3.new(0, -140, 0),
-						relaxedRaycastParams
+						origin,
+						Vector3.new(0, -(boundingPart.Size.Y + 72), 0),
+						raycastParams
 					)
+
 					if result
 						and result.Instance
 						and result.Instance:IsA("BasePart")
 						and result.Instance.CanCollide
 						and result.Instance.Transparency < 1
-						and result.Normal.Y >= 0.45
+						and result.Normal.Y >= 0.62
 						and not isHelperGeometry(result.Instance) then
-						local position = result.Position
-							+ Vector3.new(0, standingOffset + 0.15, 0)
-						if pointSafelyInsideAnyBoundingPartXZ(position, 0.75)
-							and surfaceBelongsToBoundingSection(result.Position, boundingPart, 4) then
-							table.insert(relaxedCandidates, {
-								Position = position,
+						local localFloor =
+							boundingPart.CFrame:PointToObjectSpace(
+								result.Position
+							)
+						local bottomDistance =
+							localFloor.Y + half.Y
+						local candidate =
+							result.Position
+							+ Vector3.new(0, standingOffset, 0)
+
+						if bottomDistance >= -1.5
+							and bottomDistance <= boundingPart.Size.Y
+							and safelyInsideXZ(candidate, boundingPart)
+							and bodyAreaIsClear(
+								candidate,
+								result.Instance
+							) then
+							table.insert(candidates, {
+								Position = candidate,
 								Surface = result.Instance,
 								BoundingPart = boundingPart,
-								Score = Vector3.new(
-									position.X - boundingPart.Position.X,
-									0,
-									position.Z - boundingPart.Position.Z
-								).Magnitude,
-								Relaxed = true,
+								BottomDistance = bottomDistance,
+								Clearance =
+									horizontalClearance(
+										candidate,
+										result.Instance
+									),
 							})
 						end
 					end
 				end
 			end
 		end
-		if #relaxedCandidates > 0 then
-			for _, candidate in ipairs(relaxedCandidates) do
-				table.insert(candidates, candidate)
-			end
-		else
-			return false,
-				"no safely inset floor destination was found inside the room"
-		end
 	end
-	table.sort(candidates, function(a, b)
-		return a.Score < b.Score
+
+	if #candidates == 0 then
+		return false,
+			"no safe floor point was found on the 6x3 room grid"
+	end
+
+	table.sort(candidates, function(left, right)
+		local bottomDifference =
+			math.abs(left.BottomDistance - right.BottomDistance)
+
+		if bottomDifference > 0.25 then
+			return left.BottomDistance < right.BottomDistance
+		end
+
+		return left.Clearance > right.Clearance
 	end)
+
 	local selected = candidates[1]
 	if not selected
-		or not pointSafelyInsideAnyBoundingPartXZ(
+		or not safelyInsideXZ(
 			selected.Position,
-			0.75
+			selected.BoundingPart
 		) then
-		return false,
-			"the selected floor point was outside the safe room inset"
+		return false, "the selected point was outside the safe room inset"
 	end
-	local destinationPosition = selected.Position
-	local facingPart = selected.BoundingPart or boundingParts[1]
+
 	local look = Vector3.new(
 		root.CFrame.LookVector.X,
 		0,
 		root.CFrame.LookVector.Z
 	)
-	if look.Magnitude < 0.05 and facingPart then
+	if look.Magnitude < 0.05 then
 		look = Vector3.new(
-			facingPart.CFrame.LookVector.X,
+			selected.BoundingPart.CFrame.LookVector.X,
 			0,
-			facingPart.CFrame.LookVector.Z
+			selected.BoundingPart.CFrame.LookVector.Z
 		)
 	end
 	if look.Magnitude < 0.05 then
 		look = Vector3.new(0, 0, -1)
 	end
 	look = look.Unit
+
 	local destination = CFrame.lookAt(
-		destinationPosition,
-		destinationPosition + look
+		selected.Position,
+		selected.Position + look
 	)
+
 	local originalAnchored = root.Anchored
 	local originalAutoRotate = humanoid.AutoRotate
 	local originalPlatformStand = humanoid.PlatformStand
 	local disabledStates = {}
+
 	for _, state in ipairs({
 		Enum.HumanoidStateType.FallingDown,
 		Enum.HumanoidStateType.Ragdoll,
 		Enum.HumanoidStateType.Freefall,
 	}) do
-		local ok, wasEnabled = pcall(function()
+		local ok, enabled = pcall(function()
 			return humanoid:GetStateEnabled(state)
 		end)
 		if ok then
-			disabledStates[state] = wasEnabled
+			disabledStates[state] = enabled
 			pcall(function()
 				humanoid:SetStateEnabled(state, false)
 			end)
 		end
 	end
+
 	humanoid.Sit = false
 	humanoid.PlatformStand = false
 	humanoid.AutoRotate = false
 	root.Anchored = true
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
-	character:PivotTo(destination)
-	root.AssemblyLinearVelocity = Vector3.zero
-	root.AssemblyAngularVelocity = Vector3.zero
-	for _ = 1, 4 do
-		Services.RunService.Heartbeat:Wait()
-		if not root.Parent or not humanoid.Parent then
-			break
-		end
+
+	for _ = 1, 6 do
+		character:PivotTo(destination)
 		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
-		character:PivotTo(destination)
+		Services.RunService.Heartbeat:Wait()
 	end
-	local settleParams = RaycastParams.new()
-	settleParams.FilterType = Enum.RaycastFilterType.Exclude
-	settleParams.FilterDescendantsInstances = excludedInstances
-	settleParams.IgnoreWater = true
-	local support = workspace:Raycast(
-		root.Position + Vector3.new(0, 4, 0),
-		Vector3.new(0, -18, 0),
-		settleParams
-	)
-	if support
-		and support.Instance
-		and support.Instance:IsA("BasePart")
-		and support.Instance.CanCollide
-		and support.Normal.Y >= 0.5
-		and not isHelperGeometry(support.Instance) then
-		local settledPosition =
-			support.Position + Vector3.new(0, standingOffset, 0)
-		if pointSafelyInsideAnyBoundingPartXZ(settledPosition, 0.7) then
-			destination = CFrame.lookAt(
-				settledPosition,
-				settledPosition + look
-			)
-			character:PivotTo(destination)
+
+	if not bodyAreaIsClear(
+		root.Position,
+		selected.Surface
+	) or not safelyInsideXZ(
+		root.Position,
+		selected.BoundingPart
+	) then
+		root.Anchored = originalAnchored
+		humanoid.PlatformStand = originalPlatformStand
+		humanoid.AutoRotate = originalAutoRotate
+
+		for state, enabled in pairs(disabledStates) do
+			pcall(function()
+				humanoid:SetStateEnabled(state, enabled)
+			end)
 		end
+
+		return false,
+			"the destination became obstructed during teleport settling"
 	end
+
 	pcall(function()
 		humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 	end)
-	for _ = 1, 3 do
-		Services.RunService.Heartbeat:Wait()
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.AssemblyAngularVelocity = Vector3.zero
-	end
+
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
 	root.Anchored = originalAnchored
 	humanoid.PlatformStand = originalPlatformStand
 	humanoid.AutoRotate = originalAutoRotate
-	pcall(function()
-		humanoid:ChangeState(Enum.HumanoidStateType.Running)
-	end)
-	if not originalAnchored then
-		for _ = 1, 2 do
-			Services.RunService.Heartbeat:Wait()
-			if root.Parent then
-				root.AssemblyLinearVelocity = Vector3.zero
-				root.AssemblyAngularVelocity = Vector3.zero
-			end
+
+	for _ = 1, 3 do
+		Services.RunService.Heartbeat:Wait()
+		if root.Parent then
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
 		end
 	end
-	task.delay(0.45, function()
+
+	task.delay(0.65, function()
 		if humanoid.Parent then
-			for state, wasEnabled in pairs(disabledStates) do
+			for state, enabled in pairs(disabledStates) do
 				pcall(function()
-					humanoid:SetStateEnabled(state, wasEnabled)
+					humanoid:SetStateEnabled(state, enabled)
 				end)
 			end
 		end
 	end)
+
 	return true, nil
 end
+
 local function teleportToBaseCamp()
 	local room = findBaseCampRoom()
 	if not room then
@@ -7822,6 +7889,28 @@ function Controller:ToggleFuseBox()
 	return true
 end
 
+function Controller:ToggleWalkSpeedForcer()
+	perkTrackerState.speedForcerEnabled =
+		not perkTrackerState.speedForcerEnabled
+	perkTrackerState.speedForceAccumulator = 0
+
+	setButtonEnabled(
+		walkSpeedForcerButton,
+		perkTrackerState.speedForcerEnabled
+	)
+
+	local humanoid = getCharacterHumanoid()
+	if humanoid then
+		if perkTrackerState.speedForcerEnabled then
+			applyForcedWalkSpeed()
+		else
+			humanoid.WalkSpeed = baseWalkSpeed
+		end
+	end
+
+	return perkTrackerState.speedForcerEnabled
+end
+
 function Controller:GetState()
 	return {
 		Closed = closed,
@@ -7831,6 +7920,7 @@ function Controller:GetState()
 		ItemEsp = itemEspEnabled,
 		FullBright = fullBrightEnabled,
 		AutoSpiritBox = perkTrackerState.autoSpiritBoxEnabled,
+		WalkSpeedForcer = perkTrackerState.speedForcerEnabled,
 		EvidenceMode = perkTrackerState.evidenceMode,
 	}
 end
@@ -7845,6 +7935,8 @@ function Controller:Destroy()
 	itemEspEnabled = false
 	perkTrackerState.autoSpiritBoxEnabled = false
 	perkTrackerState.autoSpiritBoxAccumulator = 0
+	perkTrackerState.speedForcerEnabled = false
+	perkTrackerState.speedForceAccumulator = 0
 	roomItemPlacementState.generation = roomItemPlacementState.generation + 1
 	roomItemPlacementState.busy = false
 	if roomItemPlacementState.thread then
@@ -7901,6 +7993,10 @@ function Controller:Start()
 		bindSpeedLock(initialHumanoid)
 	end
 	setSpeed(10)
+	setButtonEnabled(
+		walkSpeedForcerButton,
+		perkTrackerState.speedForcerEnabled
+	)
 	evidenceRoundGhost = getGhostModel()
 	lastDeepEvidenceScan = -math.huge
 
@@ -7911,6 +8007,12 @@ function Controller:Start()
 		end
 		updateObservablePerkTrackers(deltaTime)
 		perkTrackerState.updateAutoSpiritBox(deltaTime)
+		perkTrackerState.speedForceAccumulator =
+			perkTrackerState.speedForceAccumulator + deltaTime
+		if perkTrackerState.speedForceAccumulator >= 0.25 then
+			perkTrackerState.speedForceAccumulator = 0
+			applyForcedWalkSpeed()
+		end
 		updateAccumulator = updateAccumulator + deltaTime
 		if updateAccumulator < 0.5 then
 			return
@@ -7918,10 +8020,6 @@ function Controller:Start()
 		updateAccumulator = 0
 		updateEvidence()
 		escapeCurrentHunt()
-		local currentHumanoid = getCharacterHumanoid()
-		if currentHumanoid and currentHumanoid.WalkSpeed ~= speed then
-			currentHumanoid.WalkSpeed = speed
-		end
 		if ghostEspEnabled then
 			local ghost = getGhostModel()
 			local ghostPart = getGhostPart(ghost)
