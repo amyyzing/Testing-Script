@@ -11,7 +11,7 @@ Aesthetic.Copy = {
 		Laser = "Laser Projector",
 		Wither = "Wither",
 		EMF = "EMF Level",
-		Temperature = "Temperature",
+		Temperature = "Lowest Temperature",
 		FavouriteRoom = "Favourite Room",
 		Ghost = "Ghost",
 	},
@@ -47,6 +47,14 @@ Aesthetic.Copy = {
 		PlacingRoomItems = "Placing...",
 		WaitingForHunt = "Waiting for Hunt...",
 		Fired = "Fired!",
+	},
+	PerkLogs = {
+		Title = "Ghost Perk Log",
+		Positive = "Positive observations",
+		Negative = "Ruled out",
+		EmptyPositive = "No positive perk observations",
+		EmptyNegative = "No ruled-out ghosts",
+		Toggle = "LOGS",
 	},
 	Descriptions = {
 		EvidenceMode = "Normal treats observed evidence as real; Mimicry treats selected evidence as fake.",
@@ -197,13 +205,28 @@ new("TextLabel", {
 	Parent = titleBar,
 	BackgroundTransparency = 1,
 	Position = UDim2.fromOffset(14, 0),
-	Size = UDim2.new(1, -102, 1, 0),
+	Size = UDim2.new(1, -142, 1, 0),
 	Font = Enum.Font.GothamSemibold,
 	Text = Aesthetic.Copy.Title,
 	TextColor3 = COLORS.text,
 	TextSize = 15,
 	TextXAlignment = Enum.TextXAlignment.Left,
 })
+local perkLogButton = new("TextButton", {
+	Name = "PerkLogToggle",
+	Parent = titleBar,
+	AnchorPoint = Vector2.new(1, 0.5),
+	Position = UDim2.new(1, -82, 0.5, 0),
+	Size = UDim2.fromOffset(46, 28),
+	AutoButtonColor = false,
+	BackgroundColor3 = COLORS.accentDark,
+	BorderSizePixel = 0,
+	Font = Enum.Font.GothamBold,
+	Text = Aesthetic.Copy.PerkLogs.Toggle,
+	TextColor3 = Color3.new(1, 1, 1),
+	TextSize = 10,
+})
+addStroke(perkLogButton, COLORS.stroke, 0.2, 1)
 local minimizeButton = new("TextButton", {
 	Name = "Minimize",
 	Parent = titleBar,
@@ -257,6 +280,123 @@ new("UIListLayout", {
 	Padding = UDim.new(0, 10),
 	SortOrder = Enum.SortOrder.LayoutOrder,
 })
+local perkLogDrawer = new("Frame", {
+	Name = "PerkLogDrawer",
+	Parent = mainFrame,
+	Position = UDim2.new(1, 0, 0, 42),
+	Size = UDim2.new(1, -32, 1, -42),
+	BackgroundColor3 = COLORS.window,
+	BorderSizePixel = 0,
+	ClipsDescendants = true,
+	ZIndex = 40,
+})
+addStroke(perkLogDrawer, COLORS.stroke, 0.05, 1)
+new("TextLabel", {
+	Name = "Title",
+	Parent = perkLogDrawer,
+	Position = UDim2.fromOffset(12, 6),
+	Size = UDim2.new(1, -24, 0, 30),
+	BackgroundTransparency = 1,
+	Font = Enum.Font.GothamSemibold,
+	Text = Aesthetic.Copy.PerkLogs.Title,
+	TextColor3 = COLORS.text,
+	TextSize = 15,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 41,
+})
+local function createPerkLogSection(name, heading, emptyText, position, size, color)
+	local section = new("Frame", {
+		Name = name .. "Section",
+		Parent = perkLogDrawer,
+		Position = position,
+		Size = size,
+		BackgroundColor3 = COLORS.card,
+		BorderSizePixel = 0,
+		ZIndex = 41,
+	})
+	addStroke(section, COLORS.stroke, 0.3, 1)
+	new("TextLabel", {
+		Name = "Heading",
+		Parent = section,
+		Position = UDim2.fromOffset(9, 3),
+		Size = UDim2.new(1, -18, 0, 24),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.GothamSemibold,
+		Text = heading,
+		TextColor3 = color,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 42,
+	})
+	local list = new("ScrollingFrame", {
+		Name = name,
+		Parent = section,
+		Position = UDim2.fromOffset(8, 29),
+		Size = UDim2.new(1, -16, 1, -37),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.fromOffset(0, 0),
+		ScrollBarThickness = 2,
+		ScrollBarImageColor3 = color,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		ZIndex = 42,
+	})
+	new("UIListLayout", {
+		Parent = list,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	})
+	local placeholder = new("TextLabel", {
+		Name = "Empty",
+		Parent = list,
+		LayoutOrder = 1,
+		Size = UDim2.new(1, -4, 0, 34),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.Gotham,
+		Text = emptyText,
+		TextColor3 = COLORS.muted,
+		TextSize = 11,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		ZIndex = 43,
+	})
+	placeholder:SetAttribute("PerkLogPlaceholder", true)
+	return list, placeholder
+end
+local positivePerkLog, positivePerkPlaceholder = createPerkLogSection(
+	"PositivePerkLog",
+	Aesthetic.Copy.PerkLogs.Positive,
+	Aesthetic.Copy.PerkLogs.EmptyPositive,
+	UDim2.new(0, 12, 0, 42),
+	UDim2.new(1, -24, 0.5, -28),
+	COLORS.green
+)
+local negativePerkLog, negativePerkPlaceholder = createPerkLogSection(
+	"NegativePerkLog",
+	Aesthetic.Copy.PerkLogs.Negative,
+	Aesthetic.Copy.PerkLogs.EmptyNegative,
+	UDim2.new(0, 12, 0.5, 14),
+	UDim2.new(1, -24, 0.5, -26),
+	COLORS.red
+)
+local perkLogTab = new("TextButton", {
+	Name = "PerkLogTab",
+	Parent = mainFrame,
+	Position = UDim2.new(1, -32, 0, 52),
+	Size = UDim2.fromOffset(32, 78),
+	AutoButtonColor = false,
+	BackgroundColor3 = COLORS.accentDark,
+	BorderSizePixel = 0,
+	Font = Enum.Font.GothamBold,
+	Text = Aesthetic.Copy.PerkLogs.Toggle .. "\n◀",
+	TextColor3 = Color3.new(1, 1, 1),
+	TextSize = 9,
+	TextWrapped = true,
+	ZIndex = 42,
+})
+addStroke(perkLogTab, COLORS.stroke, 0.2, 1)
 local evidenceCard = new("Frame", {
 	Name = "EvidenceCard",
 	Parent = content,
@@ -301,7 +441,7 @@ local evidenceLabels = {
 	Laser = createEvidenceLabel("Laser", Aesthetic.Copy.Evidence.Laser .. ": Unknown", 5, COLORS.muted),
 	Wither = createEvidenceLabel("Wither", Aesthetic.Copy.Evidence.Wither .. ": Unknown", 6, COLORS.muted),
 	EMF = createEvidenceLabel("EMF", "EMF-1", 7, COLORS.muted),
-	Temperature = createEvidenceLabel("Temperature", "--.-°C", 8, COLORS.text),
+	Temperature = createEvidenceLabel("Temperature", Aesthetic.Copy.Evidence.Temperature .. ": --.-°C", 8, COLORS.text),
 	FavouriteRoom = createEvidenceLabel("FavouriteRoom", "Favourite Room: ...", 9, COLORS.accent),
 	Ghost = createEvidenceLabel("Ghost", "Ghost: Unknown", 10, COLORS.muted),
 }
@@ -503,6 +643,13 @@ local resizeHandle = new("TextButton", {
 		TitleBar = titleBar,
 		MinimizeButton = minimizeButton,
 		CloseButton = closeButton,
+		PerkLogButton = perkLogButton,
+		PerkLogTab = perkLogTab,
+		PerkLogDrawer = perkLogDrawer,
+		PositivePerkLog = positivePerkLog,
+		NegativePerkLog = negativePerkLog,
+		PositivePerkPlaceholder = positivePerkPlaceholder,
+		NegativePerkPlaceholder = negativePerkPlaceholder,
 		Content = content,
 		DropdownLayer = dropdownLayer,
 		EvidenceLabels = evidenceLabels,
