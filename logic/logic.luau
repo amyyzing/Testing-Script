@@ -145,9 +145,6 @@ local perkTrackerState = {
 	aswangKillIncreaseCount = 0,
 	killSpeedProcessedPlayers = setmetatable({}, {__mode = "k"}),
 	huntStartedAt = nil,
-	pendingWispStart = nil,
-	wispHuntResults = {},
-	wispFavouriteHuntCount = 0,
 	umbraRootSoundChecked = false,
 	brokenGlassInitialized = false,
 	brokenGlassSeen = {},
@@ -188,10 +185,6 @@ local perkTrackerState = {
 	holyOilFolder = nil,
 	holyOilTrackerInitialized = false,
 	holyOilTrackedModels = setmetatable({}, {__mode = "k"}),
-	holyOilPendingContacts = setmetatable({}, {__mode = "k"}),
-	holyOilOverlapAccumulator = 0,
-	holyOilFireObserved = false,
-	holyOilBurnStartedAt = setmetatable({}, {__mode = "k"}),
 	holyOilColorStates = setmetatable({}, {__mode = "k"}),
 	evaluateHolyOilAtHuntStart = function() end,
 	flashButton = function() end,
@@ -1815,10 +1808,6 @@ resetEvidenceState = function()
 	perkTrackerState.saltPendingTouches = {}
 	perkTrackerState.saltOverlapAccumulator = 0
 	perkTrackerState.wraithRuledOut = false
-	perkTrackerState.holyOilPendingContacts =
-		setmetatable({}, {__mode = "k"})
-	perkTrackerState.holyOilOverlapAccumulator = 0
-	perkTrackerState.holyOilFireObserved = false
 	perkTrackerState.ruledOutGhosts = {}
 	refreshPerkLogs()
 	perkTrackerState.currentGhostGuess = nil
@@ -2521,9 +2510,6 @@ local function resetPerkTrackerForGhost(ghost)
 	perkTrackerState.aswangKillIncreaseCount = 0
 	perkTrackerState.killSpeedProcessedPlayers = setmetatable({}, {__mode = "k"})
 	perkTrackerState.huntStartedAt = nil
-	perkTrackerState.pendingWispStart = nil
-	perkTrackerState.wispHuntResults = {}
-	perkTrackerState.wispFavouriteHuntCount = 0
 	perkTrackerState.umbraRootSoundChecked = false
 	perkTrackerState.brokenGlassInitialized = false
 	perkTrackerState.brokenGlassSeen = {}
@@ -2557,12 +2543,6 @@ local function resetPerkTrackerForGhost(ghost)
 	perkTrackerState.saltPendingTouches = {}
 	perkTrackerState.saltOverlapAccumulator = 0
 	perkTrackerState.wraithRuledOut = false
-	perkTrackerState.holyOilPendingContacts =
-		setmetatable({}, {__mode = "k"})
-	perkTrackerState.holyOilOverlapAccumulator = 0
-	perkTrackerState.holyOilFireObserved = false
-	perkTrackerState.holyOilBurnStartedAt =
-		setmetatable({}, {__mode = "k"})
 	perkTrackerState.holyOilColorStates =
 		setmetatable({}, {__mode = "k"})
 	perkTrackerState.orbObserved = false
@@ -3255,10 +3235,6 @@ local function handleHuntTransition(ghost, hunting, now)
 		perkTrackerState.transparencyTransitions = {}
 		perkTrackerState.transparencyIntervals = {}
 		perkTrackerState.lastTransparencyTransitionTime = nil
-		perkTrackerState.pendingWispStart = {
-			Time = now,
-			FavouriteRoom = ghost:GetAttribute("FavoriteRoom"),
-		}
 	elseif not hunting and previous then
 		perkTrackerState.huntStartedAt = nil
 		if perkTrackerState.dullahanPatternDetected
@@ -3334,63 +3310,6 @@ local function capturePendingWendigoTransition(ghost, now)
 		table.remove(snapshots, 1)
 	end
 	perkTrackerState.wendigoPendingTransition = nil
-end
-local function evaluatePendingWispStart(ghost, now)
-	local pending = perkTrackerState.pendingWispStart
-	if not pending or now - pending.Time < 0.75 then
-		return
-	end
-
-	perkTrackerState.pendingWispStart = nil
-	local favouriteName =
-		ghost:GetAttribute("FavoriteRoom")
-		or pending.FavouriteRoom
-	local roomsFolder = findRoomsFolder()
-	local favouriteRoom =
-		findFavouriteRoom(roomsFolder, favouriteName)
-	local currentRoom = ghost:GetAttribute("CurrentRoom")
-	local inFavourite =
-		sameRoomName(currentRoom, favouriteName)
-		or (
-			favouriteRoom
-			and instanceIsInsideRoom(ghost, favouriteRoom)
-		)
-
-	if inFavourite then
-		perkTrackerState.clearGhostRuleOut("Wisp")
-		perkTrackerState.wispFavouriteHuntCount =
-			perkTrackerState.wispFavouriteHuntCount + 1
-		local count = perkTrackerState.wispFavouriteHuntCount
-
-		recordPerkDetection(
-			"Wisp",
-			"a hunt began inside the favourite room ("
-				.. tostring(count)
-				.. " observed)",
-			count >= 5 and 65 or 35
-		)
-
-		local detection = perkDetections.Wisp
-		if detection then
-			detection.Persistent = true
-			detection.ExpiresAt = nil
-		end
-		updateGhostIdentification(ghost)
-		return
-	end
-
-	-- Only rule it out when CurrentRoom is a known, different room. A nil or
-	-- still-replicating room value does not erase an earlier Wisp observation.
-	if currentRoom ~= nil
-		and favouriteName ~= nil
-		and not sameRoomName(currentRoom, favouriteName) then
-		perkTrackerState.wispFavouriteHuntCount = 0
-		perkTrackerState.ruleOutGhost(
-			"Wisp",
-			"a verified hunt began outside the favourite room",
-			95
-		)
-	end
 end
 local function analyzePhantom(now)
 	local samples = {}
@@ -4422,22 +4341,6 @@ perkTrackerState.getHolyOilWall = function(model)
 	return wall and wall:IsA("BasePart") and wall or nil
 end
 
-perkTrackerState.ghostHasHolyOilFire = function(ghost)
-	if not ghost then
-		return false
-	end
-
-	for _, descendant in ipairs(ghost:GetDescendants()) do
-		if descendant:IsA("ParticleEmitter")
-			and descendant.Name == "Fire"
-			and descendant.Enabled == true then
-			return true
-		end
-	end
-
-	return false
-end
-
 perkTrackerState.getHolyOilColorKind = function(model)
 	local container =
 		model and model:FindFirstChild("ParticleContainer", true)
@@ -4496,54 +4399,20 @@ perkTrackerState.getHolyOilColorKind = function(model)
 	return nil
 end
 
-perkTrackerState.getHolyOilWallSide = function(wall, position)
-	if not wall or not position then
-		return nil, nil, nil
+perkTrackerState.evaluateHolyOilWallStates = function(ghost)
+	ghost = ghost or getGhostModel()
+	if not ghost or ghost:GetAttribute("Hunting") ~= true then
+		return nil
 	end
-
-	local localPosition =
-		wall.CFrame:PointToObjectSpace(position)
-
-	if wall.Size.X <= wall.Size.Z then
-		return localPosition.X, wall.Size.X * 0.5, "X"
-	end
-
-	return localPosition.Z, wall.Size.Z * 0.5, "Z"
-end
-
-perkTrackerState.holyOilGhostInside = function(model, ghost)
-	if not model or not model.Parent or not ghost then
-		return false
-	end
-
-	local ok, modelCFrame, modelSize = pcall(function()
-		return model:GetBoundingBox()
-	end)
-	if not ok then
-		return false
-	end
-
-	local overlapParams = OverlapParams.new()
-	overlapParams.FilterType = Enum.RaycastFilterType.Include
-	overlapParams.FilterDescendantsInstances = {ghost}
-	overlapParams.MaxParts = 1
-
-	return #workspace:GetPartBoundsInBox(
-		modelCFrame,
-		modelSize + Vector3.new(0.5, 1, 0.5),
-		overlapParams
-	) > 0
-end
-
-perkTrackerState.evaluateHolyOilWallStates = function()
-	local sawWall = false
+	local sawEligibleWall = false
 	local sawNonCollidable = false
 
 	for model in pairs(perkTrackerState.holyOilTrackedModels) do
-		if model.Parent then
+		if model.Parent
+			and model:GetAttribute("Burning") == true then
 			local wall = perkTrackerState.getHolyOilWall(model)
 			if wall then
-				sawWall = true
+				sawEligibleWall = true
 				if wall.CanCollide == false then
 					sawNonCollidable = true
 					break
@@ -4556,18 +4425,21 @@ perkTrackerState.evaluateHolyOilWallStates = function()
 		perkTrackerState.clearGhostRuleOut("Wisp")
 		recordPerkDetection(
 			"Wisp",
-			"HolyOil.GhostWall.CanCollide was false",
+			"while the ghost was hunting and HolyOil was Burning, that model's GhostWall.CanCollide was false",
 			99
 		)
-		updateGhostIdentification(getGhostModel())
-	elseif sawWall then
+		updateGhostIdentification(ghost)
+		return true
+	elseif sawEligibleWall then
 		clearPerkDetection("Wisp")
 		perkTrackerState.ruleOutGhost(
 			"Wisp",
-			"all observed HolyOil.GhostWall parts had CanCollide enabled",
+			"while the ghost was hunting and HolyOil was Burning, every eligible GhostWall remained collidable",
 			99
 		)
+		return false
 	end
+	return nil
 end
 
 perkTrackerState.evaluateHolyOilColor = function(model, ghost)
@@ -4609,89 +4481,6 @@ perkTrackerState.evaluateHolyOilColor = function(model, ghost)
 	return kind
 end
 
-perkTrackerState.beginHolyOilContact = function(model)
-	local ghost = getGhostModel()
-	if not ghost
-		or ghost:GetAttribute("Hunting") ~= true
-		or not model
-		or not model.Parent
-		or model.Name ~= "HolyOil"
-		or model:GetAttribute("Burning") ~= true then
-		return
-	end
-
-	if perkTrackerState.holyOilPendingContacts[model] then
-		return
-	end
-
-	local now = os.clock()
-	local ghostPosition = ghost:GetPivot().Position
-	local wall = perkTrackerState.getHolyOilWall(model)
-	local side, halfThickness, axis =
-		perkTrackerState.getHolyOilWallSide(wall, ghostPosition)
-	local entrySign =
-		side and side ~= 0 and (side > 0 and 1 or -1) or 0
-
-	if entrySign == 0 and wall then
-		local ghostPart = getGhostPart(ghost)
-		local velocity =
-			ghostPart and ghostPart.AssemblyLinearVelocity
-			or Vector3.zero
-		local normal =
-			axis == "X"
-			and wall.CFrame.RightVector
-			or wall.CFrame.LookVector
-		local direction = velocity:Dot(normal)
-		if math.abs(direction) > 0.05 then
-			entrySign = direction > 0 and -1 or 1
-		end
-	end
-
-	perkTrackerState.holyOilPendingContacts[model] = {
-		StartedAt = now,
-		Ghost = ghost,
-		Wall = wall,
-		EntrySign = entrySign,
-		HalfThickness = halfThickness,
-		Axis = axis,
-		EntryPosition = ghostPosition,
-		WasInside = true,
-		FireSeen =
-			perkTrackerState.ghostHasHolyOilFire(ghost),
-	}
-end
-
-perkTrackerState.holyOilPassedThrough = function(pending, ghost)
-	local currentPosition = ghost:GetPivot().Position
-	local wall =
-		pending.Wall
-		and pending.Wall.Parent
-		and pending.Wall
-		or nil
-
-	if wall then
-		local side, halfThickness =
-			perkTrackerState.getHolyOilWallSide(
-				wall,
-				currentPosition
-			)
-		local exitSign =
-			side and side ~= 0 and (side > 0 and 1 or -1) or 0
-
-		return pending.EntrySign ~= 0
-			and exitSign ~= 0
-			and pending.EntrySign ~= exitSign
-			and side ~= nil
-			and math.abs(side)
-				>= (halfThickness or pending.HalfThickness or 0)
-					+ 0.15
-	end
-
-	return (
-		currentPosition - pending.EntryPosition
-	).Magnitude >= 3
-end
-
 perkTrackerState.bindHolyOilModel = function(model)
 	if not model
 		or not model:IsA("Model")
@@ -4703,21 +4492,15 @@ perkTrackerState.bindHolyOilModel = function(model)
 	perkTrackerState.holyOilTrackedModels[model] = true
 
 	local function updateBurnState()
+		perkTrackerState.holyOilColorStates[model] = nil
+		local ghost = getGhostModel()
 		if model:GetAttribute("Burning") == true then
-			perkTrackerState.holyOilBurnStartedAt[model] =
-				os.clock()
-			perkTrackerState.holyOilColorStates[model] = nil
-
-			local ghost = getGhostModel()
 			if ghost
 				and ghost:GetAttribute("Hunting") == true then
 				perkTrackerState.evaluateHolyOilColor(model, ghost)
 			end
-		else
-			perkTrackerState.holyOilBurnStartedAt[model] = nil
-			perkTrackerState.holyOilColorStates[model] = nil
-			perkTrackerState.holyOilPendingContacts[model] = nil
 		end
+		perkTrackerState.evaluateHolyOilWallStates(ghost)
 	end
 
 	connect(
@@ -4734,20 +4517,11 @@ perkTrackerState.bindHolyOilModel = function(model)
 		if part.Name == "GhostWall" then
 			connect(
 				part:GetPropertyChangedSignal("CanCollide"),
-				perkTrackerState.evaluateHolyOilWallStates
+				function()
+					perkTrackerState.evaluateHolyOilWallStates()
+				end
 			)
 		end
-
-		connect(part.Touched, function(otherPart)
-			if closed or not otherPart or not otherPart.Parent then
-				return
-			end
-
-			local ghost = getGhostModel()
-			if ghost and otherPart:IsDescendantOf(ghost) then
-				perkTrackerState.beginHolyOilContact(model)
-			end
-		end)
 	end
 
 	for _, descendant in ipairs(model:GetDescendants()) do
@@ -4758,6 +4532,15 @@ perkTrackerState.bindHolyOilModel = function(model)
 		bindPart(descendant)
 		if descendant.Name == "GhostWall" then
 			perkTrackerState.evaluateHolyOilWallStates()
+		end
+	end)
+	connect(model.DescendantRemoving, function(descendant)
+		if descendant.Name == "GhostWall" then
+			task.defer(function()
+				if not closed then
+					perkTrackerState.evaluateHolyOilWallStates()
+				end
+			end)
 		end
 	end)
 
@@ -4804,7 +4587,7 @@ perkTrackerState.evaluateHolyOilAtHuntStart = function(ghost)
 		return
 	end
 
-	perkTrackerState.evaluateHolyOilWallStates()
+	perkTrackerState.evaluateHolyOilWallStates(ghost)
 
 	for model in pairs(perkTrackerState.holyOilTrackedModels) do
 		if model.Parent
@@ -4816,134 +4599,26 @@ perkTrackerState.evaluateHolyOilAtHuntStart = function(ghost)
 end
 
 perkTrackerState.updateHolyOilTracker = function(
-	deltaTime,
+	_deltaTime,
 	ghost,
-	now
+	_now
 )
 	perkTrackerState.ensureHolyOilTracker()
-	if not ghost then
-		return
-	end
-	local hunting = ghost:GetAttribute("Hunting") == true
-	if not hunting then
-		perkTrackerState.holyOilPendingContacts =
-			setmetatable({}, {__mode = "k"})
-		perkTrackerState.holyOilOverlapAccumulator = 0
+	if not ghost or ghost:GetAttribute("Hunting") ~= true then
 		return
 	end
 	local folder = perkTrackerState.holyOilFolder
 	if not folder then
 		return
 	end
-	perkTrackerState.holyOilOverlapAccumulator =
-		perkTrackerState.holyOilOverlapAccumulator + deltaTime
-	if perkTrackerState.holyOilOverlapAccumulator >= 0.1 then
-		perkTrackerState.holyOilOverlapAccumulator = 0
-		for model in pairs(
-			perkTrackerState.holyOilTrackedModels
-		) do
-			if model.Parent then
-				local burning =
-					model:GetAttribute("Burning") == true
-				if burning then
-					local burnStarted =
-						perkTrackerState.holyOilBurnStartedAt[
-							model
-						]
-					if not burnStarted then
-						burnStarted = now
-						perkTrackerState.holyOilBurnStartedAt[
-							model
-						] = now
-					end
-					perkTrackerState.evaluateHolyOilColor(
-						model,
-						ghost
-					)
-				else
-					perkTrackerState.holyOilBurnStartedAt[model] = nil
-					perkTrackerState.holyOilColorStates[model] = nil
-				end
-				local inside =
-					burning
-					and perkTrackerState.holyOilGhostInside(
-						model,
-						ghost
-					)
-				local pending =
-					perkTrackerState.holyOilPendingContacts[
-						model
-					]
-				if inside then
-					if not pending then
-						perkTrackerState.beginHolyOilContact(model)
-						pending =
-							perkTrackerState.holyOilPendingContacts[
-								model
-							]
-					end
-					if pending then
-						pending.WasInside = true
-						pending.FireSeen =
-							pending.FireSeen
-							or perkTrackerState.ghostHasHolyOilFire(
-								ghost
-							)
-					end
-				elseif pending then
-					if not burning then
-						perkTrackerState.holyOilPendingContacts[
-							model
-						] = nil
-					else
-						pending.FireSeen =
-							pending.FireSeen
-							or perkTrackerState.ghostHasHolyOilFire(
-								ghost
-							)
-						local fullPass =
-							pending.WasInside
-							and perkTrackerState.holyOilPassedThrough(
-								pending,
-								ghost
-							)
-						local wall =
-							pending.Wall
-							and pending.Wall.Parent
-							and pending.Wall
-							or nil
-						local wallAllowsWisp =
-							not wall
-							or wall.CanCollide == false
-						if fullPass
-							and pending.FireSeen
-							and wallAllowsWisp then
-							perkTrackerState.clearGhostRuleOut(
-								"Wisp"
-							)
-							recordPerkDetection(
-								"Wisp",
-								"while hunting, the ghost fully crossed burning Holy Oil and carried an enabled Fire ParticleEmitter",
-								99
-							)
-							updateGhostIdentification(ghost)
-						end
-						perkTrackerState.holyOilPendingContacts[
-							model
-						] = nil
-					end
-				end
+	perkTrackerState.evaluateHolyOilWallStates(ghost)
+	for model in pairs(perkTrackerState.holyOilTrackedModels) do
+		if model.Parent then
+			if model:GetAttribute("Burning") == true then
+				perkTrackerState.evaluateHolyOilColor(model, ghost)
+			else
+				perkTrackerState.holyOilColorStates[model] = nil
 			end
-		end
-	end
-	for model, pending in pairs(
-		perkTrackerState.holyOilPendingContacts
-	) do
-		if not model.Parent
-			or pending.Ghost ~= ghost
-			or model:GetAttribute("Burning") ~= true
-			or now - pending.StartedAt > 4 then
-			perkTrackerState.holyOilPendingContacts[model] = nil
 		end
 	end
 end
@@ -5620,7 +5295,6 @@ local function updateObservablePerkTrackers(deltaTime)
 		perkTrackerState.lastLosLightingKey = nil
 		perkTrackerState.lastLosTarget = nil
 	end
-	evaluatePendingWispStart(ghost, now)
 	if perkTrackerState.analysisAccumulator >= 0.2 then
 		perkTrackerState.analysisAccumulator = 0
 		perkTrackerState.analyzeSpecter(ghost, hunting, measuredSpeed, now)
