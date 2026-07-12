@@ -76,12 +76,12 @@ function LoadScreen.new(options)
 		BackgroundColor3 = Color3.fromRGB(22, 25, 32),
 		BorderSizePixel = 0,
 	})
-	new("UICorner", {Parent = card, CornerRadius = UDim.new(0, 12)})
 	new("UIStroke", {
 		Parent = card,
 		Color = Color3.fromRGB(55, 62, 75),
 		Transparency = 0.15,
 		Thickness = 1,
+		LineJoinMode = Enum.LineJoinMode.Miter,
 	})
 
 	new("TextLabel", {
@@ -116,16 +116,12 @@ function LoadScreen.new(options)
 		BackgroundColor3 = Color3.fromRGB(49, 55, 68),
 		BorderSizePixel = 0,
 	})
-	new("UICorner", {Parent = track, CornerRadius = UDim.new(0, 5)})
-
 	local fill = new("Frame", {
 		Parent = track,
 		Size = UDim2.fromScale(0, 1),
 		BackgroundColor3 = Color3.fromRGB(93, 126, 255),
 		BorderSizePixel = 0,
 	})
-	new("UICorner", {Parent = fill, CornerRadius = UDim.new(0, 5)})
-
 	local detail = new("TextLabel", {
 		Parent = card,
 		BackgroundTransparency = 1,

@@ -17,11 +17,16 @@ function GuiLogic.new(dependencies)
 	self.Services = assert(dependencies.Services, "GuiLogic.new requires Services")
 	self.View = assert(dependencies.View, "GuiLogic.new requires View")
 	self.Player = dependencies.Player or self.Services.Players.LocalPlayer
+	self.TweenService = self.Services.TweenService or game:GetService("TweenService")
 	self.OnClose = dependencies.OnClose
 	self.Bound = false
 	self.Minimized = false
 	self.Visible = true
 	self.ExpandedSize = self.View.MainFrame.Size
+	self.DraggingSlider = false
+	self.DragTargetRatio = nil
+	self.SliderFillTween = nil
+	self.SliderKnobTween = nil
 	return self
 end
 
@@ -60,12 +65,43 @@ function GuiLogic:SetEvidenceLabel(key, text, color)
 	end
 end
 
+function GuiLogic:AnimateSlider(ratio, duration)
+	ratio = math.clamp(tonumber(ratio) or 0, 0, 1)
+	duration = math.max(tonumber(duration) or 0.14, 0)
+
+	if self.SliderFillTween then
+		self.SliderFillTween:Cancel()
+	end
+	if self.SliderKnobTween then
+		self.SliderKnobTween:Cancel()
+	end
+
+	local tweenInfo = TweenInfo.new(
+		duration,
+		Enum.EasingStyle.Quint,
+		Enum.EasingDirection.Out
+	)
+	self.SliderFillTween = self.TweenService:Create(
+		self.View.SliderFill,
+		tweenInfo,
+		{Size = UDim2.fromScale(ratio, 1)}
+	)
+	self.SliderKnobTween = self.TweenService:Create(
+		self.View.SliderKnob,
+		tweenInfo,
+		{Position = UDim2.fromScale(ratio, 0.5)}
+	)
+	self.SliderFillTween:Play()
+	self.SliderKnobTween:Play()
+end
+
 function GuiLogic:SetSpeed(value)
-	local rounded = math.clamp(math.floor((tonumber(value) or 0) + 0.5), 0, 100)
-	local ratio = rounded / 100
+	local numeric = math.clamp(tonumber(value) or 0, 0, 100)
+	local rounded = math.floor(numeric + 0.5)
+	local ratio = self.DraggingSlider and self.DragTargetRatio
+		or rounded / 100
 	self.View.SpeedValue.Text = tostring(rounded)
-	self.View.SliderFill.Size = UDim2.fromScale(ratio, 1)
-	self.View.SliderKnob.Position = UDim2.fromScale(ratio, 0.5)
+	self:AnimateSlider(ratio, self.DraggingSlider and 0.065 or 0.14)
 end
 
 function GuiLogic:SetGhostIdentification(ghostName, tier, certain)
@@ -219,33 +255,39 @@ function GuiLogic:Bind(controller)
 		end
 	end)
 
-	local draggingSlider = false
 	local function updateSlider(input)
 		local relativeX = input.Position.X - view.SliderTrack.AbsolutePosition.X
-		local ratio = math.clamp(relativeX / view.SliderTrack.AbsoluteSize.X, 0, 1)
+		local ratio = math.clamp(
+			relativeX / math.max(view.SliderTrack.AbsoluteSize.X, 1),
+			0,
+			1
+		)
+		self.DragTargetRatio = ratio
 		controller:SetSpeed(ratio * 100)
 	end
 
 	controller:Connect(view.SliderTrack.InputBegan, function(input)
 		if isPrimaryInput(input) then
-			draggingSlider = true
+			self.DraggingSlider = true
 			updateSlider(input)
 		end
 	end)
 	controller:Connect(view.SliderKnob.InputBegan, function(input)
 		if isPrimaryInput(input) then
-			draggingSlider = true
+			self.DraggingSlider = true
 			updateSlider(input)
 		end
 	end)
 	controller:Connect(services.UserInputService.InputChanged, function(input)
-		if draggingSlider and isPointerMovement(input) then
+		if self.DraggingSlider and isPointerMovement(input) then
 			updateSlider(input)
 		end
 	end)
 	controller:Connect(services.UserInputService.InputEnded, function(input)
-		if isPrimaryInput(input) then
-			draggingSlider = false
+		if self.DraggingSlider and isPrimaryInput(input) then
+			self.DraggingSlider = false
+			self.DragTargetRatio = nil
+			self:SetSpeed(view.SpeedValue.Text)
 		end
 	end)
 
@@ -297,7 +339,46 @@ function GuiLogic:Bind(controller)
 
 	local evidenceMode = view.EvidenceLabels.EvidenceMode
 	local evidenceMenu = view.EvidenceLabels.EvidenceModeMenu
+	local function positionEvidenceMenu()
+		local relativePosition = evidenceMode.AbsolutePosition
+			- view.DropdownLayer.AbsolutePosition
+		local absoluteSize = evidenceMode.AbsoluteSize
+		evidenceMenu.Position = UDim2.fromOffset(
+			math.floor(relativePosition.X + 0.5),
+			math.floor(relativePosition.Y + absoluteSize.Y + 4.5)
+		)
+		evidenceMenu.Size = UDim2.fromOffset(
+			math.max(math.floor(absoluteSize.X + 0.5), 1),
+			70
+		)
+	end
+	local function repositionOpenEvidenceMenu()
+		if evidenceMenu.Visible then
+			positionEvidenceMenu()
+		end
+	end
+	controller:Connect(
+		evidenceMode:GetPropertyChangedSignal("AbsolutePosition"),
+		repositionOpenEvidenceMenu
+	)
+	controller:Connect(
+		evidenceMode:GetPropertyChangedSignal("AbsoluteSize"),
+		repositionOpenEvidenceMenu
+	)
+	controller:Connect(
+		view.DropdownLayer:GetPropertyChangedSignal("AbsolutePosition"),
+		repositionOpenEvidenceMenu
+	)
+	controller:Connect(
+		view.Content:GetPropertyChangedSignal("CanvasPosition"),
+		function()
+			evidenceMenu.Visible = false
+		end
+	)
 	controller:Connect(evidenceMode.MouseButton1Click, function()
+		if not evidenceMenu.Visible then
+			positionEvidenceMenu()
+		end
 		evidenceMenu.Visible = not evidenceMenu.Visible
 	end)
 	for _, mode in ipairs({view.Copy.EvidenceModes.Normal, view.Copy.EvidenceModes.Mimicry}) do
@@ -311,6 +392,7 @@ function GuiLogic:Bind(controller)
 
 	controller:Connect(view.MinimizeButton.MouseButton1Click, function()
 		self.Minimized = not self.Minimized
+		evidenceMenu.Visible = false
 		if self.Minimized then
 			self.ExpandedSize = view.MainFrame.Size
 			view.Content.Visible = false
@@ -340,6 +422,9 @@ function GuiLogic:Bind(controller)
 		if not gameProcessed and input.KeyCode == Enum.KeyCode.RightControl then
 			self.Visible = not self.Visible
 			view.MainFrame.Visible = self.Visible
+			if not self.Visible then
+				evidenceMenu.Visible = false
+			end
 		end
 	end)
 

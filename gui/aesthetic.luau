@@ -134,24 +134,19 @@ local function new(className, properties)
 	end
 	return object
 end
-local function addCorner(parent, radius)
-	return new("UICorner", {
-		Parent = parent,
-		CornerRadius = UDim.new(0, radius or 8),
-	})
-end
 local function addStroke(parent, color, transparency, thickness)
 	return new("UIStroke", {
 		Parent = parent,
 		Color = color or COLORS.stroke,
 		Transparency = transparency or 0,
 		Thickness = thickness or 1,
+		LineJoinMode = Enum.LineJoinMode.Miter,
 	})
 end
 local gui = new("ScreenGui", {
 	Name = "UntitledGui",
 	ResetOnSpawn = false,
-	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+	ZIndexBehavior = Enum.ZIndexBehavior.Global,
 	IgnoreGuiInset = false,
 })
 if Services.RunService:IsStudio() then
@@ -183,7 +178,6 @@ local mainFrame = new("Frame", {
 	BorderSizePixel = 0,
 	ClipsDescendants = true,
 })
-addCorner(mainFrame, 11)
 addStroke(mainFrame, COLORS.stroke, 0.15, 1)
 local sizeConstraint = new("UISizeConstraint", {
 	Parent = mainFrame,
@@ -224,7 +218,6 @@ local minimizeButton = new("TextButton", {
 	TextColor3 = COLORS.muted,
 	TextSize = 18,
 })
-addCorner(minimizeButton, 7)
 local closeButton = new("TextButton", {
 	Name = "Close",
 	Parent = titleBar,
@@ -239,7 +232,6 @@ local closeButton = new("TextButton", {
 	TextColor3 = Color3.new(1, 1, 1),
 	TextSize = 17,
 })
-addCorner(closeButton, 7)
 local content = new("ScrollingFrame", {
 	Name = "Content",
 	Parent = mainFrame,
@@ -273,7 +265,6 @@ local evidenceCard = new("Frame", {
 	BackgroundColor3 = COLORS.card,
 	BorderSizePixel = 0,
 })
-addCorner(evidenceCard, 9)
 addStroke(evidenceCard, COLORS.stroke, 0.3, 1)
 new("UIPadding", {
 	Parent = evidenceCard,
@@ -322,7 +313,6 @@ local controlsCard = new("Frame", {
 	BackgroundColor3 = COLORS.card,
 	BorderSizePixel = 0,
 })
-addCorner(controlsCard, 9)
 addStroke(controlsCard, COLORS.stroke, 0.3, 1)
 new("UIPadding", {
 	Parent = controlsCard,
@@ -351,7 +341,6 @@ local function createToggleButton(name, text, order)
 		TextColor3 = COLORS.text,
 		TextSize = 13,
 	})
-	addCorner(button, 7)
 	addStroke(button, COLORS.stroke, 0.4, 1)
 	return button
 end
@@ -370,18 +359,25 @@ evidenceLabels.EvidenceMode = createToggleButton(
 	Aesthetic.Copy.Controls.EvidenceMode .. ": " .. Aesthetic.Copy.EvidenceModes.Normal .. " ▼",
 	11
 )
-evidenceLabels.EvidenceMode.ClipsDescendants = false
+local dropdownLayer = new("Frame", {
+	Name = "DropdownLayer",
+	Parent = gui,
+	Size = UDim2.fromScale(1, 1),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	Active = false,
+	ZIndex = 100,
+})
 evidenceLabels.EvidenceModeMenu = new("Frame", {
 	Name = "Options",
-	Parent = evidenceLabels.EvidenceMode,
-	Position = UDim2.new(0, 0, 1, 4),
-	Size = UDim2.new(1, 0, 0, 70),
+	Parent = dropdownLayer,
+	Position = UDim2.fromOffset(0, 0),
+	Size = UDim2.fromOffset(1, 70),
 	BackgroundColor3 = COLORS.card,
 	BorderSizePixel = 0,
 	Visible = false,
-	ZIndex = 30,
+	ZIndex = 101,
 })
-addCorner(evidenceLabels.EvidenceModeMenu, 7)
 addStroke(evidenceLabels.EvidenceModeMenu, COLORS.stroke, 0.2, 1)
 new("UIListLayout", {
 	Parent = evidenceLabels.EvidenceModeMenu,
@@ -397,7 +393,7 @@ new("TextButton", {
 	Text = Aesthetic.Copy.EvidenceModes.Normal,
 	TextColor3 = COLORS.text,
 	TextSize = 13,
-	ZIndex = 31,
+	ZIndex = 102,
 })
 new("TextButton", {
 	Name = "Mimicry",
@@ -409,22 +405,16 @@ new("TextButton", {
 	Text = Aesthetic.Copy.EvidenceModes.Mimicry,
 	TextColor3 = COLORS.orangeGold,
 	TextSize = 13,
-	ZIndex = 31,
+	ZIndex = 102,
 })
-local walkSpeedForcerButton = createToggleButton(
-	"WalkSpeedForcer",
-	Aesthetic.Copy.Controls.WalkSpeedForcer,
-	12
-)
 local speedCard = new("Frame", {
 	Name = "SpeedSlider",
 	Parent = content,
 	LayoutOrder = 3,
-	Size = UDim2.new(1, 0, 0, 88),
+	Size = UDim2.new(1, 0, 0, 132),
 	BackgroundColor3 = COLORS.card,
 	BorderSizePixel = 0,
 })
-addCorner(speedCard, 9)
 addStroke(speedCard, COLORS.stroke, 0.3, 1)
 new("TextLabel", {
 	Parent = speedCard,
@@ -458,7 +448,6 @@ local sliderTrack = new("Frame", {
 	BackgroundColor3 = COLORS.track,
 	BorderSizePixel = 0,
 })
-addCorner(sliderTrack, 4)
 local sliderFill = new("Frame", {
 	Name = "Fill",
 	Parent = sliderTrack,
@@ -466,7 +455,6 @@ local sliderFill = new("Frame", {
 	BackgroundColor3 = COLORS.accent,
 	BorderSizePixel = 0,
 })
-addCorner(sliderFill, 4)
 local sliderKnob = new("Frame", {
 	Name = "Knob",
 	Parent = sliderTrack,
@@ -477,8 +465,21 @@ local sliderKnob = new("Frame", {
 	BackgroundColor3 = COLORS.text,
 	BorderSizePixel = 0,
 })
-addCorner(sliderKnob, 9)
 addStroke(sliderKnob, COLORS.accentDark, 0, 2)
+local walkSpeedForcerButton = new("TextButton", {
+	Name = "WalkSpeedForcer",
+	Parent = speedCard,
+	Position = UDim2.fromOffset(14, 78),
+	Size = UDim2.new(1, -28, 0, 38),
+	AutoButtonColor = false,
+	BackgroundColor3 = COLORS.cardHover,
+	BorderSizePixel = 0,
+	Font = Enum.Font.GothamMedium,
+	Text = Aesthetic.Copy.Controls.WalkSpeedForcer,
+	TextColor3 = COLORS.text,
+	TextSize = 13,
+})
+addStroke(walkSpeedForcerButton, COLORS.stroke, 0.4, 1)
 local resizeHandle = new("TextButton", {
 	Name = "ResizeHandle",
 	Parent = mainFrame,
@@ -503,6 +504,7 @@ local resizeHandle = new("TextButton", {
 		MinimizeButton = minimizeButton,
 		CloseButton = closeButton,
 		Content = content,
+		DropdownLayer = dropdownLayer,
 		EvidenceLabels = evidenceLabels,
 		SpeedValue = speedValue,
 		SliderTrack = sliderTrack,

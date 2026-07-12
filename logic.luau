@@ -8,6 +8,7 @@ local environment = (getgenv and getgenv()) or _G
 local Services = {
 	Players = game:GetService("Players"),
 	RunService = game:GetService("RunService"),
+	TweenService = game:GetService("TweenService"),
 	UserInputService = game:GetService("UserInputService"),
 	Lighting = game:GetService("Lighting"),
 	CoreGui = game:GetService("CoreGui"),
