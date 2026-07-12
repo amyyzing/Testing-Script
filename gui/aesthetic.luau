@@ -28,6 +28,7 @@ Aesthetic.Copy = {
 		ToggleFuseBox = "Toggle Fuse Box",
 		EvidenceMode = "Evidence Mode",
 		Speed = "Speed",
+		WalkSpeedForcer = "WalkSpeed Forcer",
 	},
 	EvidenceModes = {
 		Normal = "Normal",
@@ -410,6 +411,11 @@ new("TextButton", {
 	TextSize = 13,
 	ZIndex = 31,
 })
+local walkSpeedForcerButton = createToggleButton(
+	"WalkSpeedForcer",
+	Aesthetic.Copy.Controls.WalkSpeedForcer,
+	12
+)
 local speedCard = new("Frame", {
 	Name = "SpeedSlider",
 	Parent = content,
@@ -516,6 +522,7 @@ local resizeHandle = new("TextButton", {
 			AutoSpiritBox = autoSpiritBoxButton,
 			RandomLights = randomLightsButton,
 			ToggleFuseBox = toggleFuseBoxButton,
+			WalkSpeedForcer = walkSpeedForcerButton,
 		},
 	}
 end
