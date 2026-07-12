@@ -1,0 +1,27 @@
+{
+  "languageMode": "nonstrict",
+  "globals": [
+    "game",
+    "workspace",
+    "Instance",
+    "Enum",
+    "Color3",
+    "Vector2",
+    "Vector3",
+    "UDim",
+    "UDim2",
+    "CFrame",
+    "Random",
+    "RaycastParams",
+    "OverlapParams",
+    "task",
+    "typeof",
+    "getgenv",
+    "gethui",
+    "firesignal",
+    "getconnections",
+    "fireproximityprompt",
+    "loadstring",
+    "load"
+  ]
+}

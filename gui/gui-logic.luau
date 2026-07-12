@@ -1,0 +1,346 @@
+local GuiLogic = {}
+GuiLogic.__index = GuiLogic
+
+local function isPrimaryInput(input)
+	return input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch
+end
+
+local function isPointerMovement(input)
+	return input.UserInputType == Enum.UserInputType.MouseMovement
+		or input.UserInputType == Enum.UserInputType.Touch
+end
+
+function GuiLogic.new(dependencies)
+	dependencies = dependencies or {}
+	local self = setmetatable({}, GuiLogic)
+	self.Services = assert(dependencies.Services, "GuiLogic.new requires Services")
+	self.View = assert(dependencies.View, "GuiLogic.new requires View")
+	self.Player = dependencies.Player or self.Services.Players.LocalPlayer
+	self.OnClose = dependencies.OnClose
+	self.Bound = false
+	self.Minimized = false
+	self.Visible = true
+	self.ExpandedSize = self.View.MainFrame.Size
+	return self
+end
+
+function GuiLogic:SetButtonEnabled(button, enabled)
+	local colors = self.View.Colors
+	button.BackgroundColor3 = enabled and colors.accentDark or colors.cardHover
+	button.TextColor3 = enabled and Color3.new(1, 1, 1) or colors.text
+end
+
+function GuiLogic:FlashButton(button, text)
+	if not button or not button.Parent then
+		return
+	end
+	local original = button:GetAttribute("DefaultText") or button.Text
+	button:SetAttribute("DefaultText", original)
+	local token = (button:GetAttribute("FlashToken") or 0) + 1
+	button:SetAttribute("FlashToken", token)
+	button.Text = text or self.View.Copy.Actions.Fired
+	task.delay(1, function()
+		if button.Parent and button:GetAttribute("FlashToken") == token then
+			button.Text = button:GetAttribute("DefaultText") or original
+		end
+	end)
+end
+
+function GuiLogic:SetEvidenceLabel(key, text, color)
+	local label = self.View.EvidenceLabels[key]
+	if not label then
+		return
+	end
+	if text ~= nil then
+		label.Text = text
+	end
+	if color ~= nil then
+		label.TextColor3 = color
+	end
+end
+
+function GuiLogic:SetSpeed(value)
+	local rounded = math.clamp(math.floor((tonumber(value) or 0) + 0.5), 0, 100)
+	local ratio = rounded / 100
+	self.View.SpeedValue.Text = tostring(rounded)
+	self.View.SliderFill.Size = UDim2.fromScale(ratio, 1)
+	self.View.SliderKnob.Position = UDim2.fromScale(ratio, 0.5)
+end
+
+function GuiLogic:SetGhostIdentification(ghostName, tier, certain)
+	local label = self.View.EvidenceLabels.Ghost
+	if not ghostName then
+		label.Text = self.View.Copy.Evidence.Ghost .. ": Unknown (" .. self.View.Copy.States.Idk .. ")"
+		label.TextColor3 = self.View.Colors.muted
+		return
+	end
+	if certain then
+		label.Text = self.View.Copy.Evidence.Ghost
+			.. ": "
+			.. tostring(ghostName)
+			.. " ("
+			.. self.View.Copy.States.Certain
+			.. ")"
+		label.TextColor3 = self.View.Colors.green
+		return
+	end
+	local colorsByTier = {
+		["Pretty Sure"] = self.View.Colors.gold,
+		Maybe = self.View.Colors.orangeGold,
+		Idk = self.View.Colors.red,
+	}
+	label.Text = self.View.Copy.Evidence.Ghost
+		.. ": "
+		.. tostring(ghostName)
+		.. " ("
+		.. tostring(tier or self.View.Copy.States.Idk)
+		.. ")"
+	label.TextColor3 = colorsByTier[tier] or self.View.Colors.muted
+end
+
+function GuiLogic:SetFavouriteRoom(roomName)
+	self.View.EvidenceLabels.FavouriteRoom.Text = roomName and tostring(roomName) ~= ""
+		and (self.View.Copy.Evidence.FavouriteRoom .. ": " .. tostring(roomName))
+		or (self.View.Copy.Evidence.FavouriteRoom .. ": ...")
+end
+
+function GuiLogic:SetTemperature(value, freezing)
+	local label = self.View.EvidenceLabels.Temperature
+	label.Text = typeof(value) == "number" and string.format("%.1f°C", value) or "--.-°C"
+	label.TextColor3 = freezing and self.View.Colors.green or self.View.Colors.text
+end
+
+function GuiLogic:ResetEvidence()
+	local labels = self.View.EvidenceLabels
+	local evidenceCopy = self.View.Copy.Evidence
+	local names = {
+		Print = evidenceCopy.Print,
+		SpiritBox = evidenceCopy.SpiritBox,
+		Orb = evidenceCopy.Orb,
+		Inscription = evidenceCopy.Inscription,
+		Laser = evidenceCopy.Laser,
+		Wither = evidenceCopy.Wither,
+	}
+	for key, name in pairs(names) do
+		labels[key].Text = name .. ": " .. self.View.Copy.States.Unknown
+		labels[key].TextColor3 = self.View.Colors.muted
+	end
+	labels.EMF.Text = "EMF-1"
+	labels.EMF.TextColor3 = self.View.Colors.muted
+	self:SetTemperature(nil, false)
+	self:SetFavouriteRoom(nil)
+	self:SetGhostIdentification(nil)
+end
+
+function GuiLogic:Notify(message)
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("SendNotification", {
+			Title = self.View.Copy.Title,
+			Text = tostring(message),
+			Duration = 4,
+		})
+	end)
+end
+
+function GuiLogic:Bind(controller)
+	assert(not self.Bound, "GuiLogic is already bound")
+	self.Bound = true
+	self.Controller = controller
+
+	local services = self.Services
+	local view = self.View
+	local buttons = view.Buttons
+	local draggingWindow = false
+	local dragStart
+	local windowStartPosition
+
+	controller:Connect(view.TitleBar.InputBegan, function(input)
+		if isPrimaryInput(input) then
+			draggingWindow = true
+			dragStart = input.Position
+			windowStartPosition = view.MainFrame.Position
+		end
+	end)
+
+	controller:Connect(services.UserInputService.InputChanged, function(input)
+		if draggingWindow and isPointerMovement(input) then
+			local delta = input.Position - dragStart
+			view.MainFrame.Position = UDim2.new(
+				windowStartPosition.X.Scale,
+				windowStartPosition.X.Offset + delta.X,
+				windowStartPosition.Y.Scale,
+				windowStartPosition.Y.Offset + delta.Y
+			)
+		end
+	end)
+
+	controller:Connect(services.UserInputService.InputEnded, function(input)
+		if isPrimaryInput(input) then
+			draggingWindow = false
+		end
+	end)
+
+	local resizing = false
+	local resizeStart
+	local resizeStartSize
+	local resizeStartPosition
+
+	controller:Connect(view.ResizeHandle.InputBegan, function(input)
+		if isPrimaryInput(input) then
+			resizing = true
+			resizeStart = input.Position
+			resizeStartSize = view.MainFrame.AbsoluteSize
+			resizeStartPosition = view.MainFrame.Position
+		end
+	end)
+
+	controller:Connect(services.UserInputService.InputChanged, function(input)
+		if resizing and isPointerMovement(input) then
+			local delta = input.Position - resizeStart
+			local width = math.clamp(resizeStartSize.X - delta.X, 330, 620)
+			local height = math.clamp(resizeStartSize.Y + delta.Y, 430, 780)
+			local appliedDeltaX = resizeStartSize.X - width
+			local appliedDeltaY = height - resizeStartSize.Y
+			view.MainFrame.Size = UDim2.fromOffset(width, height)
+			view.MainFrame.Position = UDim2.new(
+				resizeStartPosition.X.Scale,
+				resizeStartPosition.X.Offset + appliedDeltaX / 2,
+				resizeStartPosition.Y.Scale,
+				resizeStartPosition.Y.Offset + appliedDeltaY / 2
+			)
+			self.ExpandedSize = view.MainFrame.Size
+		end
+	end)
+
+	controller:Connect(services.UserInputService.InputEnded, function(input)
+		if isPrimaryInput(input) then
+			resizing = false
+		end
+	end)
+
+	local draggingSlider = false
+	local function updateSlider(input)
+		local relativeX = input.Position.X - view.SliderTrack.AbsolutePosition.X
+		local ratio = math.clamp(relativeX / view.SliderTrack.AbsoluteSize.X, 0, 1)
+		controller:SetSpeed(ratio * 100)
+	end
+
+	controller:Connect(view.SliderTrack.InputBegan, function(input)
+		if isPrimaryInput(input) then
+			draggingSlider = true
+			updateSlider(input)
+		end
+	end)
+	controller:Connect(view.SliderKnob.InputBegan, function(input)
+		if isPrimaryInput(input) then
+			draggingSlider = true
+			updateSlider(input)
+		end
+	end)
+	controller:Connect(services.UserInputService.InputChanged, function(input)
+		if draggingSlider and isPointerMovement(input) then
+			updateSlider(input)
+		end
+	end)
+	controller:Connect(services.UserInputService.InputEnded, function(input)
+		if isPrimaryInput(input) then
+			draggingSlider = false
+		end
+	end)
+
+	controller:Connect(buttons.GhostEsp.MouseButton1Click, function()
+		controller:ToggleGhostEsp()
+	end)
+	controller:Connect(buttons.HuntEscape.MouseButton1Click, function()
+		controller:ToggleHuntEscape()
+	end)
+	controller:Connect(buttons.ItemEsp.MouseButton1Click, function()
+		controller:ToggleItemEsp()
+	end)
+	controller:Connect(buttons.FullBright.MouseButton1Click, function()
+		controller:ToggleFullBright()
+	end)
+	controller:Connect(buttons.TeleportBaseCamp.MouseButton1Click, function()
+		local ok, reason = controller:TeleportToBaseCamp()
+		if ok == false then
+			self:Notify(reason)
+		end
+	end)
+	controller:Connect(buttons.TeleportFavouriteRoom.MouseButton1Click, function()
+		local ok, reason = controller:TeleportToFavouriteRoom()
+		if ok == false then
+			self:Notify(reason)
+		end
+	end)
+	controller:Connect(buttons.PlaceRoomItems.MouseButton1Click, function()
+		controller:PlaceRoomItems()
+	end)
+	controller:Connect(buttons.AutoSpiritBox.MouseButton1Click, function()
+		controller:ToggleAutoSpiritBox()
+	end)
+	controller:Connect(buttons.RandomLights.MouseButton1Click, function()
+		local ok, reason = controller:ToggleRandomLights()
+		if ok == false then
+			self:Notify(reason)
+		end
+	end)
+	controller:Connect(buttons.ToggleFuseBox.MouseButton1Click, function()
+		local ok, reason = controller:ToggleFuseBox()
+		if ok == false then
+			self:Notify(reason)
+		end
+	end)
+
+	local evidenceMode = view.EvidenceLabels.EvidenceMode
+	local evidenceMenu = view.EvidenceLabels.EvidenceModeMenu
+	controller:Connect(evidenceMode.MouseButton1Click, function()
+		evidenceMenu.Visible = not evidenceMenu.Visible
+	end)
+	for _, mode in ipairs({view.Copy.EvidenceModes.Normal, view.Copy.EvidenceModes.Mimicry}) do
+		local option = evidenceMenu:FindFirstChild(mode)
+		controller:Connect(option.MouseButton1Click, function()
+			controller:SetEvidenceMode(mode)
+			evidenceMode.Text = view.Copy.Controls.EvidenceMode .. ": " .. mode .. " ▼"
+			evidenceMenu.Visible = false
+		end)
+	end
+
+	controller:Connect(view.MinimizeButton.MouseButton1Click, function()
+		self.Minimized = not self.Minimized
+		if self.Minimized then
+			self.ExpandedSize = view.MainFrame.Size
+			view.Content.Visible = false
+			view.ResizeHandle.Visible = false
+			view.SizeConstraint.MinSize = Vector2.new(330, 42)
+			view.SizeConstraint.MaxSize = Vector2.new(620, 42)
+			view.MainFrame.Size = UDim2.fromOffset(math.max(view.MainFrame.AbsoluteSize.X, 330), 42)
+			view.MinimizeButton.Text = "+"
+		else
+			view.SizeConstraint.MinSize = Vector2.new(330, 430)
+			view.SizeConstraint.MaxSize = Vector2.new(620, 780)
+			view.MainFrame.Size = self.ExpandedSize
+			view.Content.Visible = true
+			view.ResizeHandle.Visible = true
+			view.MinimizeButton.Text = "–"
+		end
+	end)
+
+	controller:Connect(view.CloseButton.MouseButton1Click, function()
+		if self.OnClose then
+			self.OnClose()
+		else
+			controller:Destroy()
+		end
+	end)
+	controller:Connect(services.UserInputService.InputBegan, function(input, gameProcessed)
+		if not gameProcessed and input.KeyCode == Enum.KeyCode.RightControl then
+			self.Visible = not self.Visible
+			view.MainFrame.Visible = self.Visible
+		end
+	end)
+
+	return self
+end
+
+return GuiLogic
