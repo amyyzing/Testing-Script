@@ -4419,6 +4419,9 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 		if not observation.AswangResolved
 			and observation.Disturbed
 			and observation.Ghost == ghost
+			and hunting
+			and observation.HuntingAtTouch == true
+			and not observation.Synthetic
 			and observation.BaselineReliable
 			and typeof(observation.PreSpeed) == "number"
 			and observation.PreSpeed > 0
@@ -4450,7 +4453,7 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 					perkTrackerState.clearGhostRuleOut("Aswang")
 					recordPerkDetection(
 						"Aswang",
-						"the Wraith salt-contact observation became disturbed and the ghost's WalkSpeed then dropped across repeated samples",
+						"during a hunt, the ghost directly touched salt, that pile became disturbed, and its WalkSpeed dropped across repeated samples",
 						99
 					)
 					updateGhostIdentification(ghost)
@@ -4460,7 +4463,7 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 					observation.AswangResolved = true
 					perkTrackerState.ruleOutGhost(
 						"Aswang",
-						"the full post-contact window completed with no meaningful WalkSpeed slowdown after the salt became disturbed",
+						"during a hunt, the directly touched salt became disturbed but the full post-contact window showed no meaningful WalkSpeed slowdown",
 						92
 					)
 				end
