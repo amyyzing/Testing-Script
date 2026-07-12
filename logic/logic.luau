@@ -115,6 +115,7 @@ local perkTrackerState = {
 	lastPosition = nil,
 	lastSampleTime = nil,
 	lastHunting = nil,
+	huntingAttributeConnection = nil,
 	motionSamples = {},
 	losSamples = {},
 	energySamples = {},
@@ -125,7 +126,14 @@ local perkTrackerState = {
 	vexLastValue = nil,
 	updateVexState = function() end,
 	wendigoSnapshots = {},
-	wendigoPendingTransition = nil,
+	wendigoPendingTransitions = {},
+	wendigoLastQueuedHunting = nil,
+	wendigoTransitionSequence = 0,
+	queueWendigoTransition = function() end,
+	wispRoomMismatchKey = nil,
+	wispRoomMismatchSince = nil,
+	wispRoomMismatchSamples = 0,
+	wispRoomNegativeRecordedThisHunt = false,
 	nonHuntWalkSpeedSamples = {},
 	transparencyAttributeConnection = nil,
 	specterInitialized = false,
@@ -2429,7 +2437,14 @@ local function resetPerkTrackerForGhost(ghost)
 	perkTrackerState.analysisAccumulator = 0
 	perkTrackerState.lastPosition = nil
 	perkTrackerState.lastSampleTime = nil
-	perkTrackerState.lastHunting = ghost and ghost:GetAttribute("Hunting") == true or nil
+	if perkTrackerState.huntingAttributeConnection then
+		perkTrackerState.huntingAttributeConnection:Disconnect()
+		perkTrackerState.huntingAttributeConnection = nil
+	end
+	local initialHunting = if ghost
+		then ghost:GetAttribute("Hunting") == true
+		else nil
+	perkTrackerState.lastHunting = initialHunting
 	perkTrackerState.motionSamples = {}
 	perkTrackerState.losSamples = {}
 	perkTrackerState.energySamples = {}
@@ -2443,7 +2458,13 @@ local function resetPerkTrackerForGhost(ghost)
 	perkTrackerState.lastTransparencyTransitionTime = nil
 	perkTrackerState.vexLastValue = nil
 	perkTrackerState.wendigoSnapshots = {}
-	perkTrackerState.wendigoPendingTransition = nil
+	perkTrackerState.wendigoPendingTransitions = {}
+	perkTrackerState.wendigoLastQueuedHunting = initialHunting
+	perkTrackerState.wendigoTransitionSequence = 0
+	perkTrackerState.wispRoomMismatchKey = nil
+	perkTrackerState.wispRoomMismatchSince = nil
+	perkTrackerState.wispRoomMismatchSamples = 0
+	perkTrackerState.wispRoomNegativeRecordedThisHunt = false
 	perkTrackerState.nonHuntWalkSpeedSamples = {}
 	perkTrackerState.specterInitialized = false
 	perkTrackerState.specterInFavourite = false
@@ -2457,6 +2478,18 @@ local function resetPerkTrackerForGhost(ghost)
 	perkTrackerState.specterRoomChangePause = false
 	perkTrackerState.specterRoomChangeSettleSince = nil
 	if ghost then
+		perkTrackerState.huntingAttributeConnection = connect(
+			ghost:GetAttributeChangedSignal("Hunting"),
+			function()
+				if closed or perkTrackerState.ghost ~= ghost then
+					return
+				end
+				perkTrackerState.queueWendigoTransition(
+					ghost:GetAttribute("Hunting") == true,
+					os.clock()
+				)
+			end
+		)
 		local initialTransparency = ghost:GetAttribute("Transparency")
 		if typeof(initialTransparency) == "boolean" then
 			perkTrackerState.lastTransparencyState = initialTransparency
@@ -2636,6 +2669,37 @@ local function getAverageTeamEnergy()
 		total = total + energy
 	end
 	return total / playerCount
+end
+perkTrackerState.queueWendigoTransition = function(hunting, now)
+	if perkTrackerState.wendigoLastQueuedHunting == hunting then
+		return false
+	end
+	perkTrackerState.wendigoLastQueuedHunting = hunting
+	perkTrackerState.wendigoTransitionSequence =
+		perkTrackerState.wendigoTransitionSequence + 1
+	local sequence = perkTrackerState.wendigoTransitionSequence
+	local sanity = getAverageTeamEnergy()
+	if typeof(sanity) ~= "number" then
+		return false
+	end
+	local ghost = perkTrackerState.ghost
+	if not ghost then
+		return false
+	end
+	local pending = perkTrackerState.wendigoPendingTransitions
+	table.insert(pending, {
+		Ghost = ghost,
+		Sequence = sequence,
+		Sanity = sanity,
+		Hunting = hunting,
+		TransitionAt = now,
+		CaptureAt = now + 0.1,
+		ExpiresAt = now + 0.65,
+	})
+	while #pending > 4 do
+		table.remove(pending, 1)
+	end
+	return true
 end
 local losRaycastParams = RaycastParams.new()
 losRaycastParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -3191,12 +3255,13 @@ local function handleHuntTransition(ghost, hunting, now)
 		return
 	end
 	if hunting ~= previous then
-		perkTrackerState.wendigoPendingTransition = {
-			Sanity = getAverageTeamEnergy(),
-			Hunting = hunting,
-			CaptureAt = now + 0.1,
-			ExpiresAt = now + 0.65,
-		}
+		perkTrackerState.queueWendigoTransition(hunting, now)
+		perkTrackerState.wispRoomMismatchKey = nil
+		perkTrackerState.wispRoomMismatchSince = nil
+		perkTrackerState.wispRoomMismatchSamples = 0
+		if hunting then
+			perkTrackerState.wispRoomNegativeRecordedThisHunt = false
+		end
 	end
 	if hunting and not previous then
 		perkTrackerState.evaluateHolyOilAtHuntStart(ghost)
@@ -3276,40 +3341,99 @@ local function handleHuntTransition(ghost, hunting, now)
 	perkTrackerState.lastHunting = hunting
 end
 local function capturePendingWendigoTransition(ghost, now)
-	local pending = perkTrackerState.wendigoPendingTransition
-	if not pending then
+	local pendingTransitions = perkTrackerState.wendigoPendingTransitions
+	for index = #pendingTransitions, 1, -1 do
+		local pending = pendingTransitions[index]
+		local wrongState = not ghost
+			or pending.Ghost ~= ghost
+			or pending.Sequence ~= perkTrackerState.wendigoTransitionSequence
+			or (ghost:GetAttribute("Hunting") == true) ~= pending.Hunting
+		if wrongState or now > pending.ExpiresAt then
+			table.remove(pendingTransitions, index)
+		elseif now >= pending.CaptureAt then
+			local humanoid = ghost:FindFirstChildOfClass("Humanoid")
+			local walkSpeed = humanoid and humanoid.WalkSpeed or nil
+			if typeof(walkSpeed) == "number" and walkSpeed > 0 then
+				local snapshots = perkTrackerState.wendigoSnapshots
+				table.insert(snapshots, {
+					Time = now,
+					TransitionAt = pending.TransitionAt,
+					Sanity = math.clamp(pending.Sanity, 0, 100),
+					Speed = walkSpeed,
+					Hunting = pending.Hunting,
+				})
+				while #snapshots > 3 do
+					table.remove(snapshots, 1)
+				end
+				table.remove(pendingTransitions, index)
+			end
+		end
+	end
+end
+local function resetWispRoomMismatchCandidate()
+	perkTrackerState.wispRoomMismatchKey = nil
+	perkTrackerState.wispRoomMismatchSince = nil
+	perkTrackerState.wispRoomMismatchSamples = 0
+end
+local function updateWispOffFavouriteNegative(ghost, hunting, now)
+	if not ghost
+		or not hunting
+		or perkTrackerState.wispRoomNegativeRecordedThisHunt then
+		resetWispRoomMismatchCandidate()
 		return
 	end
-	if now > pending.ExpiresAt then
-		perkTrackerState.wendigoPendingTransition = nil
+	local strongWispDetection = perkDetections.Wisp
+	if strongWispDetection
+		and (strongWispDetection.Confidence or 0) >= 99 then
+		resetWispRoomMismatchCandidate()
 		return
 	end
-	if now < pending.CaptureAt then
+	local favouriteName = ghost:GetAttribute("FavoriteRoom")
+	local currentName = ghost:GetAttribute("CurrentRoom")
+	if type(favouriteName) ~= "string"
+		or favouriteName == ""
+		or type(currentName) ~= "string"
+		or currentName == ""
+		or sameRoomName(currentName, favouriteName) then
+		resetWispRoomMismatchCandidate()
 		return
 	end
-	local sanity = pending.Sanity
-	if typeof(sanity) ~= "number" then
-		sanity = getAverageTeamEnergy()
-	end
-	local numericSanity = tonumber(sanity)
-	local humanoid = ghost and ghost:FindFirstChildOfClass("Humanoid")
-	local walkSpeed = humanoid and humanoid.WalkSpeed or nil
-	if not numericSanity
-		or typeof(walkSpeed) ~= "number"
-		or walkSpeed <= 0 then
+	local roomsFolder = findRoomsFolder()
+	local favouriteRoom = findFavouriteRoom(roomsFolder, favouriteName)
+	local currentRoom = findFavouriteRoom(roomsFolder, currentName)
+	if not favouriteRoom
+		or not currentRoom
+		or not instanceIsInsideRoom(ghost, currentRoom)
+		or instanceIsInsideRoom(ghost, favouriteRoom) then
+		resetWispRoomMismatchCandidate()
 		return
 	end
-	local snapshots = perkTrackerState.wendigoSnapshots
-	table.insert(snapshots, {
-		Time = now,
-		Sanity = math.clamp(numericSanity, 0, 100),
-		Speed = walkSpeed,
-		Hunting = pending.Hunting,
-	})
-	while #snapshots > 3 do
-		table.remove(snapshots, 1)
+	local mismatchKey = string.lower(favouriteRoom.Name)
+		.. "\0"
+		.. string.lower(currentRoom.Name)
+	if perkTrackerState.wispRoomMismatchKey ~= mismatchKey then
+		perkTrackerState.wispRoomMismatchKey = mismatchKey
+		perkTrackerState.wispRoomMismatchSince = now
+		perkTrackerState.wispRoomMismatchSamples = 1
+		return
 	end
-	perkTrackerState.wendigoPendingTransition = nil
+	perkTrackerState.wispRoomMismatchSamples =
+		perkTrackerState.wispRoomMismatchSamples + 1
+	if perkTrackerState.wispRoomMismatchSamples < 4
+		or now - (perkTrackerState.wispRoomMismatchSince or now) < 0.3 then
+		return
+	end
+	perkTrackerState.wispRoomNegativeRecordedThisHunt = true
+	resetWispRoomMismatchCandidate()
+	perkTrackerState.ruleOutGhost(
+		"Wisp",
+		"during a hunt, the ghost was verified in "
+			.. currentRoom.Name
+			.. " instead of favourite room "
+			.. favouriteRoom.Name,
+		95
+	)
+	updateGhostIdentification(ghost)
 end
 local function analyzePhantom(now)
 	local samples = {}
@@ -3703,11 +3827,14 @@ local function analyzeWendigo()
 			end
 		end
 
-		if nearestError > 0.0035 then
+		local expectedSpeed = mapFactor * baseSpeed * nearest
+		local speedError = math.abs(snapshot.Speed - expectedSpeed)
+		local speedTolerance = math.max(0.18, expectedSpeed * 0.02)
+		if speedError > speedTolerance then
 			invalidReason =
 				"observed multiplier "
-				.. string.format("%.4f", inferred)
-				.. " was not one of the configured 50%-200% steps"
+					.. string.format("%.4f", inferred)
+					.. " was outside the allowed replication tolerance for the nearest configured 50%-200% step"
 			break
 		end
 
@@ -3737,7 +3864,7 @@ local function analyzeWendigo()
 			tostring(requiredSnapshots)
 				.. " hunt-state transition WalkSpeed snapshot"
 				.. (requiredSnapshots == 1 and "" or "s")
-				.. " exactly matched the 9-14 sanity curve at "
+				.. " matched the switch-time average-sanity curve within replication tolerance at "
 				.. tostring(
 					math.floor(matchedMultiplier * 100 + 0.5)
 				)
@@ -5114,6 +5241,7 @@ local function updateObservablePerkTrackers(deltaTime)
 	perkTrackerState.updateHolyOilTracker(0.1, ghost, now)
 	perkTrackerState.updateObjectTeleportTracker(0.1, now)
 	handleHuntTransition(ghost, hunting, now)
+	updateWispOffFavouriteNegative(ghost, hunting, now)
 	capturePendingWendigoTransition(ghost, now)
 	if hunting then
 		analyzeDullahan(now)
