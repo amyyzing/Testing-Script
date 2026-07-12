@@ -12,6 +12,7 @@
     "UDim2",
     "CFrame",
     "Random",
+    "TweenInfo",
     "RaycastParams",
     "OverlapParams",
     "task",
