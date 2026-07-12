@@ -87,6 +87,7 @@ local favouriteRoomBillboard
 local favouriteRoomBillboardLabel
 local favouriteRoomBillboardTarget
 local freezingEvidenceFound = false
+local lowestRecordedTemperature = nil
 local spiritBoxTentative = false
 local speedLockConnection
 local perkDetections = {}
@@ -124,8 +125,7 @@ local perkTrackerState = {
 	vexLastValue = nil,
 	updateVexState = function() end,
 	wendigoSnapshots = {},
-	wendigoNextSnapshotAt = 0,
-	wendigoSnapshotRandom = Random.new(),
+	wendigoPendingTransition = nil,
 	nonHuntWalkSpeedSamples = {},
 	transparencyAttributeConnection = nil,
 	specterInitialized = false,
@@ -175,6 +175,10 @@ local perkTrackerState = {
 	ravagerTrackedObjects = setmetatable({}, {__mode = "k"}),
 	ravagerMotionEvents = {},
 	ravagerScanAccumulator = 0,
+	ravagerGhost = nil,
+	ravagerLastGhostPosition = nil,
+	ravagerLastGhostSampleAt = nil,
+	ravagerDetectedThisHunt = false,
 	saltTrackerInitialized = false,
 	saltFolder = nil,
 	saltTrackedLines = setmetatable({}, {__mode = "k"}),
@@ -260,6 +264,30 @@ local function confidenceTier(score)
 		or COLORS.muted
 	return tier, name, color
 end
+local function refreshPerkLogs()
+	if not presenter or not presenter.SetPerkLogs then
+		return
+	end
+	local positives = {}
+	local negatives = {}
+	for ghostName, detection in pairs(perkDetections) do
+		table.insert(positives, {
+			Ghost = ghostName,
+			Reason = detection.Reason,
+			Confidence = detection.Confidence,
+			At = detection.DetectedAt,
+		})
+	end
+	for ghostName, ruledOut in pairs(perkTrackerState.ruledOutGhosts) do
+		table.insert(negatives, {
+			Ghost = ghostName,
+			Reason = ruledOut.Reason,
+			Confidence = ruledOut.Confidence,
+			At = ruledOut.At,
+		})
+	end
+	presenter:SetPerkLogs(positives, negatives)
+end
 local function setGhostIdentificationLabel(ghostName, score, certain)
 	local _, suffix, color = confidenceTier(score)
 	if presenter and presenter.SetGhostIdentification then
@@ -292,9 +320,12 @@ local function recordPerkDetection(ghostName, reason, confidence)
 			Tentative = true,
 			Persistent = persistent,
 		}
+		refreshPerkLogs()
 		return
 	end
 	if score == (existing.Confidence or 0) then
+		local previousReason = existing.Reason
+		local previousDetectedAt = existing.DetectedAt or -math.huge
 		existing.Reason = reason or existing.Reason
 		existing.DetectedAt = now
 		if persistent or existing.Persistent
@@ -303,6 +334,10 @@ local function recordPerkDetection(ghostName, reason, confidence)
 			existing.ExpiresAt = nil
 		elseif ttl then
 			existing.ExpiresAt = now + ttl
+		end
+		if existing.Reason ~= previousReason
+			or now - previousDetectedAt >= 1 then
+			refreshPerkLogs()
 		end
 		return
 	end
@@ -315,11 +350,21 @@ local function recordPerkDetection(ghostName, reason, confidence)
 	end
 end
 local function clearPerkDetection(ghostName)
+	if perkDetections[ghostName] == nil then
+		return false
+	end
 	perkDetections[ghostName] = nil
+	refreshPerkLogs()
+	return true
 end
 local function clearAllPerkDetections()
+	local changed = false
 	for ghostName in pairs(perkDetections) do
 		perkDetections[ghostName] = nil
+		changed = true
+	end
+	if changed then
+		refreshPerkLogs()
 	end
 end
 perkTrackerState.ruleOutGhost = function(ghostName, reason, confidence)
@@ -336,13 +381,16 @@ perkTrackerState.ruleOutGhost = function(ghostName, reason, confidence)
 		Reason = reason,
 		At = os.clock(),
 	}
-	clearPerkDetection(ghostName)
+	if not clearPerkDetection(ghostName) then
+		refreshPerkLogs()
+	end
 	perkTrackerState.refreshIdentification()
 	return true
 end
 perkTrackerState.clearGhostRuleOut = function(ghostName)
 	if perkTrackerState.ruledOutGhosts[ghostName] then
 		perkTrackerState.ruledOutGhosts[ghostName] = nil
+		refreshPerkLogs()
 		return true
 	end
 	return false
@@ -614,6 +662,7 @@ perkTrackerState.updateOrbLabel = function()
 end
 local function getBestPerkDetection(confirmed)
 	local now = os.clock()
+	local expiredDetection = false
 	for ghostName, detection in pairs(perkDetections) do
 		local score = detection.Confidence or 0
 		if score >= 80 or detection.Persistent then
@@ -622,8 +671,12 @@ local function getBestPerkDetection(confirmed)
 		elseif detection.ExpiresAt
 			and now > detection.ExpiresAt then
 			perkDetections[ghostName] = nil
+			expiredDetection = true
 			continue
 		end
+	end
+	if expiredDetection then
+		refreshPerkLogs()
 	end
 	local ranked = GhostModule.RankDetections(perkDetections, {}, {}, {Now = now})
 	local candidates = {}
@@ -1740,6 +1793,7 @@ resetEvidenceState = function()
 		evidenceFound[evidenceName] = false
 	end
 	freezingEvidenceFound = false
+	lowestRecordedTemperature = nil
 	highestEMF = 1
 	spiritBoxTentative = false
 	perkTrackerState.orbObserved = false
@@ -1766,6 +1820,7 @@ resetEvidenceState = function()
 	perkTrackerState.holyOilOverlapAccumulator = 0
 	perkTrackerState.holyOilFireObserved = false
 	perkTrackerState.ruledOutGhosts = {}
+	refreshPerkLogs()
 	perkTrackerState.currentGhostGuess = nil
 	perkTrackerState.currentGhostGuessScore = 0
 	perkTrackerState.currentGhostGuessCertain = false
@@ -1790,7 +1845,11 @@ resetEvidenceState = function()
 			setEvidenceLabel(key, displayName .. ": Unknown", COLORS.muted)
 		end
 		setEvidenceLabel("EMF", "EMF-1", COLORS.muted)
-		setEvidenceLabel("Temperature", "--.-°C", COLORS.text)
+		setEvidenceLabel(
+			"Temperature",
+			COPY.Evidence.Temperature .. ": --.-°C",
+			COLORS.text
+		)
 		setEvidenceLabel("FavouriteRoom", "Favourite Room: ...")
 		setEvidenceLabel("Ghost", "Ghost: Unknown (Idk)", COLORS.muted)
 	end
@@ -2395,7 +2454,7 @@ local function resetPerkTrackerForGhost(ghost)
 	perkTrackerState.lastTransparencyTransitionTime = nil
 	perkTrackerState.vexLastValue = nil
 	perkTrackerState.wendigoSnapshots = {}
-	perkTrackerState.wendigoNextSnapshotAt = 0
+	perkTrackerState.wendigoPendingTransition = nil
 	perkTrackerState.nonHuntWalkSpeedSamples = {}
 	perkTrackerState.specterInitialized = false
 	perkTrackerState.specterInFavourite = false
@@ -2491,6 +2550,10 @@ local function resetPerkTrackerForGhost(ghost)
 		setmetatable({}, {__mode = "k"})
 	perkTrackerState.ravagerMotionEvents = {}
 	perkTrackerState.ravagerScanAccumulator = 0
+	perkTrackerState.ravagerGhost = ghost
+	perkTrackerState.ravagerLastGhostPosition = nil
+	perkTrackerState.ravagerLastGhostSampleAt = nil
+	perkTrackerState.ravagerDetectedThisHunt = false
 	perkTrackerState.saltPendingTouches = {}
 	perkTrackerState.saltOverlapAccumulator = 0
 	perkTrackerState.wraithRuledOut = false
@@ -2520,6 +2583,7 @@ local function resetPerkTrackerForGhost(ghost)
 	perkTrackerState.demonRuledOut = false
 	perkTrackerState.demonMotionObserved = false
 	perkTrackerState.ruledOutGhosts = {}
+	refreshPerkLogs()
 
 	if ghost then
 		task.delay(0.3, function()
@@ -2577,55 +2641,21 @@ local function getGhostTransparencyState(ghost)
 	end
 	return nil
 end
-local function getPlayerEnergy(targetPlayer)
-	if not targetPlayer then
+local function getAverageTeamEnergy()
+	local players = Services.Players:GetPlayers()
+	local playerCount = #players
+	if playerCount == 0 then
 		return nil
 	end
-	for _, attributeName in ipairs({"Energy", "Sanity"}) do
-		local value = targetPlayer:GetAttribute(attributeName)
-		if typeof(value) == "number" then
-			return math.clamp(value, 0, 100)
-		end
-	end
-	local replicated = targetPlayer:FindFirstChild("Replicated")
-	for _, container in ipairs({targetPlayer, replicated}) do
-		if container then
-			for _, valueName in ipairs({"Energy", "Sanity"}) do
-				local valueObject = container:FindFirstChild(valueName)
-				if valueObject
-					and (
-						valueObject:IsA("NumberValue")
-						or valueObject:IsA("IntValue")
-					) then
-					return math.clamp(valueObject.Value, 0, 100)
-				end
-			end
-		end
-	end
-	return nil
-end
-local function getAverageTeamEnergy()
 	local total = 0
-	local count = 0
-	for _, targetPlayer in ipairs(Services.Players:GetPlayers()) do
-		if targetPlayer:GetAttribute("Dead") ~= true then
-			local value = getPlayerEnergy(targetPlayer)
-			if typeof(value) == "number" then
-				total = total + value
-				count = count + 1
-			end
+	for _, targetPlayer in ipairs(players) do
+		local energy = targetPlayer:GetAttribute("Energy")
+		if typeof(energy) ~= "number" then
+			return nil
 		end
+		total = total + energy
 	end
-	if count == 0 then
-		for _, targetPlayer in ipairs(Services.Players:GetPlayers()) do
-			local value = getPlayerEnergy(targetPlayer)
-			if typeof(value) == "number" then
-				total = total + value
-				count = count + 1
-			end
-		end
-	end
-	return count > 0 and total / count or nil
+	return total / playerCount
 end
 local losRaycastParams = RaycastParams.new()
 losRaycastParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -3180,6 +3210,14 @@ local function handleHuntTransition(ghost, hunting, now)
 		perkTrackerState.lastHunting = hunting
 		return
 	end
+	if hunting ~= previous then
+		perkTrackerState.wendigoPendingTransition = {
+			Sanity = getAverageTeamEnergy(),
+			Hunting = hunting,
+			CaptureAt = now + 0.1,
+			ExpiresAt = now + 0.65,
+		}
+	end
 	if hunting and not previous then
 		perkTrackerState.evaluateHolyOilAtHuntStart(ghost)
 		if perkTrackerState.specterStationaryArmed
@@ -3260,6 +3298,42 @@ local function handleHuntTransition(ghost, hunting, now)
 		end
 	end
 	perkTrackerState.lastHunting = hunting
+end
+local function capturePendingWendigoTransition(ghost, now)
+	local pending = perkTrackerState.wendigoPendingTransition
+	if not pending then
+		return
+	end
+	if now > pending.ExpiresAt then
+		perkTrackerState.wendigoPendingTransition = nil
+		return
+	end
+	if now < pending.CaptureAt then
+		return
+	end
+	local sanity = pending.Sanity
+	if typeof(sanity) ~= "number" then
+		sanity = getAverageTeamEnergy()
+	end
+	local numericSanity = tonumber(sanity)
+	local humanoid = ghost and ghost:FindFirstChildOfClass("Humanoid")
+	local walkSpeed = humanoid and humanoid.WalkSpeed or nil
+	if not numericSanity
+		or typeof(walkSpeed) ~= "number"
+		or walkSpeed <= 0 then
+		return
+	end
+	local snapshots = perkTrackerState.wendigoSnapshots
+	table.insert(snapshots, {
+		Time = now,
+		Sanity = math.clamp(numericSanity, 0, 100),
+		Speed = walkSpeed,
+		Hunting = pending.Hunting,
+	})
+	while #snapshots > 3 do
+		table.remove(snapshots, 1)
+	end
+	perkTrackerState.wendigoPendingTransition = nil
 end
 local function evaluatePendingWispStart(ghost, now)
 	local pending = perkTrackerState.pendingWispStart
@@ -3651,7 +3725,7 @@ perkTrackerState.updateDybbukMaybe = function(ghost)
 		)
 	end
 end
-local function analyzeWendigo(now)
+local function analyzeWendigo()
 	if perkDetections.Aswang
 		or perkDetections.Dullahan
 		or perkTrackerState.dullahanPatternDetected
@@ -3659,46 +3733,14 @@ local function analyzeWendigo(now)
 		return
 	end
 
-	local latest
-	for index = #perkTrackerState.motionSamples, 1, -1 do
-		local sample = perkTrackerState.motionSamples[index]
-		if typeof(sample.Energy) == "number"
-			and typeof(sample.GhostWalkSpeed) == "number"
-			and sample.GhostWalkSpeed > 0 then
-			latest = sample
-			break
-		end
-	end
+	local snapshots = perkTrackerState.wendigoSnapshots
+	local latest = snapshots[#snapshots]
 	if not latest then
 		return
 	end
 
-	local snapshots = perkTrackerState.wendigoSnapshots
-	for index = #snapshots, 1, -1 do
-		if now - snapshots[index].Time > 6 then
-			table.remove(snapshots, index)
-		end
-	end
-
-	if now >= perkTrackerState.wendigoNextSnapshotAt then
-		table.insert(snapshots, {
-			Time = now,
-			Sanity = math.clamp(latest.Energy, 0, 100),
-			Speed = latest.GhostWalkSpeed,
-		})
-		while #snapshots > 3 do
-			table.remove(snapshots, 1)
-		end
-		perkTrackerState.wendigoNextSnapshotAt =
-			now
-			+ perkTrackerState.wendigoSnapshotRandom:NextNumber(
-				0.3,
-				0.55
-			)
-	end
-
 	local roundedSanity =
-		math.floor(math.clamp(latest.Energy, 0, 100) + 0.5)
+		math.floor(math.clamp(latest.Sanity, 0, 100) + 0.5)
 	local requiredSnapshots = 3
 	if roundedSanity <= 0 then
 		requiredSnapshots = 1
@@ -3774,7 +3816,7 @@ local function analyzeWendigo(now)
 		recordPerkDetection(
 			"Wendigo",
 			tostring(requiredSnapshots)
-				.. " WalkSpeed snapshot"
+				.. " hunt-state transition WalkSpeed snapshot"
 				.. (requiredSnapshots == 1 and "" or "s")
 				.. " exactly matched the 9-14 sanity curve at "
 				.. tostring(
@@ -5091,242 +5133,287 @@ perkTrackerState.updateObjectTeleportTracker = function(deltaTime, now)
 		end
 	end
 end
-perkTrackerState.updateRavagerTracker = function(
-	deltaTime,
-	ghost,
-	now
-)
-	if roomItemPlacementState.busy
-		or not ghost
-		or ghost:GetAttribute("Hunting") ~= true then
-		perkTrackerState.ravagerMotionEvents = {}
-		perkTrackerState.ravagerTrackedObjects =
-			setmetatable({}, {__mode = "k"})
-		return
-	end
-
-	perkTrackerState.ravagerScanAccumulator =
-		perkTrackerState.ravagerScanAccumulator + deltaTime
-	if perkTrackerState.ravagerScanAccumulator < 0.1 then
-		return
-	end
+local function resetRavagerMotionState(ghost)
+	perkTrackerState.ravagerTrackedObjects =
+		setmetatable({}, {__mode = "k"})
+	perkTrackerState.ravagerMotionEvents = {}
 	perkTrackerState.ravagerScanAccumulator = 0
+	perkTrackerState.ravagerGhost = ghost
+	perkTrackerState.ravagerLastGhostPosition = nil
+	perkTrackerState.ravagerLastGhostSampleAt = nil
+	perkTrackerState.ravagerDetectedThisHunt = false
+end
+local function ravagerRootPosition(rootObject)
+	local representative
+	if rootObject:IsA("BasePart") then
+		if not rootObject.Anchored and rootObject.Transparency < 1 then
+			representative = rootObject
+		end
+	elseif rootObject:IsA("Model") then
+		local primaryPart = rootObject.PrimaryPart
+		if primaryPart
+			and not primaryPart.Anchored
+			and primaryPart.Transparency < 1 then
+			representative = primaryPart
+		else
+			for _, descendant in ipairs(rootObject:GetDescendants()) do
+				if descendant:IsA("BasePart")
+					and not descendant.Anchored
+					and descendant.Transparency < 1 then
+					representative = descendant
+					break
+				end
+			end
+		end
+	end
+	if not representative then
+		return nil, nil
+	end
+	return representative.Position, representative.AssemblyRootPart or representative
+end
+local function resetRavagerCandidate(tracked)
+	tracked.Window = {}
+	tracked.CandidateStartedAt = nil
+	tracked.ConsecutiveBad = 0
+end
+perkTrackerState.updateRavagerTracker = function(deltaTime, ghost, now)
+	local state = perkTrackerState
+	local hunting = ghost and ghost:GetAttribute("Hunting") == true
+	if roomItemPlacementState.busy or not ghost or not hunting then
+		if state.ravagerGhost ~= ghost
+			or state.ravagerLastGhostPosition ~= nil
+			or state.ravagerDetectedThisHunt
+			or next(state.ravagerTrackedObjects) ~= nil then
+			resetRavagerMotionState(ghost)
+		else
+			state.ravagerScanAccumulator = 0
+		end
+		return
+	end
+	if state.ravagerGhost ~= ghost then
+		resetRavagerMotionState(ghost)
+	end
+	if state.ravagerDetectedThisHunt then
+		return
+	end
+	state.ravagerScanAccumulator = state.ravagerScanAccumulator + deltaTime
+	if state.ravagerScanAccumulator < 0.05 then
+		return
+	end
+	state.ravagerScanAccumulator = state.ravagerScanAccumulator % 0.05
 
 	local ghostPosition = ghost:GetPivot().Position
-	local seen = setmetatable({}, {__mode = "k"})
+	local previousGhostPosition = state.ravagerLastGhostPosition
+	local previousGhostTime = state.ravagerLastGhostSampleAt
+	state.ravagerLastGhostPosition = ghostPosition
+	state.ravagerLastGhostSampleAt = now
+	if previousGhostPosition
+		and previousGhostTime
+		and now - previousGhostTime <= 0.12
+		and (ghostPosition - previousGhostPosition).Magnitude > 8 then
+		state.ravagerTrackedObjects = setmetatable({}, {__mode = "k"})
+		state.ravagerMotionEvents = {}
+		return
+	end
 
-	for _, folderName in ipairs({"Items", "Interactables"}) do
-		local folder = workspace:FindFirstChild(folderName)
-		if folder then
-			for _, rootObject in ipairs(folder:GetChildren()) do
-				local parts = {}
-
-				if rootObject:IsA("BasePart") then
-					table.insert(parts, rootObject)
-				else
-					for _, descendant in ipairs(
-						rootObject:GetDescendants()
-					) do
-						if descendant:IsA("BasePart") then
-							table.insert(parts, descendant)
-						end
-					end
+	local folders = {}
+	local seenFolders = setmetatable({}, {__mode = "k"})
+	local map = workspace:FindFirstChild("Map")
+	for _, container in ipairs({workspace, map}) do
+		if container then
+			for _, folderName in ipairs({"Items", "Interactable", "Interactables"}) do
+				local folder = container:FindFirstChild(folderName)
+				if folder and not seenFolders[folder] then
+					seenFolders[folder] = true
+					table.insert(folders, folder)
 				end
+			end
+		end
+	end
 
-				for _, part in ipairs(parts) do
-					if part.Parent
-						and not part.Anchored
-						and part.Transparency < 1 then
-						seen[part] = true
-						local position = part.Position
-						local previous =
-							perkTrackerState.ravagerTrackedObjects[part]
+	local seenRoots = setmetatable({}, {__mode = "k"})
+	local qualified = {}
+	for _, folder in ipairs(folders) do
+		for _, rootObject in ipairs(folder:GetChildren()) do
+			local position, assembly = ravagerRootPosition(rootObject)
+			if position and assembly then
+				seenRoots[rootObject] = true
+				local relative = position - ghostPosition
+				local tracked = state.ravagerTrackedObjects[rootObject]
+				if not tracked then
+					tracked = {
+						Window = {},
+						CandidateStartedAt = nil,
+						ConsecutiveBad = 0,
+					}
+					state.ravagerTrackedObjects[rootObject] = tracked
+				end
+				local previousPosition = tracked.Position
+				local previousRelative = tracked.Relative
+				local previousTime = tracked.Time
+				tracked.Position = position
+				tracked.Relative = relative
+				tracked.Time = now
+				tracked.Assembly = assembly
 
-						local nextState = {
-							Position = position,
-							GhostPosition = ghostPosition,
+				if previousPosition and previousRelative and previousTime then
+					local elapsed = now - previousTime
+					local oldFlat = Vector3.new(
+						previousRelative.X,
+						0,
+						previousRelative.Z
+					)
+					local newFlat = Vector3.new(relative.X, 0, relative.Z)
+					local oldRadius = oldFlat.Magnitude
+					local newRadius = newFlat.Magnitude
+					local relativeStep = (newFlat - oldFlat).Magnitude
+					local geometryValid = elapsed >= 0.03
+						and elapsed <= 0.12
+						and oldRadius >= 2.5
+						and oldRadius <= 40
+						and newRadius >= 2.5
+						and newRadius <= 40
+						and relativeStep <= 12
+					local orbitLike = false
+					local signedAngle = 0
+					local relativeSpeed = 0
+					local worldSpeed = 0
+					if geometryValid then
+						local dot = oldFlat.X * newFlat.X
+							+ oldFlat.Z * newFlat.Z
+						local cross = oldFlat.X * newFlat.Z
+							- oldFlat.Z * newFlat.X
+						signedAngle = math.deg(math.atan2(cross, dot))
+						local velocity = (newFlat - oldFlat) / elapsed
+						relativeSpeed = velocity.Magnitude
+						worldSpeed = (position - previousPosition).Magnitude / elapsed
+						local radialUnit = newFlat.Unit
+						local radialSpeed = math.abs(velocity:Dot(radialUnit))
+						local tangentialSpeed = math.sqrt(math.max(
+							relativeSpeed * relativeSpeed
+								- radialSpeed * radialSpeed,
+							0
+						))
+						local tangentialShare = tangentialSpeed
+							/ math.max(relativeSpeed, 0.001)
+						local radiusChange = math.abs(newRadius - oldRadius)
+						local meanRadius = (oldRadius + newRadius) * 0.5
+						orbitLike = worldSpeed >= 4
+							and relativeSpeed >= 6
+							and math.abs(signedAngle) / elapsed >= 70
+							and tangentialShare >= 0.55
+							and radiusChange <= math.max(2, meanRadius * 0.35)
+					end
+
+					if not geometryValid then
+						resetRavagerCandidate(tracked)
+					elseif orbitLike or tracked.CandidateStartedAt then
+						if orbitLike and not tracked.CandidateStartedAt then
+							tracked.CandidateStartedAt = previousTime
+						end
+						table.insert(tracked.Window, {
+							StartAt = previousTime,
 							Time = now,
-							RootObject = rootObject,
-							OrbitStreak = 0,
-							AngularTotal = 0,
-							OrbitAxis = nil,
-						}
-
-						if previous then
-							local elapsed = now - previous.Time
-							local displacementVector =
-								position - previous.Position
-							local displacement =
-								displacementVector.Magnitude
-
-							if elapsed > 0
-								and elapsed <= 0.3
-								and displacement >= 0.45 then
-								local speed = displacement / elapsed
-								local oldRadial =
-									previous.Position
-									- previous.GhostPosition
-								local newRadial =
-									position - ghostPosition
-								local oldRadius = oldRadial.Magnitude
-								local newRadius = newRadial.Magnitude
-
-								if oldRadius >= 3
-									and oldRadius <= 34
-									and newRadius >= 3
-									and newRadius <= 34
-									and speed >= 5.5 then
-									local oldUnit = oldRadial.Unit
-									local newUnit = newRadial.Unit
-									local velocity =
-										displacementVector / elapsed
-									local radialSpeed =
-										math.abs(velocity:Dot(newUnit))
-									local tangentialRatio =
-										math.clamp(
-											1
-												- radialSpeed
-													/ math.max(speed, 0.001),
-											0,
-											1
-										)
-									local radiusDifference =
-										math.abs(newRadius - oldRadius)
-									local angularChange =
-										math.deg(math.acos(math.clamp(
-											oldUnit:Dot(newUnit),
-											-1,
-											1
-										)))
-									local axisVector =
-										oldUnit:Cross(newUnit)
-									local axis =
-										axisVector.Magnitude > 0.01
-										and axisVector.Unit
-										or nil
-									local axisConsistent =
-										not previous.OrbitAxis
-										or (
-											axis
-											and previous.OrbitAxis:Dot(axis)
-												>= 0.75
-										)
-
-									local orbitLike =
-										tangentialRatio >= 0.78
-										and angularChange >= 2.5
-										and radiusDifference
-											<= math.max(
-												0.9,
-												(oldRadius + newRadius)
-													* 0.04
-											)
-										and axisConsistent
-
-									if orbitLike then
-										nextState.OrbitStreak =
-											(previous.OrbitStreak or 0) + 1
-										nextState.AngularTotal =
-											(previous.AngularTotal or 0)
-											+ angularChange
-										nextState.OrbitAxis =
-											axis or previous.OrbitAxis
-
-										if nextState.OrbitStreak >= 4
-											and nextState.AngularTotal >= 14 then
-											table.insert(
-												perkTrackerState.ravagerMotionEvents,
-												{
-													Time = now,
-													Part = part,
-													RootObject = rootObject,
-													Speed = speed,
-													Axis =
-														nextState.OrbitAxis,
-													AngularTotal =
-														nextState.AngularTotal,
-												}
-											)
-										end
-									end
-								end
+							Good = orbitLike,
+							SignedAngle = orbitLike and signedAngle or 0,
+							AbsAngle = orbitLike and math.abs(signedAngle) or 0,
+							Speed = orbitLike and relativeSpeed or 0,
+						})
+						tracked.ConsecutiveBad = orbitLike
+							and 0
+							or tracked.ConsecutiveBad + 1
+						for index = #tracked.Window, 1, -1 do
+							if now - tracked.Window[index].Time > 0.8 then
+								table.remove(tracked.Window, index)
 							end
 						end
-
-						perkTrackerState.ravagerTrackedObjects[part] =
-							nextState
+						if tracked.ConsecutiveBad > 2 or #tracked.Window == 0 then
+							resetRavagerCandidate(tracked)
+						else
+							tracked.CandidateStartedAt = tracked.Window[1].StartAt
+							local goodIntervals = 0
+							local signedTotal = 0
+							local absoluteTotal = 0
+							local fastest = 0
+							for _, interval in ipairs(tracked.Window) do
+								if interval.Good then
+									goodIntervals = goodIntervals + 1
+									signedTotal = signedTotal + interval.SignedAngle
+									absoluteTotal = absoluteTotal + interval.AbsAngle
+									fastest = math.max(fastest, interval.Speed)
+								end
+							end
+							local duration = now - tracked.CandidateStartedAt
+							local intervalCount = #tracked.Window
+							if duration >= 0.5
+								and intervalCount >= 7
+								and goodIntervals / intervalCount >= 0.7
+								and absoluteTotal >= 45
+								and math.abs(signedTotal)
+									/ math.max(absoluteTotal, 0.001) >= 0.65 then
+								table.insert(qualified, {
+									Root = rootObject,
+									Assembly = assembly,
+									Direction = signedTotal >= 0 and 1 or -1,
+									Duration = duration,
+									AngularTotal = absoluteTotal,
+									Speed = fastest,
+								})
+							end
+						end
 					end
 				end
 			end
 		end
 	end
-
-	for part in pairs(perkTrackerState.ravagerTrackedObjects) do
-		if not seen[part] or not part.Parent then
-			perkTrackerState.ravagerTrackedObjects[part] = nil
+	for rootObject in pairs(state.ravagerTrackedObjects) do
+		if not seenRoots[rootObject] or not rootObject.Parent then
+			state.ravagerTrackedObjects[rootObject] = nil
 		end
 	end
+	state.ravagerMotionEvents = qualified
 
-	local latestByPart = setmetatable({}, {__mode = "k"})
-	for index = #perkTrackerState.ravagerMotionEvents, 1, -1 do
-		local event =
-			perkTrackerState.ravagerMotionEvents[index]
-
-		if now - event.Time > 0.5 then
-			table.remove(
-				perkTrackerState.ravagerMotionEvents,
-				index
-			)
-		elseif not latestByPart[event.Part] then
-			latestByPart[event.Part] = event
+	local buckets = {
+		[1] = {},
+		[-1] = {},
+	}
+	local assemblies = {
+		[1] = setmetatable({}, {__mode = "k"}),
+		[-1] = setmetatable({}, {__mode = "k"}),
+	}
+	for _, event in ipairs(qualified) do
+		local direction = event.Direction
+		if not assemblies[direction][event.Assembly] then
+			assemblies[direction][event.Assembly] = true
+			table.insert(buckets[direction], event)
 		end
 	end
-
-	local distinctParts = 0
-	local distinctRoots = setmetatable({}, {__mode = "k"})
-	local referenceAxis
-	local alignedAxes = 0
-	local totalAngular = 0
-	local fastest = 0
-
-	for _, event in pairs(latestByPart) do
-		distinctParts = distinctParts + 1
-		distinctRoots[event.RootObject] = true
-		totalAngular =
-			totalAngular + (event.AngularTotal or 0)
-		fastest = math.max(fastest, event.Speed or 0)
-
-		if event.Axis then
-			if not referenceAxis then
-				referenceAxis = event.Axis
-				alignedAxes = alignedAxes + 1
-			elseif referenceAxis:Dot(event.Axis) >= 0.65 then
-				alignedAxes = alignedAxes + 1
+	for _, direction in ipairs({1, -1}) do
+		local matching = buckets[direction]
+		if #matching >= 3 then
+			local minimumDuration = math.huge
+			for _, event in ipairs(matching) do
+				minimumDuration = math.min(minimumDuration, event.Duration)
 			end
+			state.ravagerDetectedThisHunt = true
+			state.clearGhostRuleOut("Ravager")
+			recordPerkDetection(
+				"Ravager",
+				tostring(#matching)
+					.. " distinct items rapidly orbited the moving ghost for at least "
+					.. string.format("%.2f", minimumDuration)
+					.. " seconds",
+				99
+			)
+			updateGhostIdentification(ghost)
+			return
 		end
-	end
-
-	local rootCount = 0
-	for _ in pairs(distinctRoots) do
-		rootCount = rootCount + 1
-	end
-
-	if distinctParts >= 3
-		and rootCount >= 2
-		and alignedAxes >= 3
-		and totalAngular / math.max(distinctParts, 1) >= 15
-		and fastest >= 6 then
-		recordPerkDetection(
-			"Ravager",
-			tostring(distinctParts)
-				.. " separate BaseParts sustained a near-circular orbit around the hunting ghost",
-			99
-		)
-		updateGhostIdentification(ghost)
 	end
 end
 
 local function updateObservablePerkTrackers(deltaTime)
+	local ghost = getGhostModel()
+	perkTrackerState.updateRavagerTracker(deltaTime, ghost, os.clock())
 	perkTrackerState.sampleAccumulator = perkTrackerState.sampleAccumulator + deltaTime
 	perkTrackerState.slowScanAccumulator = perkTrackerState.slowScanAccumulator + deltaTime
 	perkTrackerState.analysisAccumulator = perkTrackerState.analysisAccumulator + deltaTime
@@ -5335,7 +5422,6 @@ local function updateObservablePerkTrackers(deltaTime)
 	end
 	perkTrackerState.sampleAccumulator =
 		perkTrackerState.sampleAccumulator % 0.1
-	local ghost = getGhostModel()
 	if ghost ~= perkTrackerState.ghost then
 		resetPerkTrackerForGhost(ghost)
 	end
@@ -5352,8 +5438,8 @@ local function updateObservablePerkTrackers(deltaTime)
 	perkTrackerState.updateSaltTracker(0.1, ghost, hunting, now)
 	perkTrackerState.updateHolyOilTracker(0.1, ghost, now)
 	perkTrackerState.updateObjectTeleportTracker(0.1, now)
-	perkTrackerState.updateRavagerTracker(0.1, ghost, now)
 	handleHuntTransition(ghost, hunting, now)
+	capturePendingWendigoTransition(ghost, now)
 	if hunting then
 		analyzeDullahan(now)
 	end
@@ -5542,7 +5628,7 @@ local function updateObservablePerkTrackers(deltaTime)
 			analyzePhantom(now)
 			analyzeOni(now)
 		end
-		analyzeWendigo(now)
+		analyzeWendigo()
 		perkTrackerState.updateDybbukMaybe(ghost)
 	end
 	evaluatePendingKill(hunting, now)
@@ -8029,28 +8115,36 @@ local function updateEvidence()
 	end
 	local favouriteRoom = findFavouriteRoom(roomsFolder, favouriteRoomName)
 	updateFavouriteRoomEsp(favouriteRoom)
-	local roomTemperature = nil
+	local currentLowestTemperature = nil
 	if roomsFolder then
 		for _, room in ipairs(roomsFolder:GetChildren()) do
 			local temperature = room:GetAttribute("Temperature")
 			if typeof(temperature) == "number" then
-				roomTemperature = math.min(
-					roomTemperature or temperature,
+				currentLowestTemperature = math.min(
+					currentLowestTemperature or temperature,
 					temperature
 				)
 			end
 		end
 	end
-	if typeof(roomTemperature) == "number" then
-		if roomTemperature < 0 then
+	if typeof(currentLowestTemperature) == "number" then
+		lowestRecordedTemperature = math.min(
+			lowestRecordedTemperature or currentLowestTemperature,
+			currentLowestTemperature
+		)
+	end
+	if typeof(lowestRecordedTemperature) == "number" then
+		if lowestRecordedTemperature < 0 then
 			freezingEvidenceFound = true
 		end
 		if presenter and presenter.SetTemperature then
-			presenter:SetTemperature(roomTemperature, freezingEvidenceFound)
+			presenter:SetTemperature(lowestRecordedTemperature, freezingEvidenceFound)
 		else
 			setEvidenceLabel(
 				"Temperature",
-				string.format("%.1f°C", roomTemperature),
+				COPY.Evidence.Temperature
+					.. ": "
+					.. string.format("%.1f°C", lowestRecordedTemperature),
 				freezingEvidenceFound and COLORS.green or COLORS.text
 			)
 		end
@@ -8060,7 +8154,7 @@ local function updateEvidence()
 		else
 			setEvidenceLabel(
 				"Temperature",
-				"--.-°C",
+				COPY.Evidence.Temperature .. ": --.-°C",
 				freezingEvidenceFound and COLORS.green or COLORS.text
 			)
 		end
