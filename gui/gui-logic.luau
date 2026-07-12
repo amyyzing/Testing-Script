@@ -27,6 +27,9 @@ function GuiLogic.new(dependencies)
 	self.DragTargetRatio = nil
 	self.SliderFillTween = nil
 	self.SliderKnobTween = nil
+	self.PerkLogOpen = false
+	self.PerkLogDrawerTween = nil
+	self.PerkLogTabTween = nil
 	return self
 end
 
@@ -143,8 +146,128 @@ end
 
 function GuiLogic:SetTemperature(value, freezing)
 	local label = self.View.EvidenceLabels.Temperature
-	label.Text = typeof(value) == "number" and string.format("%.1f°C", value) or "--.-°C"
+	local displayed = typeof(value) == "number"
+		and string.format("%.1f°C", value)
+		or "--.-°C"
+	label.Text = self.View.Copy.Evidence.Temperature .. ": " .. displayed
 	label.TextColor3 = freezing and self.View.Colors.green or self.View.Colors.text
+end
+
+function GuiLogic:SetPerkLogs(positiveEntries, negativeEntries)
+	local function render(list, placeholder, entries, color)
+		for _, child in ipairs(list:GetChildren()) do
+			if child:GetAttribute("PerkLogRow") then
+				child:Destroy()
+			end
+		end
+		table.sort(entries, function(left, right)
+			local leftAt = tonumber(left.At) or 0
+			local rightAt = tonumber(right.At) or 0
+			if leftAt == rightAt then
+				return tostring(left.Ghost) < tostring(right.Ghost)
+			end
+			return leftAt > rightAt
+		end)
+		placeholder.Visible = #entries == 0
+		for index, entry in ipairs(entries) do
+			local confidence = math.floor((tonumber(entry.Confidence) or 0) + 0.5)
+			local row = Instance.new("TextLabel")
+			row.Name = tostring(entry.Ghost or "Unknown")
+			row.Parent = list
+			row.LayoutOrder = index + 1
+			row.Size = UDim2.new(1, -4, 0, 40)
+			row.AutomaticSize = Enum.AutomaticSize.Y
+			row.BackgroundColor3 = self.View.Colors.cardHover
+			row.BorderSizePixel = 0
+			row.Font = Enum.Font.Gotham
+			row.Text = tostring(entry.Ghost or "Unknown")
+				.. " ["
+				.. tostring(confidence)
+				.. "%]\n"
+				.. tostring(entry.Reason or "No reason recorded")
+			row.TextColor3 = color
+			row.TextSize = 11
+			row.TextWrapped = true
+			row.TextXAlignment = Enum.TextXAlignment.Left
+			row.TextYAlignment = Enum.TextYAlignment.Top
+			row.ZIndex = 43
+			row:SetAttribute("PerkLogRow", true)
+			local padding = Instance.new("UIPadding")
+			padding.Parent = row
+			padding.PaddingTop = UDim.new(0, 7)
+			padding.PaddingBottom = UDim.new(0, 7)
+			padding.PaddingLeft = UDim.new(0, 8)
+			padding.PaddingRight = UDim.new(0, 8)
+			local stroke = Instance.new("UIStroke")
+			stroke.Parent = row
+			stroke.Color = self.View.Colors.stroke
+			stroke.Transparency = 0.35
+			stroke.Thickness = 1
+			stroke.LineJoinMode = Enum.LineJoinMode.Miter
+		end
+	end
+	render(
+		self.View.PositivePerkLog,
+		self.View.PositivePerkPlaceholder,
+		positiveEntries or {},
+		self.View.Colors.green
+	)
+	render(
+		self.View.NegativePerkLog,
+		self.View.NegativePerkPlaceholder,
+		negativeEntries or {},
+		self.View.Colors.red
+	)
+end
+
+function GuiLogic:SetPerkLogOpen(open, instant)
+	open = open == true
+	self.PerkLogOpen = open
+	if self.PerkLogDrawerTween then
+		self.PerkLogDrawerTween:Cancel()
+	end
+	if self.PerkLogTabTween then
+		self.PerkLogTabTween:Cancel()
+	end
+	local drawerPosition = open
+		and UDim2.new(0, 32, 0, 42)
+		or UDim2.new(1, 0, 0, 42)
+	local tabPosition = open
+		and UDim2.new(0, 0, 0, 52)
+		or UDim2.new(1, -32, 0, 52)
+	self.View.PerkLogButton.Text = open and "CLOSE" or self.View.Copy.PerkLogs.Toggle
+	self.View.PerkLogTab.Text = open
+		and (self.View.Copy.PerkLogs.Toggle .. "\n▶")
+		or (self.View.Copy.PerkLogs.Toggle .. "\n◀")
+	if instant then
+		self.View.PerkLogDrawer.Position = drawerPosition
+		self.View.PerkLogTab.Position = tabPosition
+		return
+	end
+	local tweenInfo = TweenInfo.new(
+		0.22,
+		Enum.EasingStyle.Quint,
+		Enum.EasingDirection.Out
+	)
+	self.PerkLogDrawerTween = self.TweenService:Create(
+		self.View.PerkLogDrawer,
+		tweenInfo,
+		{Position = drawerPosition}
+	)
+	self.PerkLogTabTween = self.TweenService:Create(
+		self.View.PerkLogTab,
+		tweenInfo,
+		{Position = tabPosition}
+	)
+	self.PerkLogDrawerTween:Play()
+	self.PerkLogTabTween:Play()
+end
+
+function GuiLogic:TogglePerkLog()
+	if self.Minimized then
+		return
+	end
+	self:SetPerkLogOpen(not self.PerkLogOpen, false)
 end
 
 function GuiLogic:ResetEvidence()
@@ -294,6 +417,12 @@ function GuiLogic:Bind(controller)
 	controller:Connect(buttons.GhostEsp.MouseButton1Click, function()
 		controller:ToggleGhostEsp()
 	end)
+	controller:Connect(view.PerkLogButton.MouseButton1Click, function()
+		self:TogglePerkLog()
+	end)
+	controller:Connect(view.PerkLogTab.MouseButton1Click, function()
+		self:TogglePerkLog()
+	end)
 	controller:Connect(buttons.HuntEscape.MouseButton1Click, function()
 		controller:ToggleHuntEscape()
 	end)
@@ -393,6 +522,7 @@ function GuiLogic:Bind(controller)
 	controller:Connect(view.MinimizeButton.MouseButton1Click, function()
 		self.Minimized = not self.Minimized
 		evidenceMenu.Visible = false
+		self:SetPerkLogOpen(false, true)
 		if self.Minimized then
 			self.ExpandedSize = view.MainFrame.Size
 			view.Content.Visible = false
