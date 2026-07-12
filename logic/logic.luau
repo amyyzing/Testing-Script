@@ -148,12 +148,7 @@ local perkTrackerState = {
 	pendingWispStart = nil,
 	wispHuntResults = {},
 	wispFavouriteHuntCount = 0,
-	umbraSamples = {},
-	umbraLastLightStateByRoom = {},
-	umbraLightTransitionsByRoom = {},
-	umbraRootSoundAbsentTime = 0,
-	umbraRootSoundPresentTime = 0,
-	umbraLitMatch = nil,
+	umbraRootSoundChecked = false,
 	brokenGlassInitialized = false,
 	brokenGlassSeen = {},
 	brokenGlassEvents = {},
@@ -162,14 +157,11 @@ local perkTrackerState = {
 	sirenSlowObservedThisHunt = false,
 	lastLosLightingKey = nil,
 	lastLosTarget = nil,
-	dullahanBaselineSpeed = nil,
-	dullahanLastSpeed = nil,
+	dullahanSpeedSamples = {},
 	dullahanIncreaseEvents = {},
-	dullahanSawLineOfSight = false,
-	dullahanHuntSampleCount = 0,
-	dullahanLosSampleCount = 0,
-	dullahanLosBaseline = nil,
-	dullahanMaxLosSpeed = nil,
+	dullahanHadQualifiedWindow = false,
+	dullahanPatternDetected = false,
+	dullahanPatternObservedThisHunt = false,
 	dullahanCompletedNoIncreaseHunt = false,
 	dybbukMaybeReady = false,
 	leviathanToggleEvents = {},
@@ -186,7 +178,7 @@ local perkTrackerState = {
 	saltTrackerInitialized = false,
 	saltFolder = nil,
 	saltTrackedLines = setmetatable({}, {__mode = "k"}),
-	saltPendingTouches = setmetatable({}, {__mode = "k"}),
+	saltPendingTouches = {},
 	saltOverlapAccumulator = 0,
 	wraithRuledOut = false,
 	holyOilFolder = nil,
@@ -1752,10 +1744,11 @@ resetEvidenceState = function()
 	spiritBoxTentative = false
 	perkTrackerState.orbObserved = false
 	perkTrackerState.lidarVisibleObserved = false
-	perkTrackerState.dullahanHuntSampleCount = 0
-	perkTrackerState.dullahanLosSampleCount = 0
-	perkTrackerState.dullahanLosBaseline = nil
-	perkTrackerState.dullahanMaxLosSpeed = nil
+	perkTrackerState.dullahanSpeedSamples = {}
+	perkTrackerState.dullahanIncreaseEvents = {}
+	perkTrackerState.dullahanHadQualifiedWindow = false
+	perkTrackerState.dullahanPatternDetected = false
+	perkTrackerState.dullahanPatternObservedThisHunt = false
 	perkTrackerState.dullahanCompletedNoIncreaseHunt = false
 	perkTrackerState.dybbukMaybeReady = false
 	perkTrackerState.leviathanToggleEvents = {}
@@ -1765,7 +1758,7 @@ resetEvidenceState = function()
 	perkTrackerState.leviathanLightScanAccumulator = 0
 	perkTrackerState.suppressItemDisableUntil = 0
 	perkTrackerState.suppressLeviathanLightsUntil = 0
-	perkTrackerState.saltPendingTouches = setmetatable({}, {__mode = "k"})
+	perkTrackerState.saltPendingTouches = {}
 	perkTrackerState.saltOverlapAccumulator = 0
 	perkTrackerState.wraithRuledOut = false
 	perkTrackerState.holyOilPendingContacts =
@@ -2472,12 +2465,7 @@ local function resetPerkTrackerForGhost(ghost)
 	perkTrackerState.pendingWispStart = nil
 	perkTrackerState.wispHuntResults = {}
 	perkTrackerState.wispFavouriteHuntCount = 0
-	perkTrackerState.umbraSamples = {}
-	perkTrackerState.umbraLastLightStateByRoom = {}
-	perkTrackerState.umbraLightTransitionsByRoom = {}
-	perkTrackerState.umbraRootSoundAbsentTime = 0
-	perkTrackerState.umbraRootSoundPresentTime = 0
-	perkTrackerState.umbraLitMatch = nil
+	perkTrackerState.umbraRootSoundChecked = false
 	perkTrackerState.brokenGlassInitialized = false
 	perkTrackerState.brokenGlassSeen = {}
 	perkTrackerState.brokenGlassEvents = {}
@@ -2486,14 +2474,11 @@ local function resetPerkTrackerForGhost(ghost)
 	perkTrackerState.sirenSlowObservedThisHunt = false
 	perkTrackerState.lastLosLightingKey = nil
 	perkTrackerState.lastLosTarget = nil
-	perkTrackerState.dullahanBaselineSpeed = nil
-	perkTrackerState.dullahanLastSpeed = nil
+	perkTrackerState.dullahanSpeedSamples = {}
 	perkTrackerState.dullahanIncreaseEvents = {}
-	perkTrackerState.dullahanSawLineOfSight = false
-	perkTrackerState.dullahanHuntSampleCount = 0
-	perkTrackerState.dullahanLosSampleCount = 0
-	perkTrackerState.dullahanLosBaseline = nil
-	perkTrackerState.dullahanMaxLosSpeed = nil
+	perkTrackerState.dullahanHadQualifiedWindow = false
+	perkTrackerState.dullahanPatternDetected = false
+	perkTrackerState.dullahanPatternObservedThisHunt = false
 	perkTrackerState.dullahanCompletedNoIncreaseHunt = false
 	perkTrackerState.dybbukMaybeReady = false
 	perkTrackerState.leviathanToggleEvents = {}
@@ -2506,7 +2491,7 @@ local function resetPerkTrackerForGhost(ghost)
 		setmetatable({}, {__mode = "k"})
 	perkTrackerState.ravagerMotionEvents = {}
 	perkTrackerState.ravagerScanAccumulator = 0
-	perkTrackerState.saltPendingTouches = setmetatable({}, {__mode = "k"})
+	perkTrackerState.saltPendingTouches = {}
 	perkTrackerState.saltOverlapAccumulator = 0
 	perkTrackerState.wraithRuledOut = false
 	perkTrackerState.holyOilPendingContacts =
@@ -3217,21 +3202,13 @@ local function handleHuntTransition(ghost, hunting, now)
 		perkTrackerState.specterRoomChangePause = false
 		perkTrackerState.specterRoomChangeSettleSince = nil
 		perkTrackerState.huntStartedAt = now
-		local dullahanHumanoid = ghost:FindFirstChildOfClass("Humanoid")
-		perkTrackerState.dullahanBaselineSpeed = dullahanHumanoid and dullahanHumanoid.WalkSpeed or nil
-		perkTrackerState.dullahanLastSpeed = perkTrackerState.dullahanBaselineSpeed
+		perkTrackerState.dullahanSpeedSamples = {}
 		perkTrackerState.dullahanIncreaseEvents = {}
-		perkTrackerState.dullahanSawLineOfSight = false
-		perkTrackerState.dullahanHuntSampleCount = 0
-		perkTrackerState.dullahanLosSampleCount = 0
-		perkTrackerState.dullahanLosBaseline = nil
-		perkTrackerState.dullahanMaxLosSpeed = nil
+		perkTrackerState.dullahanHadQualifiedWindow = false
+		perkTrackerState.dullahanPatternObservedThisHunt = false
+		perkTrackerState.dullahanCompletedNoIncreaseHunt = false
 		perkTrackerState.losSamples = {}
 		perkTrackerState.energySamples = {}
-		perkTrackerState.umbraSamples = {}
-		perkTrackerState.umbraLastLightStateByRoom = {}
-		perkTrackerState.umbraLightTransitionsByRoom = {}
-		perkTrackerState.umbraRootSoundAbsentTime = 0
 		perkTrackerState.lastLosLightingKey = nil
 		perkTrackerState.sirenSlowEvents = {}
 		perkTrackerState.sirenLosExposure = 0
@@ -3245,18 +3222,15 @@ local function handleHuntTransition(ghost, hunting, now)
 			FavouriteRoom = ghost:GetAttribute("FavoriteRoom"),
 		}
 	elseif not hunting and previous then
-		local completedHuntDuration = perkTrackerState.huntStartedAt
-			and (now - perkTrackerState.huntStartedAt)
-			or 0
 		perkTrackerState.huntStartedAt = nil
-		perkTrackerState.umbraRootSoundAbsentTime = 0
-		if completedHuntDuration >= 2.5
-			and perkTrackerState.dullahanSawLineOfSight
-			and perkTrackerState.dullahanLosSampleCount >= 10
-			and #perkTrackerState.dullahanIncreaseEvents < 3 then
+		if perkTrackerState.dullahanPatternDetected
+			or perkTrackerState.dullahanPatternObservedThisHunt then
+			perkTrackerState.dullahanCompletedNoIncreaseHunt = false
+		elseif perkTrackerState.dullahanHadQualifiedWindow then
+			perkTrackerState.dullahanCompletedNoIncreaseHunt = true
 			perkTrackerState.ruleOutGhost(
 				"Dullahan",
-				"an adequately sampled hunt had no repeated WalkSpeed increases",
+				"five or more 0.1-second hunt samples contained no rapid small-step WalkSpeed pattern",
 				92
 			)
 		end
@@ -3268,25 +3242,10 @@ local function handleHuntTransition(ghost, hunting, now)
 				90
 			)
 		end
-		local dullahanHumanoid = ghost:FindFirstChildOfClass("Humanoid")
-		local dullahanSpeed = dullahanHumanoid and dullahanHumanoid.WalkSpeed or nil
-		if #perkTrackerState.dullahanIncreaseEvents >= 3 then
-			perkTrackerState.dullahanCompletedNoIncreaseHunt = false
-			perkTrackerState.dybbukMaybeReady = false
-			clearPerkDetection("Dybbuk")
-		elseif completedHuntDuration >= 3
-			and perkTrackerState.dullahanSawLineOfSight
-			and perkTrackerState.dullahanLosSampleCount >= 5 then
-			perkTrackerState.dullahanCompletedNoIncreaseHunt = true
-		end
-		perkTrackerState.dullahanBaselineSpeed = dullahanSpeed
-		perkTrackerState.dullahanLastSpeed = dullahanSpeed
+		perkTrackerState.dullahanSpeedSamples = {}
 		perkTrackerState.dullahanIncreaseEvents = {}
-		perkTrackerState.dullahanSawLineOfSight = false
-		perkTrackerState.dullahanHuntSampleCount = 0
-		perkTrackerState.dullahanLosSampleCount = 0
-		perkTrackerState.dullahanLosBaseline = nil
-		perkTrackerState.dullahanMaxLosSpeed = nil
+		perkTrackerState.dullahanHadQualifiedWindow = false
+		perkTrackerState.dullahanPatternObservedThisHunt = false
 		local pending = perkTrackerState.pendingKill
 		if pending
 			and now - pending.Time <= 1.0
@@ -3570,71 +3529,106 @@ perkTrackerState.analyzeSpecter = function(
 		state.specterStationaryArmed = true
 	end
 end
-local function analyzeDullahan(now, lineOfSight)
+local function analyzeDullahan(now)
 	local state = perkTrackerState
-	state.dullahanHuntSampleCount = state.dullahanHuntSampleCount + 1
-	local ghost = state.ghost
-	local humanoid = ghost and ghost:FindFirstChildOfClass("Humanoid")
-	if not humanoid then
+	if state.dullahanPatternDetected then
 		return
 	end
-	local currentSpeed = humanoid.WalkSpeed
+	local ghost = state.ghost
+	local humanoid = ghost and ghost:FindFirstChildOfClass("Humanoid")
+	local currentSpeed = humanoid and humanoid.WalkSpeed or nil
 	if typeof(currentSpeed) ~= "number" or currentSpeed <= 0 then
 		return
 	end
+
+	local samples = state.dullahanSpeedSamples
+	local previous = samples[#samples]
+	local interval = previous and now - previous.Time or nil
+	if interval and interval < 0.075 then
+		return
+	end
+	if interval and interval > 0.22 then
+		state.dullahanSpeedSamples = {}
+		state.dullahanIncreaseEvents = {}
+		samples = state.dullahanSpeedSamples
+		previous = nil
+		interval = nil
+	end
+	table.insert(samples, {Time = now, Speed = currentSpeed})
+
+	while samples[1] and now - samples[1].Time > 0.9 do
+		table.remove(samples, 1)
+	end
 	for index = #state.dullahanIncreaseEvents, 1, -1 do
-		if now - state.dullahanIncreaseEvents[index].Time > 8 then
+		if now - state.dullahanIncreaseEvents[index].Time > 0.7 then
 			table.remove(state.dullahanIncreaseEvents, index)
 		end
 	end
 
-	if lineOfSight then
-		state.dullahanLosSampleCount = state.dullahanLosSampleCount + 1
-		if not state.dullahanSawLineOfSight then
-			state.dullahanSawLineOfSight = true
-			state.dullahanLosBaseline = currentSpeed
-			state.dullahanMaxLosSpeed = currentSpeed
-			state.dullahanLastSpeed = currentSpeed
-			return
-		end
-		local baseline = math.max(state.dullahanLosBaseline or currentSpeed, 1)
-		local previousSpeed = state.dullahanLastSpeed or currentSpeed
-		local change = currentSpeed - previousSpeed
-		local relativeChange = change / baseline
-		state.dullahanLastSpeed = currentSpeed
-		state.dullahanMaxLosSpeed = math.max(state.dullahanMaxLosSpeed or currentSpeed, currentSpeed)
-		if change >= math.max(0.02, baseline * 0.003)
-			and relativeChange <= 0.08 then
+	if previous then
+		local increase = currentSpeed - previous.Speed
+		local minimumStep = math.max(0.01, previous.Speed * 0.001)
+		local maximumStep = math.max(0.12, previous.Speed * 0.08)
+		if increase > maximumStep then
+			state.dullahanIncreaseEvents = {}
+		elseif increase >= minimumStep
+			and increase <= maximumStep then
 			table.insert(state.dullahanIncreaseEvents, {
 				Time = now,
-				Delta = change,
-				RelativeDelta = relativeChange,
+				Delta = increase,
 				Speed = currentSpeed,
 			})
 		end
+	end
+
+	local qualifiedWindow = false
+	if #samples >= 5 then
+		local firstIndex = #samples - 4
+		local firstSample = samples[firstIndex]
+		local span = now - firstSample.Time
+		qualifiedWindow = span >= 0.3 and span <= 0.7
+		if qualifiedWindow then
+			for index = firstIndex + 1, #samples do
+				local sampleInterval = samples[index].Time
+					- samples[index - 1].Time
+				if sampleInterval < 0.075
+					or sampleInterval > 0.22 then
+					qualifiedWindow = false
+					break
+				end
+			end
+		end
+	end
+	if qualifiedWindow then
+		state.dullahanHadQualifiedWindow = true
+	end
+
+	if not qualifiedWindow
+		or #state.dullahanIncreaseEvents < 3 then
+		return
+	end
+	local firstIncrease = state.dullahanIncreaseEvents[1]
+	local lastIncrease = state.dullahanIncreaseEvents[
+		#state.dullahanIncreaseEvents
+	]
+	if not firstIncrease
+		or not lastIncrease
+		or lastIncrease.Time - firstIncrease.Time > 0.7 then
 		return
 	end
 
-	state.dullahanLastSpeed = currentSpeed
-	if not state.dullahanSawLineOfSight then
-		return
-	end
-	local baseline = math.max(state.dullahanLosBaseline or currentSpeed, 1)
-	local maximum = state.dullahanMaxLosSpeed or currentSpeed
-	local rampObserved = #state.dullahanIncreaseEvents >= 3
-		and maximum >= baseline * 1.08
-	local resetObserved = currentSpeed <= baseline * 1.04
-	if rampObserved and resetObserved and not perkDetections.Dullahan then
-		perkTrackerState.clearGhostRuleOut("Dullahan")
-		state.dullahanCompletedNoIncreaseHunt = false
-		state.dybbukMaybeReady = false
-		clearPerkDetection("Dybbuk")
-		recordPerkDetection(
-			"Dullahan",
-			"Ghost WalkSpeed ramped through sustained line of sight and reset when line of sight broke",
-			97
-		)
-	end
+	state.dullahanPatternDetected = true
+	state.dullahanPatternObservedThisHunt = true
+	state.dullahanCompletedNoIncreaseHunt = false
+	state.dybbukMaybeReady = false
+	perkTrackerState.clearGhostRuleOut("Dullahan")
+	clearPerkDetection("Dybbuk")
+	recordPerkDetection(
+		"Dullahan",
+		"Ghost WalkSpeed made three small rapid increases within 0.7 seconds across five or more hunt samples",
+		PERK_CONFIDENCE.Dullahan
+	)
+	updateGhostIdentification(ghost)
 end
 perkTrackerState.updateDybbukMaybe = function(ghost)
 	if not ghost then
@@ -3660,6 +3654,7 @@ end
 local function analyzeWendigo(now)
 	if perkDetections.Aswang
 		or perkDetections.Dullahan
+		or perkTrackerState.dullahanPatternDetected
 		or #perkTrackerState.dullahanIncreaseEvents >= 3 then
 		return
 	end
@@ -3856,132 +3851,33 @@ local function analyzeOni(now)
 		)
 	end
 end
-local function analyzeUmbra(now)
-	local cutoff = now - 25
-	while perkTrackerState.umbraSamples[1]
-		and perkTrackerState.umbraSamples[1].Time < cutoff do
-		table.remove(perkTrackerState.umbraSamples, 1)
-	end
-	local byRoom = {}
-	for _, sample in ipairs(perkTrackerState.umbraSamples) do
-		local roomSamples = byRoom[sample.Room]
-		if not roomSamples then
-			roomSamples = {Lit = {}, Dark = {}}
-			byRoom[sample.Room] = roomSamples
-		end
-		table.insert(sample.Lit and roomSamples.Lit or roomSamples.Dark, sample)
-	end
-	for roomName, roomSamples in pairs(byRoom) do
-		if (perkTrackerState.umbraLightTransitionsByRoom[roomName] or 0) >= 1
-			and #roomSamples.Lit >= 15
-			and #roomSamples.Dark >= 15 then
-			local litSpeeds = valuesFromSamples(roomSamples.Lit, "Speed")
-			local darkSpeeds = valuesFromSamples(roomSamples.Dark, "Speed")
-			local litMedian = median(litSpeeds)
-			local darkMedian = median(darkSpeeds)
-			local litEnergies = valuesFromSamples(roomSamples.Lit, "Energy")
-			local darkEnergies = valuesFromSamples(roomSamples.Dark, "Energy")
-			local litEnergy = median(litEnergies)
-			local darkEnergy = median(darkEnergies)
-			local energyComparable = not litEnergy
-				or not darkEnergy
-				or math.abs(litEnergy - darkEnergy) <= 10
-			if litMedian and darkMedian and darkMedian > 4 and energyComparable then
-				local ratio = litMedian / darkMedian
-				local stable = standardDeviation(litSpeeds) <= 1.25
-					and standardDeviation(darkSpeeds) <= 1.25
-				if stable
-					and ratio >= 0.74
-					and ratio <= 0.86
-					and darkMedian - litMedian >= 0.65 then
-					perkTrackerState.umbraLitMatch = {
-						Time = now,
-						Reason = string.format(
-							"ghost speed in lit %s was %.2fx its dark-room speed",
-							roomName,
-							ratio
-						),
-					}
-					return
-				end
-			end
-		end
-	end
-end
-local function updateUmbraSoundSupport(
-	ghost,
-	hunting,
-	moving,
-	deltaTime,
-	now
-)
-	if not hunting or not moving then
-		perkTrackerState.umbraRootSoundPresentTime = 0
-		perkTrackerState.umbraRootSoundAbsentTime = 0
+local function checkUmbraRootSoundOnce(ghost)
+	if not ghost or perkTrackerState.umbraRootSoundChecked then
 		return
 	end
-	local rootHasSound = ghostRootHasAnySound(ghost)
+	local rootHasExtraSound = ghostRootHasAnySound(ghost)
+	if rootHasExtraSound == nil then
+		return
+	end
 
-	if rootHasSound == true then
-		perkTrackerState.umbraRootSoundPresentTime =
-			perkTrackerState.umbraRootSoundPresentTime + deltaTime
-		perkTrackerState.umbraRootSoundAbsentTime = 0
+	-- A valid HumanoidRootPart hierarchy is inspected exactly once.
+	perkTrackerState.umbraRootSoundChecked = true
+	if rootHasExtraSound then
 		clearPerkDetection("Umbra")
-
-		if perkTrackerState.umbraRootSoundPresentTime >= 1.5 then
-			perkTrackerState.ruleOutGhost(
-				"Umbra",
-				"a moving hunt repeatedly exposed non-Hunting Sound objects on the ghost root",
-				90
-			)
-		end
-		return
-	elseif rootHasSound == false then
-		perkTrackerState.umbraRootSoundAbsentTime =
-			perkTrackerState.umbraRootSoundAbsentTime + deltaTime
-		perkTrackerState.umbraRootSoundPresentTime = 0
-	end
-
-	local litMatch = perkTrackerState.umbraLitMatch
-	if litMatch and now - litMatch.Time > 60 then
-		perkTrackerState.umbraLitMatch = nil
-		litMatch = nil
-	end
-
-	local silentHuntObserved = perkTrackerState.umbraRootSoundAbsentTime >= 2
-	local skinwalkerPossible = ghostSupportsConfirmedEvidence(
-		"Skinwalker",
-		getConfirmedEvidence()
-	)
-	if litMatch and silentHuntObserved and not skinwalkerPossible then
-		perkTrackerState.clearGhostRuleOut("Umbra")
-		recordPerkDetection(
+		perkTrackerState.ruleOutGhost(
 			"Umbra",
-			litMatch.Reason
-				.. " and HumanoidRootPart contained no non-Hunting Sound objects",
+			"HumanoidRootPart contained a Sound other than Hunting on the immediate check",
 			99
 		)
-	elseif silentHuntObserved then
+	else
 		perkTrackerState.clearGhostRuleOut("Umbra")
 		recordPerkDetection(
 			"Umbra",
-			"a moving hunt produced no non-Hunting Sound objects on the ghost root",
-			60
-		)
-		if skinwalkerPossible then
-			recordPerkDetection(
-				"Skinwalker",
-				"Skinwalker may mimic the Umbra silent-hunt ability",
-				60
-			)
-		end
-	elseif litMatch then
-		recordPerkDetection(
-			"Umbra",
-			litMatch.Reason,
-			60
+			"HumanoidRootPart contained no Sound other than Hunting on the immediate check",
+			PERK_CONFIDENCE.Umbra
 		)
 	end
+	updateGhostIdentification(ghost)
 end
 perkTrackerState.findCrossPart = function(model)
 	if not model or not model:IsA("Model") then
@@ -4132,94 +4028,105 @@ perkTrackerState.saltModelPosition = function(model)
 	return part and part.Position or nil
 end
 perkTrackerState.markSaltDisturbed = function(disturbedModel)
-	local disturbedPosition = perkTrackerState.saltModelPosition(disturbedModel)
-	local nearestModel
-	local nearestDistance = math.huge
-	for saltModel, observation in pairs(perkTrackerState.saltPendingTouches) do
-		if observation
-			and not observation.Disturbed
-			and disturbedPosition
-			and observation.Position then
-			local distance = (disturbedPosition - observation.Position).Magnitude
-			if distance < nearestDistance and distance <= 10 then
-				nearestModel = saltModel
-				nearestDistance = distance
+	local now = os.clock()
+	local pending = perkTrackerState.saltPendingTouches
+	local disturbedPosition = perkTrackerState.saltModelPosition(
+		disturbedModel
+	)
+	local observation = pending[disturbedModel]
+	if observation and observation.Disturbed then
+		return
+	end
+
+	local sourceModel = disturbedModel
+	if not observation and disturbedPosition then
+		local nearestDistance = math.huge
+		for saltModel, candidate in pairs(pending) do
+			if candidate
+				and not candidate.Disturbed
+				and candidate.Position
+				and now - candidate.StartedAt <= 1.5 then
+				local distance = (
+					disturbedPosition - candidate.Position
+				).Magnitude
+				if distance <= 1.25 and distance < nearestDistance then
+					observation = candidate
+					sourceModel = saltModel
+					nearestDistance = distance
+				end
 			end
 		end
 	end
-	local observation = nearestModel
-		and perkTrackerState.saltPendingTouches[nearestModel]
-		or perkTrackerState.saltPendingTouches[disturbedModel]
+
 	if not observation then
 		local ghost = getGhostModel()
 		local ghostPosition = ghost and ghost:GetPivot().Position or nil
-		if ghost
-			and ghostPosition
-			and disturbedPosition
-			and (ghostPosition - disturbedPosition).Magnitude <= 12 then
-			local now = os.clock()
-			local humanoid = ghost:FindFirstChildOfClass("Humanoid")
-			local currentSpeed = humanoid and humanoid.WalkSpeed or nil
-			local huntingAtTouch =
-				ghost:GetAttribute("Hunting") == true
-			observation = {
-				StartedAt = now,
-				Position = disturbedPosition,
-				PreSpeed =
-					huntingAtTouch
-					and (
-						perkTrackerState.recentSaltPreSpeed(
-							ghost,
-							now
-						)
-						or currentSpeed
-					)
-					or nil,
-				MinPostSpeed =
-					huntingAtTouch and currentSpeed or nil,
-				HuntingAtTouch = huntingAtTouch,
-				Ghost = ghost,
-				Disturbed = false,
-				WraithResolved = false,
-				AswangResolved = false,
-			}
-			perkTrackerState.saltPendingTouches[disturbedModel] = observation
-		else
+		if not ghost
+			or not ghostPosition
+			or not disturbedPosition
+			or (ghostPosition - disturbedPosition).Magnitude > 6 then
 			return
 		end
+		local preSpeed, preSampleCount, baselineReliable =
+			perkTrackerState.recentSaltPreSpeed(ghost, now)
+		observation = {
+			StartedAt = now,
+			Position = disturbedPosition,
+			PreSpeed = preSpeed,
+			PreSampleCount = preSampleCount,
+			BaselineReliable = baselineReliable,
+			PostSpeeds = {},
+			LastPostSampleAt = nil,
+			Ghost = ghost,
+			Disturbed = false,
+			WraithResolved = false,
+			AswangResolved = false,
+			Synthetic = true,
+		}
 	end
+
+	if sourceModel ~= disturbedModel then
+		pending[sourceModel] = nil
+	end
+	pending[disturbedModel] = observation
+	observation.Position = disturbedPosition or observation.Position
 	observation.Disturbed = true
-	observation.DisturbedAt = os.clock()
+	observation.DisturbedAt = now
+	observation.PostSpeeds = {}
+	observation.LastPostSampleAt = nil
+	observation.WraithResolved = true
 	perkTrackerState.wraithRuledOut = true
 	perkTrackerState.ruleOutGhost(
 		"Wraith",
-		"the touched SaltLine became DisturbedSaltLine",
+		"the same touched SaltLine became DisturbedSaltLine",
 		99
 	)
 	updateGhostIdentification(perkTrackerState.ghost)
 end
-perkTrackerState.recentSaltPreSpeed = function(ghost, now)
+perkTrackerState.recentSaltPreSpeed = function(_ghost, now)
 	local recentSpeeds = {}
 	for _, sample in ipairs(perkTrackerState.motionSamples) do
-		if sample.Hunting
-			and sample.Time >= now - 1.5
+		if sample.Time >= now - 0.9
 			and sample.Time <= now
 			and typeof(sample.GhostWalkSpeed) == "number"
 			and sample.GhostWalkSpeed > 0 then
 			table.insert(recentSpeeds, sample.GhostWalkSpeed)
 		end
 	end
-	local humanoid = ghost and ghost:FindFirstChildOfClass("Humanoid")
-	if humanoid
-		and typeof(humanoid.WalkSpeed) == "number"
-		and humanoid.WalkSpeed > 0 then
-		table.insert(recentSpeeds, humanoid.WalkSpeed)
+	if #recentSpeeds < 3 then
+		return nil, #recentSpeeds, false
 	end
-	local highest
+	local baseline = median(table.clone(recentSpeeds))
+	local lowest = math.huge
+	local highest = -math.huge
 	for _, speed in ipairs(recentSpeeds) do
-		highest = math.max(highest or speed, speed)
+		lowest = math.min(lowest, speed)
+		highest = math.max(highest, speed)
 	end
-	return highest
+	local stable = baseline
+		and highest - lowest <= math.max(0.15, baseline * 0.05)
+		or false
+	return stable and baseline or nil, #recentSpeeds, stable
 end
 perkTrackerState.beginSaltTouch = function(saltModel)
 	if closed
@@ -4234,37 +4141,34 @@ perkTrackerState.beginSaltTouch = function(saltModel)
 	end
 	local now = os.clock()
 	local existing = perkTrackerState.saltPendingTouches[saltModel]
-	if existing and now - existing.StartedAt < 1.5 then
+	if existing and now - existing.StartedAt < 3.5 then
 		return
 	end
-	local humanoid = ghost:FindFirstChildOfClass("Humanoid")
-	local currentSpeed = humanoid and humanoid.WalkSpeed or nil
-	local huntingAtTouch =
-		ghost:GetAttribute("Hunting") == true
-	local preSpeed =
-		huntingAtTouch
-		and perkTrackerState.recentSaltPreSpeed(ghost, now)
-		or nil
+	local preSpeed, preSampleCount, baselineReliable =
+		perkTrackerState.recentSaltPreSpeed(ghost, now)
 	perkTrackerState.saltPendingTouches[saltModel] = {
 		StartedAt = now,
 		Position = perkTrackerState.saltModelPosition(saltModel),
-		PreSpeed =
-			huntingAtTouch and (preSpeed or currentSpeed) or nil,
-		MinPostSpeed =
-			huntingAtTouch and currentSpeed or nil,
-		HuntingAtTouch = huntingAtTouch,
+		PreSpeed = preSpeed,
+		PreSampleCount = preSampleCount,
+		BaselineReliable = baselineReliable,
+		PostSpeeds = {},
+		LastPostSampleAt = nil,
 		Ghost = ghost,
 		Disturbed = false,
 		WraithResolved = false,
 		AswangResolved = false,
+		Synthetic = false,
 	}
 end
-perkTrackerState.bindSaltLine = function(model)
+perkTrackerState.bindSaltLine = function(model, emitDisturbance)
 	if not model or not model:IsA("Model") then
 		return
 	end
 	if model.Name == "DisturbedSaltLine" then
-		perkTrackerState.markSaltDisturbed(model)
+		if emitDisturbance then
+			perkTrackerState.markSaltDisturbed(model)
+		end
 		return
 	end
 	if model.Name ~= "SaltLine" or perkTrackerState.saltTrackedLines[model] then
@@ -4304,23 +4208,24 @@ perkTrackerState.ensureSaltTracker = function()
 		perkTrackerState.saltFolder = folder
 		perkTrackerState.saltTrackerInitialized = false
 		perkTrackerState.saltTrackedLines = setmetatable({}, {__mode = "k"})
+		perkTrackerState.saltPendingTouches = {}
 	end
 	if not folder or perkTrackerState.saltTrackerInitialized then
 		return
 	end
 	perkTrackerState.saltTrackerInitialized = true
 	for _, child in ipairs(folder:GetChildren()) do
-		perkTrackerState.bindSaltLine(child)
+		perkTrackerState.bindSaltLine(child, false)
 	end
 	connect(folder.ChildAdded, function(child)
 		task.defer(function()
 			if not closed and child.Parent == folder then
-				perkTrackerState.bindSaltLine(child)
+				perkTrackerState.bindSaltLine(child, true)
 			end
 		end)
 	end)
 end
-perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
+perkTrackerState.updateSaltTracker = function(deltaTime, ghost, _hunting, now)
 	perkTrackerState.ensureSaltTracker()
 	local folder = perkTrackerState.saltFolder
 	if not folder or not ghost then
@@ -4367,7 +4272,7 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 			perkTrackerState.wraithRuledOut = true
 			perkTrackerState.ruleOutGhost(
 				"Wraith",
-				"the touched SaltLine became DisturbedSaltLine",
+				"the same touched SaltLine became DisturbedSaltLine",
 				99
 			)
 		elseif age >= 1.25 and not observation.WraithResolved then
@@ -4379,31 +4284,54 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 			)
 		end
 		if not observation.AswangResolved
-			and observation.HuntingAtTouch
-			and hunting
+			and observation.Disturbed
 			and observation.Ghost == ghost
+			and observation.BaselineReliable
+			and not observation.Synthetic
 			and typeof(observation.PreSpeed) == "number"
 			and observation.PreSpeed > 0
 			and typeof(currentSpeed) == "number"
-			and age <= 2.25 then
-			observation.MinPostSpeed = math.min(
-				observation.MinPostSpeed or currentSpeed,
-				currentSpeed
-			)
-			local observedRatio =
-				observation.MinPostSpeed / observation.PreSpeed
-			if observedRatio >= 0.64 and observedRatio <= 0.86 then
-				observation.AswangResolved = true
-				recordPerkDetection(
-					"Aswang",
-					"Ghost hunting WalkSpeed fell to roughly 75% after salt contact",
-					99
-				)
-				updateGhostIdentification(ghost)
+			and currentSpeed > 0 then
+			local disturbedAge = now - observation.DisturbedAt
+			if disturbedAge <= 1.6
+				and (
+					not observation.LastPostSampleAt
+					or now - observation.LastPostSampleAt >= 0.075
+				) then
+				observation.LastPostSampleAt = now
+				table.insert(observation.PostSpeeds, currentSpeed)
+			end
+			if #observation.PostSpeeds >= 3 then
+				local postMedian = median(table.clone(observation.PostSpeeds))
+				local observedRatio = postMedian
+					and postMedian / observation.PreSpeed
+					or nil
+				if observedRatio
+					and observedRatio >= 0.64
+					and observedRatio <= 0.86 then
+					observation.AswangResolved = true
+					perkTrackerState.clearGhostRuleOut("Aswang")
+					recordPerkDetection(
+						"Aswang",
+						"the same salt pile became disturbed and the ghost's median WalkSpeed dropped immediately afterward",
+						99
+					)
+					updateGhostIdentification(ghost)
+				elseif #observation.PostSpeeds >= 5
+					and observedRatio
+					and observedRatio >= 0.94 then
+					observation.AswangResolved = true
+					perkTrackerState.ruleOutGhost(
+						"Aswang",
+						"the same salt pile became disturbed but five post-contact WalkSpeed samples showed no slowdown",
+						92
+					)
+				end
 			end
 		end
-		if age >= 3.5
-			or not saltModel.Parent
+		local observationAge = now
+			- (observation.DisturbedAt or observation.StartedAt)
+		if observationAge >= 3.5
 			or observation.Ghost ~= ghost then
 			perkTrackerState.saltPendingTouches[saltModel] = nil
 		end
@@ -5405,7 +5333,8 @@ local function updateObservablePerkTrackers(deltaTime)
 	if perkTrackerState.sampleAccumulator < 0.1 then
 		return
 	end
-	perkTrackerState.sampleAccumulator = 0
+	perkTrackerState.sampleAccumulator =
+		perkTrackerState.sampleAccumulator % 0.1
 	local ghost = getGhostModel()
 	if ghost ~= perkTrackerState.ghost then
 		resetPerkTrackerForGhost(ghost)
@@ -5413,6 +5342,7 @@ local function updateObservablePerkTrackers(deltaTime)
 	if not ghost then
 		return
 	end
+	checkUmbraRootSoundOnce(ghost)
 	local now = os.clock()
 	perkTrackerState.ensureCrossDemonTracker()
 	perkTrackerState.updateCrossDemonTracker(now)
@@ -5424,6 +5354,9 @@ local function updateObservablePerkTrackers(deltaTime)
 	perkTrackerState.updateObjectTeleportTracker(0.1, now)
 	perkTrackerState.updateRavagerTracker(0.1, ghost, now)
 	handleHuntTransition(ghost, hunting, now)
+	if hunting then
+		analyzeDullahan(now)
+	end
 	handleMultiplayerDeaths(ghost, hunting, now)
 	if not perkTrackerState.entityTrackerInitialized then
 		perkTrackerState.entityTrackerInitialized = true
@@ -5580,9 +5513,6 @@ local function updateObservablePerkTrackers(deltaTime)
 		TargetPlayer = lineOfSightTarget,
 	}
 	appendRollingSample(perkTrackerState.motionSamples, sample, now, 12)
-	if hunting then
-		analyzeDullahan(now, lineOfSight)
-	end
 	if not hunting and typeof(sample.GhostWalkSpeed) == "number" and sample.GhostWalkSpeed > 0 then
 		appendRollingSample(perkTrackerState.nonHuntWalkSpeedSamples, sample, now, 30)
 	end
@@ -5604,40 +5534,15 @@ local function updateObservablePerkTrackers(deltaTime)
 		perkTrackerState.lastLosLightingKey = nil
 		perkTrackerState.lastLosTarget = nil
 	end
-	if hunting then
-		if roomLit ~= nil
-			and roomName
-			and measuredSpeed > 3
-			and measuredSpeed < 25
-			and not lineOfSight
-			and invisible ~= true then
-			local previousLightState = perkTrackerState.umbraLastLightStateByRoom[roomName]
-			if previousLightState ~= nil and previousLightState ~= roomLit then
-				perkTrackerState.umbraLightTransitionsByRoom[roomName] =
-					(perkTrackerState.umbraLightTransitionsByRoom[roomName] or 0) + 1
-			end
-			perkTrackerState.umbraLastLightStateByRoom[roomName] = roomLit
-			table.insert(perkTrackerState.umbraSamples, {
-				Time = now,
-				Speed = measuredSpeed,
-				Energy = energy,
-				Lit = roomLit,
-				Room = roomName,
-			})
-		end
-	end
 	evaluatePendingWispStart(ghost, now)
 	if perkTrackerState.analysisAccumulator >= 0.2 then
-		local analysisStep = perkTrackerState.analysisAccumulator
 		perkTrackerState.analysisAccumulator = 0
 		perkTrackerState.analyzeSpecter(ghost, hunting, measuredSpeed, now)
 		if hunting then
-			analyzeUmbra(now)
 			analyzePhantom(now)
 			analyzeOni(now)
 		end
 		analyzeWendigo(now)
-		updateUmbraSoundSupport(ghost, hunting, measuredSpeed > 2, analysisStep, now)
 		perkTrackerState.updateDybbukMaybe(ghost)
 	end
 	evaluatePendingKill(hunting, now)
@@ -8124,7 +8029,18 @@ local function updateEvidence()
 	end
 	local favouriteRoom = findFavouriteRoom(roomsFolder, favouriteRoomName)
 	updateFavouriteRoomEsp(favouriteRoom)
-	local roomTemperature = favouriteRoom and favouriteRoom:GetAttribute("Temperature") or nil
+	local roomTemperature = nil
+	if roomsFolder then
+		for _, room in ipairs(roomsFolder:GetChildren()) do
+			local temperature = room:GetAttribute("Temperature")
+			if typeof(temperature) == "number" then
+				roomTemperature = math.min(
+					roomTemperature or temperature,
+					temperature
+				)
+			end
+		end
+	end
 	if typeof(roomTemperature) == "number" then
 		if roomTemperature < 0 then
 			freezingEvidenceFound = true
