@@ -5725,6 +5725,34 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 			end
 			return false, nil, nil
 		end
+		local function findDroppedWorldItemInRoom(
+			itemName: any,
+			room: any
+		): any
+			if not room then
+				return nil
+			end
+			local items: any = workspace:FindFirstChild("Items")
+			if not items then
+				return nil
+			end
+			for _, worldItem: any in ipairs(items:GetChildren()) do
+				local worldItemName: any = worldItem:IsA("Model")
+					and worldItem:GetAttribute("ItemName")
+					or nil
+				if typeof(worldItemName) == "string"
+					and worldItemName ~= ""
+					and sameItemName(worldItemName, itemName)
+					and not automationHelpers.worldItemIsBurntCross(worldItem)
+					and automationHelpers.worldItemIsInsideRoomBounds(
+						worldItem,
+						room
+					) then
+					return worldItem
+				end
+			end
+			return nil
+		end
 		local function confirmedDrop(
 			slotNumber: any,
 			itemName: any,
@@ -5765,7 +5793,6 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 				end
 				slotNumber = confirmedSlot or currentSlot
 				local dropRoom: any
-				local existingWorldItems: any = setmetatable({}, {__mode = "k"})
 				if requireRoomReturn then
 					waitForNoHunt(false)
 					dropRoom = currentFavouriteRoom()
@@ -5794,19 +5821,6 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 					if not characterInsideRoom then
 						return false
 					end
-					local items = workspace:FindFirstChild("Items")
-					if items then
-						for _, worldItem in ipairs(items:GetChildren()) do
-							local worldItemName = worldItem:IsA("Model")
-								and worldItem:GetAttribute("ItemName")
-								or nil
-							if typeof(worldItemName) == "string"
-								and worldItemName ~= ""
-								and sameItemName(worldItemName, itemName) then
-								existingWorldItems[worldItem] = true
-							end
-						end
-					end
 				end
 				fireRemote(
 					requestItemDrop,
@@ -5815,40 +5829,22 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 				local deadline = os.clock() + 1.65
 				repeat
 					assertOperationActive()
-					if countPhysicalInventoryItem(
-						itemName,
-						includeBurntCross
-					) < beforeCount then
-						if not requireRoomReturn then
-							return true
-						end
-						local items = workspace:FindFirstChild("Items")
-						local worldDeadline = os.clock() + 0.8
-						repeat
-							assertOperationActive()
-							if items then
-								for _, worldItem in ipairs(items:GetChildren()) do
-									local worldItemName = worldItem:IsA("Model")
-										and worldItem:GetAttribute("ItemName")
-										or nil
-									if not existingWorldItems[worldItem]
-										and typeof(worldItemName) == "string"
-										and worldItemName ~= ""
-										and sameItemName(worldItemName, itemName)
-										and automationHelpers.worldItemIsInsideRoomBounds(
-											worldItem,
-											dropRoom
-										) then
-										return true
-									end
-								end
-							end
-							guardedWait(0.05)
-						until os.clock() >= worldDeadline
-						return false
+					if requireRoomReturn
+						and findDroppedWorldItemInRoom(itemName, dropRoom) then
+						return true
+					end
+					if not requireRoomReturn
+						and countPhysicalInventoryItem(
+							itemName,
+							includeBurntCross
+						) < beforeCount then
+						return true
 					end
 					guardedWait(0.05)
 				until os.clock() >= deadline
+				if requireRoomReturn then
+					return findDroppedWorldItemInRoom(itemName, dropRoom) ~= nil
+				end
 				local _, afterOccupiedCount = inventorySnapshot()
 				if countPhysicalInventoryItem(
 						itemName,
