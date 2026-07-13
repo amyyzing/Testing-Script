@@ -503,13 +503,15 @@ local function previewMajorAxis(part)
 	return axis.Magnitude >= 0.05 and axis.Unit or nil
 end
 
-local function facePlayerTowardRoundDoor(target)
+local function roundDoorFacingContext(target)
 	local geometry = roundDoorGeometry(target)
 	local character = player.Character
 	local root = character
 		and character:FindFirstChild("HumanoidRootPart")
-	if not geometry or not character or not root then
-		return false, geometry, root
+	local humanoid = character
+		and character:FindFirstChildOfClass("Humanoid")
+	if not geometry or not character or not root or not humanoid then
+		return nil, geometry, root
 	end
 	local rootOffset = Vector3.new(
 		root.Position.X - geometry.Center.X,
@@ -518,22 +520,39 @@ local function facePlayerTowardRoundDoor(target)
 	)
 	local signedNormal = rootOffset:Dot(geometry.NormalAxis)
 	if math.abs(signedNormal) < 0.05 or rootOffset.Magnitude > 5 then
-		return false, geometry, root
+		return nil, geometry, root
 	end
 	local expectedFacing = geometry.NormalAxis
 		* (signedNormal > 0 and -1 or 1)
-	local pivotOffset = root.CFrame:ToObjectSpace(character:GetPivot())
-	local desiredRoot = CFrame.lookAt(
-		root.Position,
-		root.Position + expectedFacing
-	)
-	local turned = pcall(function()
-		character:PivotTo(desiredRoot * pivotOffset)
-	end)
-	if not turned or not root.Parent then
-		return false, geometry, root
+	return {
+		Character = character,
+		Root = root,
+		Humanoid = humanoid,
+		Geometry = geometry,
+		ExpectedFacing = expectedFacing,
+	}, geometry, root
+end
+
+local function enforceRoundDoorFacing(context)
+	if not context
+		or player.Character ~= context.Character
+		or not context.Character.Parent
+		or not context.Root.Parent
+		or not context.Humanoid.Parent then
+		return false
 	end
-	root.AssemblyAngularVelocity = Vector3.zero
+	local root = context.Root
+	local expectedFacing = context.ExpectedFacing
+	local turned = pcall(function()
+		root.CFrame = CFrame.lookAt(
+			root.Position,
+			root.Position + expectedFacing
+		)
+		root.AssemblyAngularVelocity = Vector3.zero
+	end)
+	if not turned then
+		return false
+	end
 	local facing = Vector3.new(
 		root.CFrame.LookVector.X,
 		0,
@@ -541,9 +560,87 @@ local function facePlayerTowardRoundDoor(target)
 	)
 	return facing.Magnitude >= 0.05
 		and facing.Unit:Dot(expectedFacing) >= 0.985
-		and math.abs(facing.Unit:Dot(geometry.WideAxis)) <= 0.05,
-		geometry,
-		root
+		and math.abs(
+			facing.Unit:Dot(context.Geometry.WideAxis)
+		) <= 0.05
+end
+
+local function facePlayerTowardRoundDoor(target)
+	local context, geometry, root = roundDoorFacingContext(target)
+	return enforceRoundDoorFacing(context), geometry, root
+end
+
+local function beginRoundDoorFacingLock(target)
+	local context = roundDoorFacingContext(target)
+	if not context then
+		return nil, "player could not face the door"
+	end
+	local lock = {
+		Context = context,
+		OriginalAutoRotate = context.Humanoid.AutoRotate,
+		Released = false,
+		Connection = nil,
+	}
+	function lock:Enforce()
+		if self.Released then
+			return false
+		end
+		local contextIsCurrent = player.Character == self.Context.Character
+			and self.Context.Character.Parent
+			and self.Context.Root.Parent
+			and self.Context.Humanoid.Parent
+		if not contextIsCurrent then
+			return false
+		end
+		local disabled = pcall(function()
+			self.Context.Humanoid.AutoRotate = false
+		end)
+		if not disabled then
+			return false
+		end
+		return enforceRoundDoorFacing(self.Context)
+	end
+	function lock:Release()
+		if self.Released then
+			return
+		end
+		self.Released = true
+		if self.Connection and self.Connection.Connected then
+			self.Connection:Disconnect()
+		end
+		local humanoid = self.Context.Humanoid
+		if humanoid.Parent
+			and player.Character == self.Context.Character then
+			pcall(function()
+				humanoid.AutoRotate = self.OriginalAutoRotate
+			end)
+		end
+	end
+	local disabled = pcall(function()
+		context.Humanoid.AutoRotate = false
+	end)
+	if not disabled then
+		return nil, "player facing lock could not disable AutoRotate"
+	end
+	local connected, connection = pcall(function()
+		return Services.RunService.PreSimulation:Connect(function()
+			if not lock:Enforce() then
+				lock:Release()
+			end
+		end)
+	end)
+	if not connected then
+		pcall(function()
+			context.Humanoid.AutoRotate = lock.OriginalAutoRotate
+		end)
+		return nil, "player facing lock could not bind to simulation"
+	end
+	lock.Connection = connection
+	if not lock:Enforce() then
+		lock:Release()
+		return nil, "player facing lock could not rotate the character"
+	end
+	return lock
 end
 
 local function playerHasDoorPlacementGeometry(target)
@@ -671,53 +768,86 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 	if uses ~= nil and uses <= 0 then
 		return false, toolName .. " has no uses remaining"
 	end
-	local aligned, alignReason = waitForRoundPreview(
-		toolName,
-		target,
-		generation
-	)
-	if not aligned then
-		return false, alignReason
-	end
-	local events = Services.ReplicatedStorage:FindFirstChild("Events")
 	local remoteName = toolName == "Salt Canister"
 		and "LaySaltPile"
 		or "PourHolyOil"
-	local remote = events and events:FindFirstChild(remoteName)
-	if not remote or not remote:IsA("RemoteEvent") then
-		return false, remoteName .. " RemoteEvent was not found"
-	end
-	if not facePlayerTowardRoundDoor(target)
-		or not placementPreviewIsAligned(toolName, target) then
-		return false, "placement preview lost door alignment before dispatch"
-	end
-	local dispatchEquipped = getRoundEquippedItem(toolName)
-	local dispatchUses = dispatchEquipped
-		and tonumber(dispatchEquipped:GetAttribute("Uses"))
-	if not dispatchEquipped or dispatchUses == nil then
-		return false, toolName .. " Uses could not be verified before dispatch"
-	end
-	if dispatchUses <= 0 then
-		return false, toolName .. " has no uses remaining"
-	end
-	equipped = dispatchEquipped
-	uses = dispatchUses
-	if not roundActionIsSafe(generation) then
-		return false, roundUnsafeReason(generation)
-	end
 	local folderName = toolName == "Salt Canister" and "SaltPiles" or "HolyOil"
-	local placementFolder = workspace:FindFirstChild(folderName)
+	local placementFolder
 	local existingPlacements = setmetatable({}, {__mode = "k"})
-	if placementFolder then
-		for _, child in ipairs(placementFolder:GetChildren()) do
-			existingPlacements[child] = true
-		end
+	local targetFrame
+	local dispatchAccepted = false
+	local dispatchFailure
+	local facingLock, facingReason = beginRoundDoorFacingLock(target)
+	if not facingLock then
+		return false, facingReason
 	end
-	local targetFrame = roundTargetCFrame(target)
-	beginAutomationMutation(2.5)
-	local fired = pcall(remote.FireServer, remote)
-	if not fired then
-		return false, remoteName .. " failed"
+	local guarded, guardedFailure = xpcall(function()
+		local aligned, alignReason = waitForRoundPreview(
+			toolName,
+			target,
+			generation
+		)
+		if not aligned then
+			dispatchFailure = alignReason
+			return
+		end
+		local events = Services.ReplicatedStorage:FindFirstChild("Events")
+		local remote = events and events:FindFirstChild(remoteName)
+		if not remote or not remote:IsA("RemoteEvent") then
+			dispatchFailure = remoteName .. " RemoteEvent was not found"
+			return
+		end
+		if not facingLock:Enforce()
+			or not placementPreviewIsAligned(toolName, target) then
+			dispatchFailure =
+				"placement preview lost door alignment before dispatch"
+			return
+		end
+		local dispatchEquipped = getRoundEquippedItem(toolName)
+		local dispatchUses = dispatchEquipped
+			and tonumber(dispatchEquipped:GetAttribute("Uses"))
+		if not dispatchEquipped or dispatchUses == nil then
+			dispatchFailure =
+				toolName .. " Uses could not be verified before dispatch"
+			return
+		end
+		if dispatchUses <= 0 then
+			dispatchFailure = toolName .. " has no uses remaining"
+			return
+		end
+		equipped = dispatchEquipped
+		uses = dispatchUses
+		if not roundActionIsSafe(generation) then
+			dispatchFailure = roundUnsafeReason(generation)
+			return
+		end
+		placementFolder = workspace:FindFirstChild(folderName)
+		if placementFolder then
+			for _, child in ipairs(placementFolder:GetChildren()) do
+				existingPlacements[child] = true
+			end
+		end
+		targetFrame = roundTargetCFrame(target)
+		beginAutomationMutation(2.5)
+		if not facingLock:Enforce()
+			or not placementPreviewIsAligned(toolName, target) then
+			dispatchFailure =
+				"player facing changed before placement dispatch"
+			return
+		end
+		local fired = pcall(remote.FireServer, remote)
+		if not fired then
+			dispatchFailure = remoteName .. " failed"
+			return
+		end
+		dispatchAccepted = true
+	end, debug.traceback)
+	facingLock:Release()
+	if not guarded then
+		error(guardedFailure, 0)
+	end
+	if not dispatchAccepted then
+		return false, dispatchFailure or remoteName .. " failed"
 	end
 	local deadline = os.clock() + 2
 	local confirmed = false
