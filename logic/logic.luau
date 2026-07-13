@@ -1939,72 +1939,30 @@ automationHelpers.distanceFromPositionToInstance = function(position, instance)
 	local fallback = getInstanceWorldPosition(instance)
 	return fallback and (position - fallback).Magnitude or math.huge
 end
-local roomBoundingPartsCache = setmetatable({}, {__mode = "k"})
 local function getRoomBoundingParts(room)
 	if not room then
 		return {}
 	end
-	local cached = roomBoundingPartsCache[room]
-	if cached and #cached > 0 then
-		local valid = true
-		for _, part in ipairs(cached) do
-			if not part.Parent or not part:IsDescendantOf(room) then
-				valid = false
-				break
-			end
-		end
-		if valid then
-			return cached
-		end
-	end
 	local parts = {}
 	local seen = setmetatable({}, {__mode = "k"})
-	local boundingBoxes = {}
-	local direct = room:FindFirstChild("BoundingBox")
-	if direct then
-		table.insert(boundingBoxes, direct)
-	end
-	for _, descendant in ipairs(room:GetDescendants()) do
-		if descendant.Name == "BoundingBox" and descendant ~= direct then
-			table.insert(boundingBoxes, descendant)
-		end
-	end
 	local function addPart(part)
 		if part and part:IsA("BasePart") and not seen[part] then
 			seen[part] = true
 			table.insert(parts, part)
 		end
 	end
-	for _, boundingBox in ipairs(boundingBoxes) do
-		if boundingBox:IsA("BasePart") then
-			addPart(boundingBox)
-		else
-			local countBeforeBoundingBox = #parts
-			for _, child in ipairs(boundingBox:GetChildren()) do
-				if child:IsA("BasePart") and child.Name == "Part" then
-					addPart(child)
-				end
-			end
-			if #parts == countBeforeBoundingBox then
-				for _, child in ipairs(boundingBox:GetChildren()) do
-					if child:IsA("BasePart") then
-						addPart(child)
-					end
-				end
-			end
-			if #parts == countBeforeBoundingBox then
+	-- Rebuild on every query. Room bounds can replicate incrementally, so a
+	-- cached first part would permanently hide later bounding boxes.
+	for _, boundingBox in ipairs(room:GetDescendants()) do
+		if boundingBox.Name == "BoundingBox" then
+			if boundingBox:IsA("BasePart") then
+				addPart(boundingBox)
+			else
 				for _, descendant in ipairs(boundingBox:GetDescendants()) do
-					if descendant:IsA("BasePart") then
-						addPart(descendant)
-					end
+					addPart(descendant)
 				end
 			end
 		end
-	end
-	if #parts > 0 then
-		roomBoundingPartsCache[room] = parts
-	else
-		roomBoundingPartsCache[room] = nil
 	end
 	return parts
 end
@@ -5236,31 +5194,56 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 				and value ~= false
 				and tostring(value) ~= ""
 		end
-		local function directStoredInventoryModels(
+		local function directContainerItemModels(
+			container: any,
 			itemName: any,
 			includeBurntCross: any
 		): any
 			local matches = {}
 			local requested = itemName and normalizeItemName(itemName) or nil
-			for _, container in ipairs({
-				player:FindFirstChild("ToolsHolder"),
-				player.Character,
-			}) do
-				if container then
-					for _, child in ipairs(container:GetChildren()) do
-						local name = child:IsA("Model")
-							and child:GetAttribute("ItemName")
-							or nil
-						if typeof(name) == "string"
-							and name ~= ""
-							and (not requested
-								or normalizeItemName(name) == requested)
-							and (includeBurntCross == true
-								or not automationHelpers.worldItemIsBurntCross(child)) then
-							table.insert(matches, child)
-						end
+			if container then
+				for _, child in ipairs(container:GetChildren()) do
+					local name = child:IsA("Model")
+						and child:GetAttribute("ItemName")
+						or nil
+					if typeof(name) == "string"
+						and name ~= ""
+						and (not requested
+							or normalizeItemName(name) == requested)
+						and (includeBurntCross == true
+							or not automationHelpers.worldItemIsBurntCross(child)) then
+						table.insert(matches, child)
 					end
 				end
+			end
+			return matches
+		end
+		local function directToolsHolderInventoryModels(
+			itemName: any,
+			includeBurntCross: any
+		): any
+			return directContainerItemModels(
+				player:FindFirstChild("ToolsHolder"),
+				itemName,
+				includeBurntCross
+			)
+		end
+		-- Carried state includes stored and currently equipped models. Use the
+		-- ToolsHolder-only helper above when confirming an inventory transition.
+		local function directStoredInventoryModels(
+			itemName: any,
+			includeBurntCross: any
+		): any
+			local matches = directToolsHolderInventoryModels(
+				itemName,
+				includeBurntCross
+			)
+			for _, model in ipairs(directContainerItemModels(
+				player.Character,
+				itemName,
+				includeBurntCross
+			)) do
+				table.insert(matches, model)
 			end
 			return matches
 		end
@@ -5449,6 +5432,12 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 		local function inventoryHasItem(itemName: any): boolean
 			return countInventoryItem(itemName) > 0
 		end
+		local function countToolsHolderInventoryItem(itemName: any): number
+			return #directToolsHolderInventoryModels(itemName, false)
+		end
+		local function toolsHolderHasItem(itemName: any): boolean
+			return countToolsHolderInventoryItem(itemName) > 0
+		end
 		local function inventorySlotName(slotNumber: any): any
 			for _, child in ipairs(directStoredInventoryModels(nil, true)) do
 				if storedObjectSlot(child) == slotNumber then
@@ -5564,13 +5553,11 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 				return false, nil
 			end
 			for _, child in ipairs(itemFolder:GetChildren()) do
-				local candidateName =
-					child:GetAttribute("ItemName")
-					or child.Name
-				if (
-					child:IsA("Model")
-					or child:IsA("BasePart")
-				)
+				local candidateName = child:IsA("Model")
+					and child:GetAttribute("ItemName")
+					or nil
+				if typeof(candidateName) == "string"
+					and candidateName ~= ""
 					and sameItemName(candidateName, itemName)
 					and not automationHelpers.worldItemIsBurntCross(child) then
 					return true, child
@@ -5952,51 +5939,24 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 
 		local function waitForPickupConfirmation(
 			itemName: any,
-			model: any,
-			beforeItemCount: number,
-			beforeOccupiedCount: number,
-			beforeSlotValues: any,
+			beforeStoredCount: number,
 			timeout: number
 		): any
 			local deadline = os.clock() + timeout
 			repeat
 				assertOperationActive()
-
-				for slotNumber = 1, inventorySlotCount do
-					local currentValue =
-						inventorySlotValue(slotNumber)
-					if valueIsOccupied(currentValue)
-						and currentValue
-							~= beforeSlotValues[slotNumber] then
-						return slotNumber
+				local storedModels = directToolsHolderInventoryModels(
+					itemName,
+					false
+				)
+				if #storedModels > beforeStoredCount then
+					for _, storedItem in ipairs(storedModels) do
+						local exactSlot = storedObjectSlot(storedItem)
+						if exactSlot then
+							return exactSlot
+						end
 					end
-				end
-
-				local exactSlot = findInventorySlot(itemName)
-				if exactSlot
-					and countInventoryItem(itemName)
-						> beforeItemCount then
-					return exactSlot
-				end
-
-				local storedItem = scanStoredInventory(itemName)
-				local _, occupiedCount = inventorySnapshot()
-				if storedItem
-					and countInventoryItem(itemName)
-						> beforeItemCount then
-					local delayedSlot =
-						findInventorySlot(itemName)
-					if delayedSlot then
-						return delayedSlot
-					end
-				end
-
-				if model
-					and model.Parent
-						~= workspace:FindFirstChild("Items")
-					and occupiedCount > beforeOccupiedCount then
-					local delayedSlot =
-						findInventorySlot(itemName)
+					local delayedSlot = findInventorySlot(itemName)
 					if delayedSlot then
 						return delayedSlot
 					end
@@ -6035,16 +5995,12 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 				and automationHelpers.worldItemIsBurntCross(model) then
 				return nil
 			end
-			local beforeItemCount = countInventoryItem(itemName)
-			local _, beforeOccupiedCount, _, beforeSlotValues =
-				inventorySnapshot()
+			local beforeStoredCount =
+				countToolsHolderInventoryItem(itemName)
 			fireRemote(requestItemPickup, model)
 			return waitForPickupConfirmation(
 				itemName,
-				model,
-				beforeItemCount,
-				beforeOccupiedCount,
-				beforeSlotValues,
+				beforeStoredCount,
 				timeout
 			)
 		end
@@ -6098,14 +6054,9 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 					findItem(itemName)
 				if stillFound and refreshedModel then
 					model = refreshedModel
-				elseif inventoryHasItem(itemName) then
+				elseif toolsHolderHasItem(itemName) then
 					return true, model, findInventorySlot(itemName)
 				else
-					local delayedSlot =
-						waitForHotbarSlot(itemName, 0.65)
-					if delayedSlot then
-						return true, model, delayedSlot
-					end
 					break
 				end
 
@@ -6154,7 +6105,7 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 
 				local _, occupiedAfterFire =
 					inventorySnapshot()
-				if inventoryHasItem(itemName) then
+				if toolsHolderHasItem(itemName) then
 					return true, model, findInventorySlot(itemName)
 				end
 
@@ -6199,9 +6150,11 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 				end
 			end
 
-			local delayedSlot = waitForHotbarSlot(itemName, 0.8)
-			if delayedSlot then
-				return true, model, delayedSlot
+			if toolsHolderHasItem(itemName) then
+				local delayedSlot = waitForHotbarSlot(itemName, 0.8)
+				if delayedSlot then
+					return true, model, delayedSlot
+				end
 			end
 
 			recordFailure(itemName .. " pickup was not confirmed")

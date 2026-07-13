@@ -1579,6 +1579,13 @@ local setDoRoundEnabled = (function()
 	local roundDirectInventoryModels = roundUtilities.DirectInventoryModels
 	local countRoundInventorySlots = roundUtilities.CountInventorySlots
 	local fireRoundPlaceable = roundUtilities.FirePlaceable
+	local function getRoundStoredInventoryModels(itemName, includeBurntCross)
+		return roundDirectInventoryModels(
+			player:FindFirstChild("ToolsHolder"),
+			itemName,
+			includeBurntCross
+		)
+	end
 	local function roundTeleportOptions(generation)
 		return {
 			IsActive = function()
@@ -1892,12 +1899,18 @@ local function placeRoundToolsAtDoors(generation)
 				if not roundActionIsSafe(generation) then
 					return false, roundUnsafeReason(generation)
 				end
-				local teleported = teleportToRoundDoorFace(
+				local teleported, teleportReason = teleportToRoundDoorFace(
 					door,
 					approach,
 					generation
 				)
-				if teleported and facePlayerTowardRoundDoor(door) then
+				if not teleported then
+					placementReason = teleportReason
+						or "door-face teleport failed"
+				elseif not facePlayerTowardRoundDoor(door) then
+					placementReason =
+						"player could not face the door after teleport"
+				else
 					doRoundWait(generation, 0.1)
 					placed, placementReason, dispatched, observedUses =
 						fireRoundPlaceable(toolName, door, generation)
@@ -2085,23 +2098,8 @@ local function captureRoundRoomItems(room)
 			local nearestFallback
 			local nearestFallbackDistance = math.huge
 			local candidates = items and items:GetChildren() or {}
-			for _, container in ipairs({
-				player.Character,
-				player:FindFirstChild("ToolsHolder"),
-			}) do
-				for _, model in ipairs(
-					roundDirectInventoryModels(container, itemName, false)
-				) do
-					table.insert(candidates, model)
-				end
-			end
 			for _, model in ipairs(candidates) do
-				local candidateName
-				if items and model.Parent == items then
-					candidateName = roundWorkspaceItemName(model)
-				elseif model:IsA("Model") then
-					candidateName = model:GetAttribute("ItemName")
-				end
+				local candidateName = roundWorkspaceItemName(model)
 				if normalizeRoundItemName(candidateName) == normalized
 					and not roundCrossIsBurnt(model) then
 					if worldItemIsInsideRoomBounds(model, room) then
@@ -2147,13 +2145,9 @@ local function roundRoomSetupRecoverable(targetRoom)
 				end
 			end
 		end
-		for _, container in ipairs({
-			player.Character,
-			player:FindFirstChild("ToolsHolder"),
-		}) do
-			if #roundDirectInventoryModels(container, itemName, false) > 0 then
-				available = true
-			end
+		if #getRoundStoredInventoryModels(itemName, false) > 0
+			or getRoundEquippedItem(itemName) then
+			available = true
 		end
 		-- Optional evidence can legitimately be absent or a Cross can already be
 		-- consumed. Anything that still exists must already be in the new room's
@@ -2176,18 +2170,16 @@ local function roundRoomSetupRecoverable(targetRoom)
 				end
 			end
 		end
-		for _, container in ipairs({
-			player.Character,
-			player:FindFirstChild("ToolsHolder"),
-		}) do
-			for _, model in ipairs(
-				roundDirectInventoryModels(container, itemName, false)
-			) do
-				local uses = tonumber(model:GetAttribute("Uses"))
-				if uses == nil or uses > 0 then
-					available = true
-					retained = findRoundHotbarSlot(itemName) ~= nil
-				end
+		local carriedModels = getRoundStoredInventoryModels(itemName, false)
+		local equippedModel = getRoundEquippedItem(itemName)
+		if equippedModel then
+			table.insert(carriedModels, equippedModel)
+		end
+		for _, model in ipairs(carriedModels) do
+			local uses = tonumber(model:GetAttribute("Uses"))
+			if uses == nil or uses > 0 then
+				available = true
+				retained = findRoundHotbarSlot(itemName) ~= nil
 			end
 		end
 		if available and not retained then
@@ -2315,7 +2307,7 @@ local function restoreRoundItemToRoom(model, room, generation)
 	end
 	local itemName = roundItemName(model)
 	local itemsFolder = workspace:FindFirstChild("Items")
-	local isWorldItem = itemsFolder and model:IsDescendantOf(itemsFolder)
+	local isWorldItem = itemsFolder and model.Parent == itemsFolder
 	if not isWorldItem then
 		local heldSlot = findRoundHotbarSlot(itemName)
 		if not heldSlot or not roundActionIsSafe(generation) then
@@ -2385,6 +2377,7 @@ local function restoreRoundItemToRoom(model, room, generation)
 		return false
 	end
 	beginAutomationMutation(4)
+	local beforeStoredCount = #getRoundStoredInventoryModels(itemName, false)
 	local picked = fireRoundRemote(pickup, generation, model)
 	if not picked then
 		return false
@@ -2396,9 +2389,12 @@ local function restoreRoundItemToRoom(model, room, generation)
 			teleportToBaseCamp(roundTeleportOptions(generation))
 			return false
 		end
-		slotNumber = findRoundHotbarSlot(itemName)
-		if slotNumber then
-			break
+		local storedModels = getRoundStoredInventoryModels(itemName, false)
+		if #storedModels > beforeStoredCount then
+			slotNumber = findRoundHotbarSlot(itemName)
+			if slotNumber then
+				break
+			end
 		end
 		doRoundWait(generation, 0.05)
 	until os.clock() >= deadline
@@ -2755,35 +2751,40 @@ local function runDoRound(generation)
 			)
 		end
 		if not roundRoomSetupRecoverable(favouriteRoom) then
-			repeat
-				doRoundWait(generation, 0.2)
-			until repeatRoundRoomItemSetup(generation, favouriteRoom)
+			doRoundWait(generation, 0.2)
+			local recovered = repeatRoundRoomItemSetup(
+				generation,
+				favouriteRoom
+			)
+			if not recovered and presenter and presenter.Notify then
+				presenter:Notify(
+					"Room item setup remained incomplete after retry; "
+						.. "continuing with available items"
+				)
+			end
 		end
 		local refreshedFavourite = findFavouriteRoom(
 			findRoomsFolder(),
 			ghost and ghost:GetAttribute("FavoriteRoom") or nil
 		)
-		while refreshedFavourite
-			and refreshedFavourite ~= completedPlacementRoom do
-			favouriteRoom = refreshedFavourite
-			doRoundState.lastFavouriteRoom = favouriteRoom
-			if repeatRoundRoomItemSetup(generation, favouriteRoom) then
-				completedPlacementRoom = favouriteRoom
-			else
-				doRoundWait(generation, 0.2)
+		if refreshedFavourite
+			and refreshedFavourite ~= completedPlacementRoom then
+			local relocationTarget = refreshedFavourite
+			if repeatRoundRoomItemSetup(generation, relocationTarget) then
+				completedPlacementRoom = relocationTarget
+				favouriteRoom = relocationTarget
+				doRoundState.lastFavouriteRoom = relocationTarget
+			elseif presenter and presenter.Notify then
+				presenter:Notify(
+					"The ghost room changed while items were being set up; "
+						.. "continuing with the available items"
+				)
 			end
-			local latestGhost = getGhostModel()
-			refreshedFavourite = findFavouriteRoom(
-				findRoomsFolder(),
-				latestGhost
-					and latestGhost:GetAttribute("FavoriteRoom")
-					or nil
-			)
 		end
-		if refreshedFavourite then
-			favouriteRoom = refreshedFavourite
-			doRoundState.lastFavouriteRoom = refreshedFavourite
-		end
+		-- Stay anchored to the last room that completed setup. If replication
+		-- reports a newer room, the main loop will observe and prepare it next.
+		favouriteRoom = completedPlacementRoom
+		doRoundState.lastFavouriteRoom = completedPlacementRoom
 		captureRoundRoomItems(favouriteRoom)
 		local missingRoomItems = {}
 		for _, itemName in ipairs(DROPPED_ROOM_ITEMS) do
@@ -2883,12 +2884,15 @@ local function runDoRound(generation)
 				favouriteRoom = currentFavourite
 				doRoundState.lastFavouriteRoom = favouriteRoom
 				local relocationTarget = favouriteRoom
-				if not repeatRoundRoomItemSetup(generation, relocationTarget) then
-					-- Force the next pass to retry even if the replicated room name
-					-- itself did not change while setup was unavailable.
-					favouriteRoom = nil
-					doRoundWait(generation, 0.2)
-					continue
+				local relocated = repeatRoundRoomItemSetup(
+					generation,
+					relocationTarget
+				)
+				if not relocated and presenter and presenter.Notify then
+					presenter:Notify(
+						"Room item relocation remained incomplete; "
+							.. "continuing with available items"
+					)
 				end
 				local latestGhost = getGhostModel()
 				local latestFavourite = findFavouriteRoom(
