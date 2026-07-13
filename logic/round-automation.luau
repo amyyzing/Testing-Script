@@ -11,6 +11,10 @@ return function(dependencies: any)
 	local distanceFromPositionToInstance: any = assert(dependencies.DistanceFromPositionToInstance, "round-automation requires DistanceFromPositionToInstance")
 	local characterIsFullyInsideRoom: any = assert(dependencies.CharacterIsFullyInsideRoom, "round-automation requires CharacterIsFullyInsideRoom")
 	local worldItemIsFullyInsideRoom: any = assert(dependencies.WorldItemIsFullyInsideRoom, "round-automation requires WorldItemIsFullyInsideRoom")
+	local worldItemIsInsideRoomBounds: any = assert(
+		dependencies.WorldItemIsInsideRoomBounds,
+		"round-automation requires WorldItemIsInsideRoomBounds"
+	)
 	local worldItemIsBurntCross: any = assert(dependencies.WorldItemIsBurntCross, "round-automation requires WorldItemIsBurntCross")
 	local findExitDoorDescriptors: any = assert(dependencies.FindExitDoorDescriptors, "round-automation requires FindExitDoorDescriptors")
 	local instanceBelongsToExitDoor: any = assert(dependencies.InstanceBelongsToExitDoor, "round-automation requires InstanceBelongsToExitDoor")
@@ -78,6 +82,21 @@ end
 
 local function roundItemName(model)
 	return model and (model:GetAttribute("ItemName") or model.Name) or nil
+end
+
+local function roundWorkspaceItemName(model)
+	local items = workspace:FindFirstChild("Items")
+	if not items
+		or not model
+		or model.Parent ~= items
+		or not model:IsA("Model") then
+		return nil
+	end
+	local storedName = model:GetAttribute("ItemName")
+	if typeof(storedName) ~= "string" or storedName == "" then
+		return nil
+	end
+	return storedName
 end
 
 local roundInventory: any = {}
@@ -1498,6 +1517,7 @@ end
 		PickupMaxDistance = ROUND_PICKUP_MAX_DISTANCE,
 		NormalizeItemName = normalizeRoundItemName,
 		ItemName = roundItemName,
+		WorkspaceItemName = roundWorkspaceItemName,
 		FindHotbarSlot = findRoundHotbarSlot,
 		SlotCandidates = roundInventory.SlotCandidates,
 		GetEquippedItem = getRoundEquippedItem,
@@ -1533,6 +1553,7 @@ local setDoRoundEnabled = (function()
 	local ROUND_PICKUP_MAX_DISTANCE = roundUtilities.PickupMaxDistance
 	local normalizeRoundItemName = roundUtilities.NormalizeItemName
 	local roundItemName = roundUtilities.ItemName
+	local roundWorkspaceItemName = roundUtilities.WorkspaceItemName
 	local findRoundHotbarSlot = roundUtilities.FindHotbarSlot
 	local roundSlotCandidates = roundUtilities.SlotCandidates
 	local getRoundEquippedItem = roundUtilities.GetEquippedItem
@@ -2054,11 +2075,12 @@ local function captureRoundRoomItems(room)
 	for _, itemName in ipairs(DROPPED_ROOM_ITEMS) do
 		local normalized = normalizeRoundItemName(itemName)
 		local existing = doRoundState.roomItems[normalized]
-		if existing and roundCrossIsBurnt(existing) then
-			doRoundState.roomItems[normalized] = nil
-			existing = nil
-		end
-		if not existing or not existing.Parent then
+		local existingIsPlaced = existing
+			and existing.Parent
+			and not roundCrossIsBurnt(existing)
+			and normalizeRoundItemName(roundWorkspaceItemName(existing)) == normalized
+			and worldItemIsInsideRoomBounds(existing, room)
+		if not existingIsPlaced then
 			doRoundState.roomItems[normalized] = nil
 			local nearestFallback
 			local nearestFallbackDistance = math.huge
@@ -2074,9 +2096,15 @@ local function captureRoundRoomItems(room)
 				end
 			end
 			for _, model in ipairs(candidates) do
-				if normalizeRoundItemName(roundItemName(model)) == normalized
+				local candidateName
+				if items and model.Parent == items then
+					candidateName = roundWorkspaceItemName(model)
+				elseif model:IsA("Model") then
+					candidateName = model:GetAttribute("ItemName")
+				end
+				if normalizeRoundItemName(candidateName) == normalized
 					and not roundCrossIsBurnt(model) then
-					if worldItemIsFullyInsideRoom(model, room) then
+					if worldItemIsInsideRoomBounds(model, room) then
 						doRoundState.roomItems[normalized] = model
 						break
 					end
@@ -2110,10 +2138,10 @@ local function roundRoomSetupRecoverable(targetRoom)
 		local correctlyPlaced = false
 		if items then
 			for _, model in ipairs(items:GetChildren()) do
-				if normalizeRoundItemName(roundItemName(model)) == normalized
+				if normalizeRoundItemName(roundWorkspaceItemName(model)) == normalized
 					and not roundCrossIsBurnt(model) then
 					available = true
-					if worldItemIsFullyInsideRoom(model, targetRoom) then
+					if worldItemIsInsideRoomBounds(model, targetRoom) then
 						correctlyPlaced = true
 					end
 				end
@@ -2129,7 +2157,7 @@ local function roundRoomSetupRecoverable(targetRoom)
 		end
 		-- Optional evidence can legitimately be absent or a Cross can already be
 		-- consumed. Anything that still exists must already be in the new room's
-		-- lower, open bounding volume before the setup may advance.
+		-- bounding boxes before the setup may advance.
 		if (available or REQUIRED_ROOM_ITEMS[normalized]) and not correctlyPlaced then
 			return false
 		end
@@ -2139,7 +2167,7 @@ local function roundRoomSetupRecoverable(targetRoom)
 		local retained = false
 		if items then
 			for _, model in ipairs(items:GetChildren()) do
-				if normalizeRoundItemName(roundItemName(model))
+				if normalizeRoundItemName(roundWorkspaceItemName(model))
 					== normalizeRoundItemName(itemName) then
 					local uses = tonumber(model:GetAttribute("Uses"))
 					if uses == nil or uses > 0 then
@@ -2192,7 +2220,7 @@ local function snapshotRoundWorldItems(itemName)
 	end
 	local normalized = normalizeRoundItemName(itemName)
 	for _, candidate in ipairs(items:GetChildren()) do
-		if normalizeRoundItemName(roundItemName(candidate)) == normalized then
+		if normalizeRoundItemName(roundWorkspaceItemName(candidate)) == normalized then
 			snapshot[candidate] = true
 		end
 	end
@@ -2213,11 +2241,11 @@ local function confirmRoundItemDropInRoom(
 		local items = workspace:FindFirstChild("Items")
 		if items then
 			for _, candidate in ipairs(items:GetChildren()) do
-				if normalizeRoundItemName(roundItemName(candidate)) == normalized
+				if normalizeRoundItemName(roundWorkspaceItemName(candidate)) == normalized
 					and (candidate == originalModel
 						or not beforeWorldItems[candidate]) then
 					replacement = replacement or candidate
-					if worldItemIsFullyInsideRoom(candidate, room) then
+					if worldItemIsInsideRoomBounds(candidate, room) then
 						doRoundState.roomItems[normalized] = candidate
 						return true, candidate
 					end
@@ -2444,8 +2472,8 @@ local function maintainRoundRoomItems(room, generation)
 			end
 			local itemsFolder = workspace:FindFirstChild("Items")
 			local worldItem = itemsFolder
-				and model:IsDescendantOf(itemsFolder)
-			if not worldItem or not worldItemIsFullyInsideRoom(model, room) then
+				and model.Parent == itemsFolder
+			if not worldItem or not worldItemIsInsideRoomBounds(model, room) then
 				doRoundState.outsideSince[model] =
 					doRoundState.outsideSince[model] or now
 				if now - doRoundState.outsideSince[model] >= 1.5
@@ -2492,7 +2520,7 @@ local function maintainRoundRoomItems(room, generation)
 				doRoundState.nextRestoreAt[model] = nil
 			end
 			if worldItem and POWERED_ROOM_ITEMS[normalized]
-				and worldItemIsFullyInsideRoom(model, room) then
+				and worldItemIsInsideRoomBounds(model, room) then
 				local enabledObject = roundItemEnabledObject(model)
 				if enabledObject then
 					local enabled = enabledObject:GetAttribute("Enabled") == true
