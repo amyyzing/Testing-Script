@@ -122,40 +122,6 @@ function session:Destroy(keepLoader)
 end
 
 local LOBBY_MACRO_DELAY = 0.5
-local LOBBY_DIFFICULTY_SETTINGS = {
-	NewActionInterval = 4,
-	GhostWalkSpeedMultiplier = 6,
-	CursedPossessionAmount = 1,
-	EvidenceProbabilityTimeIncrease = 4,
-	GhostType = 1,
-	PercentageOfDoorsOpen = 5,
-	EMFChanceModifier = 4,
-	FuseBoxOnByDefault = 2,
-	AggressionInterval = 4,
-	FlashlightsBroken = 1,
-	HuntDuration = 3,
-	HandprintDuration = 1,
-	DisableHunts = 1,
-	Weather = 4,
-	KillIncreaseAmount = 6,
-	EvidenceGiven = 4,
-	EnergyMonitorBroken = 2,
-	GhostLowerTemperatureRange = 4,
-	KillsEndHunt = 2,
-	StartingEnergy = 1,
-	HuntInteractionMultiplier = 4,
-	MinimumHuntCooldown = 1,
-	GhostCanChangeFavoriteRoom = 1,
-	MaxStamina = 1,
-	HuntGracePeriod = 2,
-	SetUpPhaseLength = 4,
-	HuntProbabilityCoefficient = 7,
-	HuntEnergyThreshold = 5,
-	EnergyDecayRate = 8,
-	EnergyDrinkRestoration = 1,
-	DefaultWalkSpeed = 1,
-	SpiritBoxChanceModifier = 4,
-}
 
 local function runLobbyStartMacro()
 	local events = Services.ReplicatedStorage:FindFirstChild("Events")
@@ -172,15 +138,12 @@ local function runLobbyStartMacro()
 
 	-- Resolve everything before dispatch so a missing endpoint cannot leave the
 	-- lobby only partially configured.
-	local updateJobSite = requireRemote("UpdateJobSite")
-	local updateDifficulty = requireRemote("UpdateAllCustomDifficultySettings")
-	local applyPreset = requireRemote("ApplyEquipmentPreset")
+	local changeJobSite = requireRemote("ChangeJobSite")
+	local changeDifficulty = requireRemote("ChangeDifficulty")
+	local applyDifficultyPreset = requireRemote("ApplyDifficultyPreset")
+	local applyEquipmentPreset = requireRemote("ApplyEquipmentPreset")
 	local changeStatus = requireRemote("ChangeStatus")
 	local attemptStart = requireRemote("AttemptStart")
-	local fireSignal = environment.firesignal
-	if type(fireSignal) ~= "function" then
-		error("firesignal is unavailable for the lobby macro", 0)
-	end
 
 	local function waitForDispatch()
 		assertCurrent()
@@ -189,17 +152,19 @@ local function runLobbyStartMacro()
 	end
 
 	waitForDispatch()
-	fireSignal(updateJobSite.OnClientEvent, "School")
+	changeJobSite:FireServer("School")
 
 	waitForDispatch()
-	fireSignal(
-		updateDifficulty.OnClientEvent,
-		LOBBY_DIFFICULTY_SETTINGS,
-		2.47
-	)
+	changeDifficulty:FireServer("Minus")
 
 	waitForDispatch()
-	applyPreset:FireServer("green")
+	applyDifficultyPreset:FireServer("john4")
+
+	waitForDispatch()
+	applyDifficultyPreset:FireServer("john4")
+
+	waitForDispatch()
+	applyEquipmentPreset:FireServer("green")
 
 	waitForDispatch()
 	changeStatus:FireServer()

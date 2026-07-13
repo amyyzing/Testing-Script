@@ -14,10 +14,11 @@ Remote code is fetched at run time. Review the repository before executing it, a
 
 Before fetching GUI modules, the bootstrap performs a discardable one-shot check
 for the `Workspace.Ghost` model. When it exists, the normal in-round GUI loads.
-When it does not exist, the GUI is skipped and the loader configures School,
-applies the custom difficulty settings, applies the green equipment preset, and
-changes the player status immediately before attempting to start the round. Every
-macro dispatch has its own 0.5-second safety delay.
+When it does not exist, the GUI is skipped and the loader changes the job site to
+School, applies the Minus difficulty change, applies the `john4` difficulty preset
+twice, applies the green equipment preset, and changes the player status before
+attempting to start the round. Every macro dispatch has its own 0.5-second safety
+delay.
 
 ## Layout
 
