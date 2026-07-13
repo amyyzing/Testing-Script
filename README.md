@@ -14,8 +14,9 @@ Pass the local `Auto` value into the downloaded chunk as shown; a separate
 last boolean in `getgenv().DemonologyAuto`. With Auto enabled it queues a guarded
 self-loader through `queue_on_teleport`/`queueonteleport` whenever `AttemptStart`
 or `RequestReturnToLobby` initiates a teleport. A round arrival loads the GUI and
-turns on Do-Round automatically. A lobby return fires `LoadingFinished` before
-starting the next lobby macro.
+turns on Do-Round automatically after the character, map, ghost, doors, and door
+remote have stayed replicated for one second. A lobby return fires
+`LoadingFinished` before starting the next lobby macro.
 
 The script requires an environment that provides `game:HttpGet` and `loadstring`. Some optional features also capability-check executor APIs such as `gethui`, `firesignal`, `getconnections`, and `fireproximityprompt`. It is not a normal Roblox Studio `LocalScript`.
 
@@ -62,9 +63,9 @@ camera and placement preview settle; the original camera mode is restored after
 each attempt. Before the salt door approach is
 chosen, the live player-to-`Camera.SaltLine.Salt` XZ distance is sampled and used
 to place the salt preview on the door's XZ centre. Salt continues across unique
-doors until `Uses` reaches zero; Holy Oil dispatches once at a different door. Both placement
-previews must remain within two studs of the player, touch valid room bounds, and
-pass floor and clearance checks before the remote is fired.
+doors until `Uses` reaches zero; Holy Oil dispatches up to three times at distinct
+doors. Both placement previews must remain within two studs of the player, touch
+valid room bounds, and pass floor and clearance checks before the remote is fired.
 
 Turning `Do Round` off immediately releases any door-facing render lock and
 restores a live character's unanchored, rotating humanoid state. Cancellation-aware

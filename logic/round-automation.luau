@@ -57,9 +57,9 @@ local ROUND_PLACEMENT_MAX_PLAYER_DISTANCE = 2
 local ROUND_PICKUP_MAX_DISTANCE = 8
 local ROUND_REMOTE_SAFETY_DELAY = 0.1
 -- Salt consumes every available use. Distinct door identity, not an arbitrary
--- count, is the only placement cap; Holy Oil remains the one-time exception.
+-- count, is the only placement cap; Holy Oil is capped at three placements.
 local ROUND_SALT_PLACEMENT_LIMIT = math.huge
-local ROUND_HOLY_OIL_PLACEMENT_LIMIT = 1
+local ROUND_HOLY_OIL_PLACEMENT_LIMIT = 3
 local ROUND_ROOM_HORIZONTAL_TOLERANCE = 0.75
 local ROUND_ROOM_VERTICAL_TOLERANCE = 0.6
 local ROUND_ITEM_OUTSIDE_GRACE = 1.75
@@ -2268,10 +2268,14 @@ local function placeRoundToolsAtDoors(generation)
 			if dispatched then
 				doRoundState.reservedDoorModels[selectedDoor] = true
 				doRoundState.reservedDoorNames[selectedKey] = true
-				-- Holy Oil is intentionally a one-dispatch operation. If replication
-				-- confirmation is ambiguous, report it but never pour a second bottle.
-				if toolKey == "holy oil" then
-					doRoundState.completedDoorTools[toolKey] = true
+				-- An accepted Holy Oil remote counts toward the three-pour cap even
+				-- when the Uses/world-pile confirmation arrives late. This prevents
+				-- an ambiguous replication result from pouring more than three times.
+				if toolKey == "holy oil" and not placed then
+					doRoundState.doorToolPlacements[toolKey] =
+						(doRoundState.doorToolPlacements[toolKey] or 0) + 1
+					doRoundState.usedHolyOilDoorModels[selectedDoor] = true
+					doRoundState.usedHolyOilDoorNames[selectedKey] = true
 				end
 			end
 			if placed then
@@ -3211,29 +3215,6 @@ local function runDoRound(generation)
 				doRoundState.itemsDirty = true
 				doRoundState.nextMaintenanceAt = 0
 			end
-			local guess = perkTrackerState.currentGhostGuess
-			local score = perkTrackerState.currentGhostGuessScore or 0
-			local certain = perkTrackerState.currentGhostGuessCertain == true
-			local singleGuess = guess
-				and not string.find(guess, "/", 1, true)
-			if singleGuess and (certain or score >= 80)
-				and not doRoundState.completionClaimed then
-				doRoundState.completionClaimed = true
-				local finished, finishReason = finishRoundWithGhost(
-					guess,
-					score,
-					certain,
-					generation,
-					"Identified " .. guess
-				)
-				if finished then
-					return
-				end
-				doRoundState.completionClaimed = false
-				if doRoundOperationActive(generation) then
-					error(finishReason or "Lobby return failed", 0)
-				end
-			end
 			if roundIsHunting() then
 				doRoundState.questionsActive = false
 				waitForRoundHuntEnd(generation)
@@ -3274,6 +3255,61 @@ local function runDoRound(generation)
 			setEnabled(false, "Stopped")
 		end
 	end
+end
+
+local function startRoundIdentificationWatchdog(generation)
+	doRoundState.identificationThread = task.spawn(function()
+		while doRoundOperationActive(generation)
+			and not doRoundState.completionClaimed do
+			local guess = perkTrackerState.currentGhostGuess
+			local score = perkTrackerState.currentGhostGuessScore or 0
+			local certain = perkTrackerState.currentGhostGuessCertain == true
+			local singleGuess = guess
+				and not string.find(guess, "/", 1, true)
+			if singleGuess and (certain or score >= 80) then
+				doRoundState.completionClaimed = true
+				-- Completion owns a fresh generation so it interrupts room setup,
+				-- door placement, maintenance, and Hunt Escape immediately. Hunt
+				-- state is intentionally absent from this decision.
+				doRoundState.generation = doRoundState.generation + 1
+				local completionGeneration = doRoundState.generation
+				doRoundState.identificationThread = nil
+				doRoundState.timeoutThread = nil
+				doRoundState.questionsActive = false
+				releaseRoundMovement()
+				while doRoundOperationActive(completionGeneration) do
+					local completedCall, completed, completionFailure = xpcall(
+						function()
+							return finishRoundWithGhost(
+								guess,
+								score,
+								certain,
+								completionGeneration,
+								"Identified " .. guess
+							)
+						end,
+						debug.traceback
+					)
+					if completedCall and completed then
+						return
+					end
+					if not doRoundOperationActive(completionGeneration) then
+						return
+					end
+					if presenter and presenter.Notify then
+						presenter:Notify(
+							tostring(completionFailure or completed):match("^[^\n]+")
+								or "Identified lobby return failed; retrying"
+						)
+					end
+					task.wait(0.5)
+				end
+				return
+			end
+			task.wait(0.1)
+		end
+		doRoundState.identificationThread = nil
+	end)
 end
 
 local function startRoundTimeoutWatchdog(generation)
@@ -3387,6 +3423,7 @@ setEnabled = function(enabled, finalPhase)
 		refreshAutoSpiritBoxEnabled()
 		setDoRoundStatus(doRoundState.phase)
 		local generation = doRoundState.generation
+		startRoundIdentificationWatchdog(generation)
 		startRoundTimeoutWatchdog(generation)
 		doRoundState.thread = task.spawn(function()
 			runDoRound(generation)
@@ -3425,6 +3462,7 @@ setEnabled = function(enabled, finalPhase)
 		refreshAutoSpiritBoxEnabled()
 		doRoundState.thread = nil
 		doRoundState.timeoutThread = nil
+		doRoundState.identificationThread = nil
 		doRoundState.completionClaimed = false
 		doRoundState.startedAt = nil
 		doRoundState.roundMap = nil

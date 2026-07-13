@@ -95,6 +95,9 @@ local doRoundState = {
 	enabled = false,
 	generation = 0,
 	thread = nil,
+	timeoutThread = nil,
+	identificationThread = nil,
+	completionClaimed = false,
 	startedAt = nil,
 	lastElapsed = 0,
 	phase = "Off",
@@ -10093,9 +10096,6 @@ function Controller:Start()
 
 	bindSpiritBoxRemoteListeners()
 	updateEvidence()
-	if dependencies.AutoStart == true and not doRoundState.enabled then
-		setDoRoundEnabled(true)
-	end
 	return self
 end
 

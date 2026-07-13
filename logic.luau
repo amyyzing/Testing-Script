@@ -501,7 +501,6 @@ local ok, failure = xpcall(function()
 
 	loader:SetStage("Starting ghost trackers…", 8, 9)
 	local controller = createLogic({
-		AutoStart = autoEnabled,
 		Services = Services,
 		Player = player,
 		Environment = environment,
@@ -520,6 +519,68 @@ local ok, failure = xpcall(function()
 	assertCurrent()
 	controller:Start()
 	assertCurrent()
+	if autoEnabled then
+		-- Do not hand control to Do-Round until the replicated round, character,
+		-- doors, and door remote have remained available for a full second. This
+		-- gate intentionally lives outside round-automation so its proven door
+		-- detection, closing, positioning, and placement routines stay untouched.
+		task.spawn(function()
+			local stableSince
+			local deadline = os.clock() + 20
+			while isCurrent() and os.clock() < deadline do
+				local character = player.Character
+				local root = character
+					and character:FindFirstChild("HumanoidRootPart")
+				local humanoid = character
+					and character:FindFirstChildOfClass("Humanoid")
+				local ghost = workspace:FindFirstChild("Ghost")
+				local map = workspace:FindFirstChild("Map")
+				local doors = workspace:FindFirstChild("Doors")
+				local events = Services.ReplicatedStorage:FindFirstChild("Events")
+				local doorRemote = events
+					and events:FindFirstChild("ClientChangeDoorState")
+				local hasReplicatedDoor = false
+				if doors then
+					for _, candidate in ipairs(doors:GetChildren()) do
+						if candidate:FindFirstChild("Door") then
+							hasReplicatedDoor = true
+							break
+						end
+					end
+				end
+				local ready = ghost ~= nil
+					and ghost:IsA("Model")
+					and map ~= nil
+					and doors ~= nil
+					and hasReplicatedDoor
+					and doorRemote ~= nil
+					and doorRemote:IsA("RemoteEvent")
+					and root ~= nil
+					and humanoid ~= nil
+					and humanoid.Health > 0
+				if ready then
+					stableSince = stableSince or os.clock()
+					if os.clock() - stableSince >= 1 then
+						if isCurrent() then
+							local state = controller:GetState()
+							if not state.DoRound then
+								controller:ToggleDoRound()
+							end
+						end
+						return
+					end
+				else
+					stableSince = nil
+				end
+				task.wait(0.1)
+			end
+			if isCurrent() and presenter and presenter.Notify then
+				presenter:Notify(
+					"Auto mode is waiting for the round doors; use Do-Round once they finish loading"
+				)
+			end
+		end)
+	end
 
 	environment.DemonologyUI = session
 	environment.UntitledGuiLoaded = true
