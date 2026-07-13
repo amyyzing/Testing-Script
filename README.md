@@ -38,9 +38,11 @@ from at most eight studs away.
 
 Door placeables use the nearest distinct non-exit door names. Each door is closed
 and allowed to settle before its `DoorUnion` wide face is recalculated. The player
-is held two studs in front of that face, looking toward its centre, while
-the camera and placement preview settle. Salt continues across unique doors until
-`Uses` reaches zero; Holy Oil dispatches once at a different door. Both placement
+is held no more than two studs in front of that face, looking toward its centre,
+while the camera and placement preview settle. Before the salt door approach is
+chosen, the live player-to-`Camera.SaltLine.Salt` XZ distance is sampled and used
+to place the salt preview on the door's XZ centre. Salt continues across unique
+doors until `Uses` reaches zero; Holy Oil dispatches once at a different door. Both placement
 previews must remain within two studs of the player, touch valid room bounds, and
 pass floor and clearance checks before the remote is fired.
 

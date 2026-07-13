@@ -68,6 +68,8 @@ local ROUND_PLACEMENT_SETTLE_HEARTBEATS = 3
 local ROUND_PLACEMENT_PREVIEW_DRIFT = 0.12
 local ROUND_PLACEMENT_ROOT_DRIFT = 0.08
 local ROUND_PLACEMENT_DOOR_DRIFT = 0.05
+local ROUND_PLACEMENT_DISTANCE_DRIFT = 0.05
+local ROUND_PLACEMENT_CENTER_TOLERANCE = 0.35
 local roundDoorFacingLockSequence = 0
 local roundRoomMembershipCache = setmetatable({}, {__mode = "k"})
 local roundRoomOverlapParams = OverlapParams.new()
@@ -568,20 +570,43 @@ local function roundDoorGeometry(target)
 	}
 end
 
-local function roundDoorApproaches(target)
+local function roundDoorApproaches(target, placementDistance)
 	local geometry = roundDoorGeometry(target)
 	if not geometry then
 		return {}, nil, nil
 	end
+	local calibratedDistance = tonumber(placementDistance)
+	if calibratedDistance then
+		calibratedDistance = math.clamp(
+			calibratedDistance,
+			0.25,
+			ROUND_DOOR_MAX_PLAYER_DISTANCE
+		)
+	end
+	local minimumDistance = calibratedDistance
+		and math.max(0.25, calibratedDistance - 0.2)
+		or geometry.MinimumDistance
+	local maximumDistance = calibratedDistance
+		and math.min(
+			ROUND_DOOR_MAX_PLAYER_DISTANCE,
+			calibratedDistance + 0.2
+		)
+		or geometry.MaximumDistance
+	local standDistance = calibratedDistance or geometry.StandDistance
+	local maximumLateralOffset = calibratedDistance
+		and ROUND_PLACEMENT_CENTER_TOLERANCE
+		or 0.8
 	local approaches = {}
 	for _, side in ipairs({1, -1}) do
 		local positions = {}
-		for _, lateral in ipairs({0, -0.35, 0.35, -0.7, 0.7}) do
+		for _, lateral in ipairs(calibratedDistance
+			and {0, -0.2, 0.2}
+			or {0, -0.35, 0.35, -0.7, 0.7}) do
 			for _, normalAdjustment in ipairs({0, 0.2, -0.2}) do
 				local distance = math.clamp(
-					geometry.StandDistance + normalAdjustment,
-					geometry.MinimumDistance,
-					geometry.MaximumDistance
+					standDistance + normalAdjustment,
+					minimumDistance,
+					maximumDistance
 				)
 				table.insert(
 					positions,
@@ -597,6 +622,10 @@ local function roundDoorApproaches(target)
 			CandidatePositions = positions,
 			Facing = geometry.NormalAxis * -side,
 			Geometry = geometry,
+			MinimumDistance = minimumDistance,
+			MaximumDistance = maximumDistance,
+			MaximumLateralOffset = maximumLateralOffset,
+			MaximumPreferredDistance = calibratedDistance and 0.35 or 0.8,
 		})
 	end
 	return approaches, geometry.Center, geometry
@@ -682,7 +711,7 @@ local function teleportToRoundDoorFace(target, approach, generation)
 		PreferredPositions = preferred,
 		TargetPosition = geometry.Center,
 		MaximumTargetDistance = ROUND_DOOR_MAX_PLAYER_DISTANCE,
-		MaximumPreferredDistance = 0.8,
+		MaximumPreferredDistance = approach.MaximumPreferredDistance or 0.8,
 		LookDirection = approach.Facing,
 		RequireStrict = true,
 		CandidateValidator = function(position)
@@ -694,10 +723,12 @@ local function teleportToRoundDoorFace(target, approach, generation)
 			local lateral = math.abs(relative:Dot(geometry.WideAxis))
 			local signedNormal = relative:Dot(geometry.NormalAxis)
 			return relative.Magnitude <= ROUND_DOOR_MAX_PLAYER_DISTANCE
-				and lateral <= 0.8
+				and lateral <= (approach.MaximumLateralOffset or 0.8)
 				and signedNormal * approach.Side > 0
-				and math.abs(signedNormal) >= geometry.MinimumDistance
-				and math.abs(signedNormal) <= geometry.MaximumDistance
+				and math.abs(signedNormal)
+					>= (approach.MinimumDistance or geometry.MinimumDistance)
+				and math.abs(signedNormal)
+					<= (approach.MaximumDistance or geometry.MaximumDistance)
 		end,
 		IsActive = function()
 			return generation == nil
@@ -1224,8 +1255,7 @@ local function playerHasDoorPlacementGeometry(target)
 	local rootNormal = rootOffset:Dot(geometry.NormalAxis)
 	if rootOffset.Magnitude > ROUND_DOOR_MAX_PLAYER_DISTANCE
 		or rootLateral > 0.8
-		or math.abs(rootNormal) < geometry.MinimumDistance
-		or math.abs(rootNormal) > geometry.MaximumDistance then
+		or math.abs(rootNormal) < 0.05 then
 		return false, geometry, root
 	end
 	local facing = Vector3.new(
@@ -1288,12 +1318,64 @@ local function roundPreviewHasClearance(previewPart)
 	return true
 end
 
-local placementPreviewIsAligned: any = function(toolName, target)
+local function roundPlacementPreviewPart(toolName)
 	local camera = workspace.CurrentCamera
 	local previewName = toolName == "Salt Canister" and "SaltLine" or "HolyOil"
 	local partName = toolName == "Salt Canister" and "Salt" or "Center"
 	local preview = camera and camera:FindFirstChild(previewName)
 	local previewPart = preview and preview:FindFirstChild(partName, true)
+	return previewPart and previewPart:IsA("BasePart") and previewPart or nil
+end
+
+local function waitForRoundPlacementXZDistance(toolName, generation)
+	local deadline = os.clock() + 2
+	local lastDistance
+	local stablePasses = 0
+	repeat
+		Services.RunService.RenderStepped:Wait()
+		if not roundActionIsSafe(generation) then
+			return nil, roundUnsafeReason(generation)
+		end
+		local root = player.Character
+			and player.Character:FindFirstChild("HumanoidRootPart")
+		local previewPart = roundPlacementPreviewPart(toolName)
+		if root and previewPart then
+			local offset = Vector3.new(
+				previewPart.Position.X - root.Position.X,
+				0,
+				previewPart.Position.Z - root.Position.Z
+			)
+			local distance = offset.Magnitude
+			if distance >= 0.25
+				and distance <= ROUND_PLACEMENT_MAX_PLAYER_DISTANCE then
+				if lastDistance
+					and math.abs(distance - lastDistance)
+						<= ROUND_PLACEMENT_DISTANCE_DRIFT then
+					stablePasses = stablePasses + 1
+				else
+					stablePasses = 1
+				end
+				lastDistance = distance
+				if stablePasses >= 3 then
+					return distance
+				end
+			else
+				lastDistance = nil
+				stablePasses = 0
+			end
+		else
+			lastDistance = nil
+			stablePasses = 0
+		end
+	until os.clock() >= deadline
+	return nil,
+		toolName
+			.. " preview XZ distance from the player did not settle within two studs"
+end
+
+local placementPreviewIsAligned: any = function(toolName, target)
+	local camera = workspace.CurrentCamera
+	local previewPart = roundPlacementPreviewPart(toolName)
 	local playerAligned, geometry, root =
 		playerHasDoorPlacementGeometry(target)
 	if not previewPart or not previewPart:IsA("BasePart")
@@ -1337,9 +1419,16 @@ local placementPreviewIsAligned: any = function(toolName, target)
 		math.max(geometry.Thickness * 0.5 + 0.5, 0.75),
 		1.25
 	)
-	if math.abs(previewOffset:Dot(geometry.WideAxis)) > 0.9
+	local maximumDoorLateralOffset = toolName == "Salt Canister"
+		and ROUND_PLACEMENT_CENTER_TOLERANCE
+		or 0.9
+	local allowedDoorNormalOffset = toolName == "Salt Canister"
+		and ROUND_PLACEMENT_CENTER_TOLERANCE
+		or maximumDoorNormalOffset
+	if math.abs(previewOffset:Dot(geometry.WideAxis))
+			> maximumDoorLateralOffset
 		or math.abs(previewOffset:Dot(geometry.NormalAxis))
-			> maximumDoorNormalOffset then
+			> allowedDoorNormalOffset then
 		return false
 	end
 	local previewAxis, previewAspectRatio = previewMajorAxis(previewPart)
@@ -1711,6 +1800,7 @@ end
 		OperationActive = doRoundOperationActive,
 		Wait = doRoundWait,
 		BeginMutation = beginAutomationMutation,
+		PlacementXZDistance = waitForRoundPlacementXZDistance,
 		FirePlaceable = fireRoundPlaceable,
 		WorldItemIsInsideRoom = roundWorldItemIsInsideRoom,
 		InstanceInsideAnyRoom = roundInstanceInsideAnyRoom,
@@ -1753,6 +1843,8 @@ local setDoRoundEnabled = (function()
 	local doRoundOperationActive = roundUtilities.OperationActive
 	local doRoundWait = roundUtilities.Wait
 	local beginAutomationMutation = roundUtilities.BeginMutation
+	local waitForRoundPlacementXZDistance =
+		roundUtilities.PlacementXZDistance
 	local fireRoundPlaceable = roundUtilities.FirePlaceable
 	local roundWorldItemIsInsideRoom = roundUtilities.WorldItemIsInsideRoom
 	local ROUND_PICKUP_MAX_DISTANCE = roundUtilities.PickupMaxDistance
@@ -2053,7 +2145,19 @@ local function placeRoundToolsAtDoors(generation)
 				doRoundWait(generation, 0.2)
 				continue
 			end
-			local approaches = roundDoorApproaches(door)
+			local placementDistance
+			if toolKey == "salt canister" then
+				local distanceReason
+				placementDistance, distanceReason =
+					waitForRoundPlacementXZDistance(toolName, generation)
+				if not placementDistance then
+					return false, distanceReason
+				end
+			end
+			local approaches = roundDoorApproaches(
+				door,
+				placementDistance
+			)
 			local favouriteBounds = getRoomBoundingParts(
 				doRoundState.lastFavouriteRoom
 			)
