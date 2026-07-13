@@ -26,6 +26,7 @@ Aesthetic.Copy = {
 		AutoSpiritBox = "Auto Spirit Box",
 		RandomLights = "Random Lights Toggle",
 		ToggleFuseBox = "Toggle Fuse Box",
+		DoRound = "Do Round",
 		EvidenceMode = "Evidence Mode",
 		Speed = "Speed",
 		WalkSpeedForcer = "WalkSpeed Forcer",
@@ -47,6 +48,24 @@ Aesthetic.Copy = {
 		PlacingRoomItems = "Placing...",
 		WaitingForHunt = "Waiting for Hunt...",
 		Fired = "Fired!",
+	},
+	DoRound = {
+		Statuses = {
+			Ready = "Ready",
+			Running = "Running",
+			Stopped = "Stopped",
+			Complete = "Complete",
+		},
+		Phases = {
+			["Checking ghost room"] = "Ghost room",
+			["Placing room items"] = "Placing items",
+			["Laying Salt Canister"] = "Laying salt",
+			["Opening exit door"] = "Opening exit",
+			["Asking questions"] = "Asking questions",
+			["Hunt escape"] = "Hunt escape",
+			["Maintaining room items"] = "Maintaining items",
+			["Returning to Base Camp"] = "Returning to camp",
+		},
 	},
 	PerkLogs = {
 		Title = "Ghost Perk Log",
@@ -494,10 +513,17 @@ local placeRoomItemsButton = createToggleButton("PlaceRoomItems", Aesthetic.Copy
 local autoSpiritBoxButton = createToggleButton("AutoSpiritBox", Aesthetic.Copy.Controls.AutoSpiritBox, 8)
 local randomLightsButton = createToggleButton("RandomLights", Aesthetic.Copy.Controls.RandomLights, 9)
 local toggleFuseBoxButton = createToggleButton("ToggleFuseBox", Aesthetic.Copy.Controls.ToggleFuseBox, 10)
+local doRoundButton = createToggleButton(
+	"DoRound",
+	Aesthetic.Copy.Controls.DoRound .. " 0:00\n" .. Aesthetic.Copy.DoRound.Statuses.Ready,
+	11
+)
+doRoundButton.TextSize = 12
+doRoundButton.TextWrapped = true
 evidenceLabels.EvidenceMode = createToggleButton(
 	"EvidenceMode",
 	Aesthetic.Copy.Controls.EvidenceMode .. ": " .. Aesthetic.Copy.EvidenceModes.Normal .. " ▼",
-	11
+	12
 )
 local dropdownLayer = new("Frame", {
 	Name = "DropdownLayer",
@@ -671,6 +697,7 @@ local resizeHandle = new("TextButton", {
 			AutoSpiritBox = autoSpiritBoxButton,
 			RandomLights = randomLightsButton,
 			ToggleFuseBox = toggleFuseBoxButton,
+			DoRound = doRoundButton,
 			WalkSpeedForcer = walkSpeedForcerButton,
 		},
 	}

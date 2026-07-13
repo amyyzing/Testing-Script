@@ -20,8 +20,15 @@ gui/load-screen.luau       Loading progress and failure UI
 gui/aesthetic.luau         Theme, reusable copy, and GUI construction
 gui/gui-logic.luau         Buttons, dropdown, drag/resize, hotkey, and rendering
 logic/logic.luau           Evidence scans, trackers, feature actions, and cleanup
+logic/round-automation.luau Hunt-safe Do-Round sequencing, door placement, and item recovery
 logic/ghost-module.luau    Ghost catalog, confidence notes, filtering, and ranking
 ```
+
+`Do Round` prepares the seven configured room items, retains Salt Canister and
+Holy Oil for unique non-exit door placements, opens an exit, asks Spirit Box
+questions from the favourite room, escapes hunts, and maintains displaced or
+stably-disabled equipment. Its visible timer ends on a stable Pretty Sure/Certain
+identification or selects the highest-confidence remaining guess after three minutes.
 
 Modules are plain remote chunks: each returns a table or factory, and the bootstrap injects dependencies explicitly. The ghost catalog never deletes its source records; candidate lists are derived so a reset or evidence-mode change can restore ruled-out ghosts.
 
