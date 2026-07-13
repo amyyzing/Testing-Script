@@ -295,6 +295,7 @@ local perkTrackerState = {
 	currentGhostGuessCertain = false,
 	syncJournal = function() end,
 	orbObserved = false,
+	skinwalkerOrbQualified = false,
 	lidarVisibleObserved = false,
 	crossItemsFolder = nil,
 	crossTrackedModels = setmetatable({}, {__mode = "k"}),
@@ -586,6 +587,7 @@ local function syncGhostCoordinatorResults()
 	end
 	perkTrackerState.syncingGhostCoordinator = false
 	refreshPerkLogs()
+	perkTrackerState.refreshIdentification()
 end
 local function getConfirmedEvidence()
 	return {
@@ -655,6 +657,11 @@ local function ghostSupportsConfirmedEvidence(
 
 	local mimicry =
 		perkTrackerState.evidenceMode == "Mimicry"
+	if not mimicry
+		and ghostName == "Skinwalker"
+		and perkTrackerState.skinwalkerOrbQualified then
+		return true
+	end
 	local allowed = evidenceSetForProfile(profile)
 
 	if not mimicry and ghostName == "Skinwalker" then
@@ -739,30 +746,35 @@ perkTrackerState.updateOrbEvidence = function()
 	if perkTrackerState.evidenceMode == "Mimicry" then
 		return
 	end
-	if not perkTrackerState.orbObserved or evidenceFound.Orb then
+	if not perkTrackerState.orbObserved then
 		return
 	end
+	-- A replicated GhostOrb is a confirmed observation. Whether it is a normal
+	-- evidence item or Skinwalker's fake fourth evidence is resolved below.
+	evidenceFound.Orb = true
 	local confirmed = getConfirmedEvidence()
-	local skinwalkerAllowed = {
-		FreezingTemperatures = true,
-		GhostWriting = true,
-		SpiritBox = true,
-		GhostOrb = true,
-	}
-	for evidenceName, found in pairs(confirmed) do
-		if found and not skinwalkerAllowed[evidenceName] then
-			if ghostCoordinator then
-				emitGhostObservation({
-					Type = "FalseOrb",
-					Qualified = true,
-					ImpossibleCombination = true,
-					RealEvidenceDisabled = true,
-					Source = "OrbEvidenceCollector",
-				})
-			end
-			evidenceFound.Orb = true
-			return
-		end
+	local classification = GhostModule.ClassifyOrbCombination(confirmed)
+	if not classification.Qualified
+		or perkTrackerState.skinwalkerOrbQualified then
+		return
+	end
+	perkTrackerState.skinwalkerOrbQualified = true
+	local reason = classification.FourthEvidence
+		and "Ghost Orb formed a fourth evidence observation; normal ghosts have exactly three"
+		or "Ghost Orb completed a three-evidence combination that no normal ghost can have"
+	if ghostCoordinator then
+		emitGhostObservation({
+			Type = "FalseOrb",
+			Qualified = true,
+			FourthEvidence = classification.FourthEvidence,
+			ImpossibleCombination = classification.ImpossibleCombination,
+			EvidenceCount = classification.EvidenceCount,
+			RealCandidates = classification.RealCandidates,
+			Reason = reason,
+			Source = "OrbEvidenceCollector",
+		})
+	else
+		recordPerkDetection("Skinwalker", reason, 100)
 	end
 end
 perkTrackerState.updateEvidenceStatuses = function()
@@ -896,18 +908,7 @@ local function getBestPerkDetection(confirmed)
 		return nil, nil
 	end
 	local top = candidates[1]
-	local tiedNames = {top.Ghost}
-	for index = 2, #candidates do
-		local candidate = candidates[index]
-		if candidate.Tier ~= top.Tier then
-			break
-		end
-		if top.Tier < 3
-			and math.abs(candidate.Score - top.Score) >= 10 then
-			break
-		end
-		table.insert(tiedNames, candidate.Ghost)
-	end
+	local tiedNames = GhostModule.HighestConfidenceTies(candidates)
 	if #tiedNames > 1 then
 		table.sort(tiedNames)
 		return table.concat(tiedNames, " / "), {
@@ -948,6 +949,9 @@ local function identifyGhostFromEvidence()
 	end
 	local confirmed = getConfirmedEvidence()
 	local confirmedCount = countConfirmedEvidence(confirmed)
+	if perkTrackerState.skinwalkerOrbQualified then
+		return "Skinwalker"
+	end
 	if isExactEvidenceSet(confirmed, {
 		"FreezingTemperatures",
 		"GhostWriting",
@@ -1147,7 +1151,7 @@ local function updateGhostIdentification(ghost)
 			selectedGhost = ghostName
 			selectedScore = score
 		elseif newTier == selectedTier
-			and math.abs(score - selectedScore) < 10
+			and math.abs(score - selectedScore) <= 0.0001
 			and not string.find(
 				selectedGhost,
 				ghostName,
@@ -2131,6 +2135,7 @@ perkTrackerState.resetEvidenceState = function()
 	highestEMF = 1
 	spiritBoxTentative = false
 	perkTrackerState.orbObserved = false
+	perkTrackerState.skinwalkerOrbQualified = false
 	perkTrackerState.lidarVisibleObserved = false
 	perkTrackerState.dullahanSpeedSamples = {}
 	perkTrackerState.dullahanIncreaseEvents = {}
@@ -2954,6 +2959,9 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 	perkTrackerState.holyOilBurningSince =
 		setmetatable({}, {__mode = "k"})
 	perkTrackerState.orbObserved = false
+	if not preserveFindings then
+		perkTrackerState.skinwalkerOrbQualified = false
+	end
 	perkTrackerState.lidarVisibleObserved = false
 	perkTrackerState.objectTeleportObjects = setmetatable({}, {__mode = "k"})
 	perkTrackerState.objectTeleportAccumulator = 0

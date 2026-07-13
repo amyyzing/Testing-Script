@@ -321,11 +321,12 @@ local Profiles = {
 	})),
 	profile("Skinwalker", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "wiki-disputed", perks({
 		note("Four evidence observations resolve to its three real evidences plus a fake Ghost Orb.", SOURCE.Skinwalker, "wiki-disputed", false, "Trait"),
+		note("A confirmed Ghost Orb completes at least three evidence observations that no normal ghost's real three-evidence set can contain.", SOURCE.Skinwalker, "wiki-disputed", false, "Trait"),
 		note("A Ghost Orb appears in a custom run with all real evidence disabled.", SOURCE.Skinwalker, "wiki-disputed", false, "Trait"),
 		note("It copies Wisp fire-walking but crosses Holy Oil without catching fire.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),
 		note("Multiple mutually inconsistent ghost abilities are observed in one job.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),
 	}, {
-		note("A single ability looks copied, or an Orb accompanies only part of the Skinwalker evidence set.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),
+		note("A single ability looks copied, or an Orb is present with fewer than three total evidence observations.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),
 	}, {
 		note("Frequent roaming or a Ghost Orb alone in normal evidence mode is weak evidence.", SOURCE.Skinwalker, "wiki-disputed", false, "Caveat"),
 	}), nil, {"GhostOrb"}),
@@ -644,6 +645,38 @@ local function filterCandidates(evidence, ruleOuts, options)
 	return result
 end
 
+local function classifyOrbCombination(evidence)
+	local observed = collectEvidence(evidence)
+	local evidenceCount = 0
+	for _, evidenceKey in ipairs(EVIDENCE_ORDER) do
+		if observed[evidenceKey] then
+			evidenceCount = evidenceCount + 1
+		end
+	end
+	local orbObserved = observed.GhostOrb == true
+	local realCandidates = {}
+	if orbObserved then
+		realCandidates = filterCandidates(observed, {}, {
+			NamesOnly = true,
+			RealOnly = true,
+			IncludeFalseEvidence = false,
+		})
+	end
+	local fourthEvidence = orbObserved and evidenceCount >= 4
+	local impossibleCombination = orbObserved
+		and evidenceCount >= 3
+		and #realCandidates == 0
+	return {
+		OrbObserved = orbObserved,
+		EvidenceCount = evidenceCount,
+		FourthEvidence = fourthEvidence,
+		ImpossibleCombination = impossibleCombination,
+		Qualified = fourthEvidence or impossibleCombination,
+		RealCandidates = realCandidates,
+		Evidence = observed,
+	}
+end
+
 local function detectionName(detection, fallback)
 	if type(detection) == "table" then
 		return detection.Ghost or detection.Name or detection.GhostName or fallback
@@ -658,6 +691,24 @@ local function detectionScore(detection)
 		return tonumber(detection.Confidence or detection.Score or detection.Value) or 0
 	end
 	return 0
+end
+
+local function highestConfidenceTies(ranked)
+	if type(ranked) ~= "table" or type(ranked[1]) ~= "table" then
+		return {}
+	end
+	local topScore = detectionScore(ranked[1])
+	local names = {}
+	for _, candidate in ipairs(ranked) do
+		if math.abs(detectionScore(candidate) - topScore) > 0.0001 then
+			break
+		end
+		local name = detectionName(candidate)
+		if type(name) == "string" and name ~= "" then
+			table.insert(names, name)
+		end
+	end
+	return names
 end
 
 local function selectHighestConfidenceGuess(options)
@@ -1074,7 +1125,9 @@ GhostModule.Find = find
 GhostModule.NormalizeEvidence = normalizeEvidence
 GhostModule.SupportsEvidence = supportsEvidence
 GhostModule.FilterCandidates = filterCandidates
+GhostModule.ClassifyOrbCombination = classifyOrbCombination
 GhostModule.RankDetections = rankDetections
+GhostModule.HighestConfidenceTies = highestConfidenceTies
 GhostModule.SelectHighestConfidenceGuess = selectHighestConfidenceGuess
 GhostModule.NewTracker = newTracker
 

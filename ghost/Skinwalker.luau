@@ -33,6 +33,6 @@ return {
 	FalseEvidence = {"GhostOrb"},
 	ObservationEvents = {"FalseOrb", "MimickedAbility"},
 	PersistentFindings = true,
-	Perks = { ["Pretty Sure"] = {"A fourth/impossible Orb or multiple mutually inconsistent qualified abilities."}, Maybe = {"One mimickable ability keeps Skinwalker beside the original ghost."}, Idk = {"GhostFireEffect=false is not a Skinwalker negative; that old rule was contradictory."} },
+	Perks = { ["Pretty Sure"] = {"An Orb is the fourth evidence, or completes at least three observations that no normal ghost's real evidence set can contain."}, Maybe = {"One mimickable ability keeps Skinwalker beside the original ghost."}, Idk = {"An Orb with fewer than three total observations is not enough; GhostFireEffect=false is not a Skinwalker negative."} },
 	CreateObserver = createObserver,
 }

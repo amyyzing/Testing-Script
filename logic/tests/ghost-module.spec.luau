@@ -1,5 +1,21 @@
 local GhostModule = require("../ghost-module")
 
+local observerProfiles = {
+	require("../../ghost/Aswang"), require("../../ghost/Banshee"),
+	require("../../ghost/Demon"), require("../../ghost/Dullahan"),
+	require("../../ghost/Dybbuk"), require("../../ghost/Entity"),
+	require("../../ghost/Ghoul"), require("../../ghost/Keres"),
+	require("../../ghost/Leviathan"), require("../../ghost/Nightmare"),
+	require("../../ghost/Oni"), require("../../ghost/Phantom"),
+	require("../../ghost/Ravager"), require("../../ghost/Revenant"),
+	require("../../ghost/Shadow"), require("../../ghost/Siren"),
+	require("../../ghost/Skinwalker"), require("../../ghost/Specter"),
+	require("../../ghost/Spirit"), require("../../ghost/Umbra"),
+	require("../../ghost/Vesper"), require("../../ghost/Vex"),
+	require("../../ghost/Wendigo"), require("../../ghost/Wisp"),
+	require("../../ghost/Wraith"),
+}
+
 local function expect(condition, message)
 	if not condition then
 		error(message, 2)
@@ -11,6 +27,10 @@ expect(#GhostModule.Order == 25, "catalog order should contain 25 ghosts")
 expect(GhostModule.NormalizeEvidence("Prints") == "Handprints", "Prints alias should normalize")
 expect(GhostModule.NormalizeEvidence("Inscription") == "GhostWriting", "Inscription alias should normalize")
 expect(GhostModule.Find("The Wisp").Name == "Wisp", "The Wisp alias should resolve")
+local observersByName = {}
+for _, observerProfile in ipairs(observerProfiles) do
+	observersByName[observerProfile.Name] = observerProfile
+end
 for _, profile in ipairs(GhostModule.Profiles) do
 	expect(#profile.Evidence == 3, profile.Name .. " should have three real evidence types")
 	expect(type(profile.Perks["Pretty Sure"]) == "table", profile.Name .. " needs Pretty Sure notes")
@@ -21,6 +41,27 @@ for _, profile in ipairs(GhostModule.Profiles) do
 		RealOnly = true,
 	})
 	expect(#exact == 1 and exact[1] == profile.Name, profile.Name .. " evidence should be unique")
+	local observerProfile = observersByName[profile.Name]
+	expect(observerProfile ~= nil, profile.Name .. " must have an observer profile")
+	local catalogEvidence = {}
+	for _, evidenceName in ipairs(profile.Evidence) do
+		catalogEvidence[evidenceName] = true
+	end
+	for _, evidenceName in ipairs(observerProfile.Evidence) do
+		expect(
+			catalogEvidence[evidenceName] == true,
+			profile.Name .. " observer evidence must match the evidence catalog"
+		)
+	end
+	local falseEvidence = observerProfile.FalseEvidence or {}
+	if profile.Name == "Skinwalker" then
+		expect(
+			#falseEvidence == 1 and falseEvidence[1] == "GhostOrb",
+			"Skinwalker alone must expose Ghost Orb as a fourth/false evidence"
+		)
+	else
+		expect(#falseEvidence == 0, profile.Name .. " must have only three real evidences")
+	end
 end
 
 local sirenCandidates = GhostModule.FilterCandidates({
@@ -41,6 +82,65 @@ expect(
 	"Skinwalker real evidence plus fake Orb should be unique"
 )
 
+local twoEvidenceOrb = GhostModule.ClassifyOrbCombination({
+	GhostOrb = true,
+	Handprints = true,
+})
+expect(
+	twoEvidenceOrb.Qualified == false
+		and twoEvidenceOrb.EvidenceCount == 2
+		and #twoEvidenceOrb.RealCandidates == 4,
+	"Orb plus one evidence must not identify Skinwalker"
+)
+
+local impossibleWithoutOrb = GhostModule.ClassifyOrbCombination({
+	EMFLevel5 = true,
+	Handprints = true,
+	Wither = true,
+})
+expect(
+	impossibleWithoutOrb.Qualified == false
+		and impossibleWithoutOrb.OrbObserved == false,
+	"an impossible combination without Orb must not identify Skinwalker"
+)
+
+local compatibleOrbTriple = GhostModule.ClassifyOrbCombination({
+	GhostOrb = true,
+	Handprints = true,
+	LaserProjector = true,
+})
+expect(
+	compatibleOrbTriple.Qualified == false
+		and #compatibleOrbTriple.RealCandidates == 1
+		and compatibleOrbTriple.RealCandidates[1] == "Umbra",
+	"a valid three-evidence Orb combination must retain its normal ghost"
+)
+
+local impossibleOrbTriple = GhostModule.ClassifyOrbCombination({
+	GhostOrb = true,
+	Handprints = true,
+	SpiritBox = true,
+})
+expect(
+	impossibleOrbTriple.Qualified == true
+		and impossibleOrbTriple.ImpossibleCombination == true
+		and impossibleOrbTriple.FourthEvidence == false,
+	"an impossible three-evidence Orb combination should identify Skinwalker"
+)
+
+local fourthOrbEvidence = GhostModule.ClassifyOrbCombination({
+	GhostOrb = true,
+	FreezingTemperatures = true,
+	GhostWriting = true,
+	SpiritBox = true,
+})
+expect(
+	fourthOrbEvidence.Qualified == true
+		and fourthOrbEvidence.FourthEvidence == true
+		and fourthOrbEvidence.EvidenceCount == 4,
+	"Skinwalker's three real evidences plus Orb should qualify as fourth evidence"
+)
+
 local tracker = GhostModule.NewTracker()
 tracker:ObserveEvidence("EMF Level 5")
 tracker:ObserveEvidence("Spirit Box")
@@ -57,6 +157,25 @@ local ranked = GhostModule.RankDetections({
 }, {}, {})
 expect(ranked[1].Ghost == "Siren", "higher confidence should rank first")
 expect(ranked[1].TierName == "Pretty Sure", "95 confidence should be Pretty Sure")
+
+local strictConfidenceRank = GhostModule.RankDetections({
+	Specter = {Confidence = 35},
+	Keres = {Confidence = 25},
+}, {}, {})
+local strictConfidenceTies = GhostModule.HighestConfidenceTies(strictConfidenceRank)
+expect(
+	#strictConfidenceTies == 1 and strictConfidenceTies[1] == "Specter",
+	"35% Specter must outrank 25% Keres instead of grouping or retaining Keres"
+)
+
+local exactConfidenceRank = GhostModule.RankDetections({
+	Leviathan = {Confidence = 60},
+	Skinwalker = {Confidence = 60},
+}, {}, {})
+expect(
+	#GhostModule.HighestConfidenceTies(exactConfidenceRank) == 2,
+	"only equal confidence scores should remain tied"
+)
 
 local highestDetection = GhostModule.SelectHighestConfidenceGuess({
 	Candidates = {"Siren", "Keres", "Wisp"},

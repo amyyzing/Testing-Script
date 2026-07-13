@@ -56,6 +56,7 @@ local ROUND_DOOR_STAND_DISTANCE = 2
 local ROUND_PLACEMENT_MAX_PLAYER_DISTANCE = 2
 local ROUND_PICKUP_MAX_DISTANCE = 8
 local ROUND_REMOTE_SAFETY_DELAY = 0.1
+local ROUND_LOBBY_RETRY_SECONDS = 4
 -- Salt consumes every available use. Distinct door identity, not an arbitrary
 -- count, is the only placement cap; Holy Oil is capped at three placements.
 local ROUND_SALT_PLACEMENT_LIMIT = math.huge
@@ -2930,7 +2931,7 @@ local function requestRoundReturnToLobby(generation)
 			)
 		end
 		pcall(remote.FireServer, remote)
-		local nextFireAt = os.clock() + 1
+		local nextFireAt = os.clock() + ROUND_LOBBY_RETRY_SECONDS
 		while doRoundOperationActive(generation)
 			and not teleportBegan
 			and os.clock() < nextFireAt do

@@ -89,7 +89,7 @@ automation teleports to and verifies Base Camp, then fires `RequestReturnToLobby
 without waiting for the hunt to end. Otherwise, after three minutes the timer
 watchdog cancels any unfinished setup or maintenance work, selects a
 highest-confidence ghost, performs the same verified Base Camp return, and keeps
-firing `RequestReturnToLobby` once per second until `LocalPlayer.OnTeleport`
+firing `RequestReturnToLobby` once every four seconds until `LocalPlayer.OnTeleport`
 confirms the lobby teleport has begun. Neither completion path waits for a hunt
 to end.
 
