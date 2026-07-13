@@ -50,6 +50,12 @@ Turning `Do Round` off immediately releases any door-facing render lock and
 restores a live character's unanchored, rotating humanoid state. Cancellation-aware
 teleports also restore movement instead of preserving a transient automation lock.
 
+The round opener resolves the canonical `Workspace.Doors.ExitDoor` container
+directly, reads its `DoorClosed` attribute as the authoritative open/closed state,
+and teleports within the ten-stud interaction range before firing the door remote.
+If the strict two-stud door-face position is obstructed, it falls back to the safe
+grounded ripple search around the exit door.
+
 Base Camp returns evaluate every Base Camp bound and prefer the safest result
 closest to an identified Exit Door; if no exit can be identified, the Truck is the
 distance reference.

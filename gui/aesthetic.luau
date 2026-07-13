@@ -60,6 +60,7 @@ Aesthetic.Copy = {
 			["Checking ghost room"] = "Ghost room",
 			["Placing room items"] = "Placing items",
 			["Laying Salt Canister"] = "Laying salt",
+			["Teleporting to exit door"] = "Moving to exit",
 			["Opening exit door"] = "Opening exit",
 			["Asking questions"] = "Asking questions",
 			["Hunt escape"] = "Hunt escape",

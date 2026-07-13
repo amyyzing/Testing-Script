@@ -831,6 +831,10 @@ local function beginAutomationMutation(duration)
 end
 
 local function roundDoorClosedState(doorModel, doorContainer)
+	local modelState = doorModel and doorModel:GetAttribute("DoorClosed")
+	if typeof(modelState) == "boolean" then
+		return modelState
+	end
 	local candidates = {}
 	local seen = setmetatable({}, {__mode = "k"})
 	local function add(object)
@@ -1898,27 +1902,23 @@ local function resolveRoundExitDoorModels()
 	if not folder then
 		return exits, exitSet
 	end
-	local function directDoorModel(object)
+	local function directDoorContainer(object)
 		local current = object
-		local result
-		while current and current ~= folder do
-			if current:IsA("Model") then
-				result = current
-			end
-			if current.Parent == folder then
-				return current:IsA("Model") and current or result
-			end
+		while current and current.Parent ~= folder do
 			current = current.Parent
 		end
-		return result
+		return current and current.Parent == folder and current or nil
 	end
 	local function mark(object)
-		local model = directDoorModel(object)
-		if model and not exitSet[model] then
-			exitSet[model] = true
-			table.insert(exits, model)
+		local container = directDoorContainer(object)
+		if container and not exitSet[container] then
+			exitSet[container] = true
+			table.insert(exits, container)
 		end
 	end
+	-- This is the game's canonical path. Mark it first and do not require it
+	-- to be a Model; some map revisions wrap Door in a Folder-like container.
+	mark(folder:FindFirstChild("ExitDoor"))
 	for _, object in ipairs(folder:GetDescendants()) do
 		local normalized = normalizeRoundObjectName(object.Name)
 		local doorType = normalizeRoundObjectName(
@@ -1933,11 +1933,11 @@ local function resolveRoundExitDoorModels()
 			mark(object)
 		end
 	end
-	for _, model in ipairs(folder:GetChildren()) do
-		if model:IsA("Model") then
-			local normalized = normalizeRoundObjectName(model.Name)
+	for _, container in ipairs(folder:GetChildren()) do
+		if container:IsA("Model") or container:IsA("Folder") then
+			local normalized = normalizeRoundObjectName(container.Name)
 			if string.find(normalized, "exitdoor", 1, true) ~= nil then
-				mark(model)
+				mark(container)
 			end
 		end
 	end
@@ -1952,7 +1952,7 @@ local eligibleRoundDoors: any = function(includeExit)
 	end
 	local exitDoors, exitSet = resolveRoundExitDoorModels()
 	if includeExit then
-		return shuffleRoundList(exitDoors)
+		return exitDoors
 	end
 	for _, model in ipairs(folder:GetChildren()) do
 		if model:IsA("Model")
@@ -2292,42 +2292,71 @@ local function openRoundExitDoor(generation)
 		local doorReference = doorContainer
 			and (roundDoorReference(doorContainer) or doorContainer)
 		if doorContainer and doorReference then
+			setDoRoundStatus("Teleporting to exit door")
 			local approaches, center = roundDoorApproaches(doorReference)
+			local teleported = false
 			for _, approach in ipairs(approaches) do
 				if not roundActionIsSafe(generation) then
 					return false, roundUnsafeReason(generation)
 				end
-				local teleported = teleportToRoundDoorFace(
+				teleported = teleportToRoundDoorFace(
 					doorReference,
 					approach,
 					generation
 				)
-				local root = player.Character
-					and player.Character:FindFirstChild("HumanoidRootPart")
-				if teleported and root and center
-					and (root.Position - center).Magnitude <= 10 then
+				if teleported then
+					break
+				end
+			end
+			-- Door interaction only requires ten studs. If the placement-grade
+			-- two-stud face position is obstructed, use the same grounded safe-space
+			-- search with progressively wider positions around the exit door.
+			if not teleported then
+				for _, position in ipairs(roundApproachPositions(
+					doorReference,
+					6
+				)) do
 					if not roundActionIsSafe(generation) then
-						teleportToBaseCamp(roundTeleportOptions(generation))
 						return false, roundUnsafeReason(generation)
 					end
+					teleported = teleportNearRoundTarget(
+						doorReference,
+						position,
+						generation
+					)
+					if teleported then
+						break
+					end
+				end
+			end
+			local root = player.Character
+				and player.Character:FindFirstChild("HumanoidRootPart")
+			center = getInstanceWorldPosition(doorReference) or center
+			if teleported and root and center
+				and (root.Position - center).Magnitude <= 10 then
+				if not roundActionIsSafe(generation) then
+					teleportToBaseCamp(roundTeleportOptions(generation))
+					return false, roundUnsafeReason(generation)
+				end
+				-- Doors.ExitDoor.DoorClosed is authoritative when present.
+				if not roundDoorClosedState(exitModel, doorContainer) then
+					return true
+				end
+				setDoRoundStatus("Opening exit door")
+				beginAutomationMutation(1.5)
+				doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
+				if not roundActionIsSafe(generation) then
+					return false, roundUnsafeReason(generation)
+				end
+				local fired = pcall(
+					remote.FireServer,
+					remote,
+					doorContainer
+				)
+				if fired then
+					doRoundWait(generation, 0.45)
 					if not roundDoorClosedState(exitModel, doorContainer) then
 						return true
-					end
-					beginAutomationMutation(1.5)
-					doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
-					if not roundActionIsSafe(generation) then
-						return false, roundUnsafeReason(generation)
-					end
-					local fired = pcall(
-						remote.FireServer,
-						remote,
-						doorContainer
-					)
-					if fired then
-						doRoundWait(generation, 0.45)
-						if not roundDoorClosedState(exitModel, doorContainer) then
-							return true
-						end
 					end
 				end
 			end
