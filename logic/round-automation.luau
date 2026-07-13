@@ -46,6 +46,16 @@ local ROUND_HELD_ITEMS = {"Salt Canister", "Holy Oil"}
 local ROUND_DOOR_MAX_PLAYER_DISTANCE = 3
 local ROUND_DOOR_STAND_DISTANCE = 2.9
 local ROUND_PLACEMENT_MAX_PLAYER_DISTANCE = 3
+local ROUND_CHARACTER_FACING_DOT = 0.995
+local ROUND_CAMERA_FACING_DOT = 0.995
+local ROUND_WIDE_AXIS_DOT_MAX = 0.05
+local ROUND_PREVIEW_AXIS_DOT = 0.995
+local ROUND_PLACEMENT_SETTLE_SECONDS = 0.35
+local ROUND_PLACEMENT_SETTLE_RENDER_PASSES = 5
+local ROUND_PLACEMENT_SETTLE_HEARTBEATS = 3
+local ROUND_PLACEMENT_PREVIEW_DRIFT = 0.12
+local ROUND_PLACEMENT_ROOT_DRIFT = 0.08
+local ROUND_PLACEMENT_DOOR_DRIFT = 0.05
 local roundDoorFacingLockSequence = 0
 
 local function normalizeRoundItemName(value)
@@ -513,7 +523,9 @@ local function previewMajorAxis(part)
 		and part.CFrame.RightVector
 		or part.CFrame.LookVector
 	axis = Vector3.new(axis.X, 0, axis.Z)
-	return axis.Magnitude >= 0.05 and axis.Unit or nil
+	local minimumSize = math.max(math.min(part.Size.X, part.Size.Z), 0.001)
+	local aspectRatio = math.max(part.Size.X, part.Size.Z) / minimumSize
+	return axis.Magnitude >= 0.05 and axis.Unit or nil, aspectRatio
 end
 
 local function roundDoorFacingContext(target)
@@ -581,10 +593,10 @@ local function enforceRoundDoorFacing(context)
 		root.CFrame.LookVector.Z
 	)
 	return facing.Magnitude >= 0.05
-		and facing.Unit:Dot(expectedFacing) >= 0.985
+		and facing.Unit:Dot(expectedFacing) >= ROUND_CHARACTER_FACING_DOT
 		and math.abs(
 			facing.Unit:Dot(context.Geometry.WideAxis)
-		) <= 0.05
+		) <= ROUND_WIDE_AXIS_DOT_MAX
 end
 
 local function enforceRoundDoorCameraFacing(context)
@@ -617,7 +629,10 @@ local function enforceRoundDoorCameraFacing(context)
 	local newLook = camera.CFrame.LookVector
 	local newHorizontal = Vector3.new(newLook.X, 0, newLook.Z)
 	return newHorizontal.Magnitude >= 0.05
-		and newHorizontal.Unit:Dot(expected) >= 0.985
+		and newHorizontal.Unit:Dot(expected) >= ROUND_CAMERA_FACING_DOT
+		and math.abs(
+			newHorizontal.Unit:Dot(context.Geometry.WideAxis)
+		) <= ROUND_WIDE_AXIS_DOT_MAX
 end
 
 local function facePlayerTowardRoundDoor(target)
@@ -636,6 +651,8 @@ local function beginRoundDoorFacingLock(target)
 		Released = false,
 		Connections = {},
 		RenderStepName = nil,
+		HeartbeatPass = 0,
+		RenderPass = 0,
 	}
 	function lock:Enforce()
 		if self.Released then
@@ -697,22 +714,31 @@ local function beginRoundDoorFacingLock(target)
 	if not disabled then
 		return nil, "player facing lock could not disable AutoRotate"
 	end
-	for _, signal in ipairs({
-		Services.RunService.PreSimulation,
-		Services.RunService.Heartbeat,
-	}) do
-		local connected, connection = pcall(function()
-			return signal:Connect(function()
-				if not lock:Enforce() then
-					lock:Release()
-				end
-			end)
+	local preSimulationConnected, preSimulationConnection = pcall(function()
+		return Services.RunService.PreSimulation:Connect(function()
+			if not lock:Enforce() then
+				lock:Release()
+			end
 		end)
-		if not connected then
-			lock:Release()
-			return nil, "player facing lock could not bind to simulation"
-		end
-		table.insert(lock.Connections, connection)
+	end)
+	local heartbeatConnected, heartbeatConnection = pcall(function()
+		return Services.RunService.Heartbeat:Connect(function()
+			if lock:Enforce() then
+				lock.HeartbeatPass = lock.HeartbeatPass + 1
+			else
+				lock:Release()
+			end
+		end)
+	end)
+	if preSimulationConnected then
+		table.insert(lock.Connections, preSimulationConnection)
+	end
+	if heartbeatConnected then
+		table.insert(lock.Connections, heartbeatConnection)
+	end
+	if not preSimulationConnected or not heartbeatConnected then
+		lock:Release()
+		return nil, "player facing lock could not bind to simulation"
 	end
 	roundDoorFacingLockSequence = roundDoorFacingLockSequence + 1
 	lock.RenderStepName = "DemonologyDoorFacing_"
@@ -722,7 +748,9 @@ local function beginRoundDoorFacingLock(target)
 			lock.RenderStepName,
 			Enum.RenderPriority.Camera.Value + 1,
 			function()
-				if not lock:Enforce() then
+				if lock:Enforce() then
+					lock.RenderPass = lock.RenderPass + 1
+				else
 					lock:Release()
 				end
 			end
@@ -766,8 +794,9 @@ local function playerHasDoorPlacementGeometry(target)
 	)
 	local expectedFacing = geometry.NormalAxis * (rootNormal > 0 and -1 or 1)
 	return facing.Magnitude >= 0.05
-		and facing.Unit:Dot(expectedFacing) >= 0.985
-		and math.abs(facing.Unit:Dot(geometry.WideAxis)) <= 0.05,
+		and facing.Unit:Dot(expectedFacing) >= ROUND_CHARACTER_FACING_DOT
+		and math.abs(facing.Unit:Dot(geometry.WideAxis))
+			<= ROUND_WIDE_AXIS_DOT_MAX,
 		geometry,
 		root
 end
@@ -814,40 +843,98 @@ local placementPreviewIsAligned: any = function(toolName, target)
 			> maximumDoorNormalOffset then
 		return false
 	end
-	if toolName == "Salt Canister" then
-		local previewAxis = previewMajorAxis(previewPart)
+	local previewAxis, previewAspectRatio = previewMajorAxis(previewPart)
+	if not previewAspectRatio or previewAspectRatio < 1.15 then
+		previewAxis = nil
+	end
+	if toolName == "Salt Canister"
+		and previewAspectRatio and previewAspectRatio >= 1.15 then
 		if not previewAxis
-			or math.abs(previewAxis:Dot(geometry.WideAxis)) < 0.985 then
+			or math.abs(previewAxis:Dot(geometry.WideAxis))
+				< ROUND_PREVIEW_AXIS_DOT then
 			return false
 		end
 	end
-	return true
+	return true, previewPart, geometry, root, previewAxis
 end
 
-local waitForRoundPreview: any = function(toolName, target, generation)
-	local deadline = os.clock() + 2.5
-	local alignedSamples = 0
+local waitForRoundPreview: any = function(
+	toolName,
+	target,
+	generation,
+	facingLock
+)
+	local deadline = os.clock() + 4.5
+	local stableSince
+	local stableRenderPasses = 0
+	local stableHeartbeatPass
+	local lastObservedRenderPass = -1
+	local baseline
 	repeat
+		Services.RunService.RenderStepped:Wait()
 		if not roundActionIsSafe(generation) then
 			return false, roundUnsafeReason(generation)
 		end
-		if not facePlayerTowardRoundDoor(target) then
-			alignedSamples = 0
-			doRoundWait(generation, 0.05)
+		if facingLock.Released then
+			return false, "player facing lock was released before placement settled"
+		end
+		local renderPass = facingLock.RenderPass
+		if renderPass <= lastObservedRenderPass then
 			continue
 		end
-		doRoundWait(generation, 0.05)
-		if facePlayerTowardRoundDoor(target)
-			and placementPreviewIsAligned(toolName, target) then
-			alignedSamples = alignedSamples + 1
-			if alignedSamples >= 2 then
-				return true
+		lastObservedRenderPass = renderPass
+		local enforced = facingLock:Enforce()
+		local aligned, previewPart, geometry, root, previewAxis =
+			placementPreviewIsAligned(toolName, target)
+		if enforced and aligned and previewPart and geometry and root then
+			local snapshot = {
+				PreviewPosition = previewPart.Position,
+				PreviewAxis = previewAxis,
+				RootPosition = root.Position,
+				DoorCenter = geometry.Center,
+				DoorNormal = geometry.NormalAxis,
+			}
+			local remainedStable = not baseline
+				or ((snapshot.PreviewPosition - baseline.PreviewPosition).Magnitude
+					<= ROUND_PLACEMENT_PREVIEW_DRIFT
+					and (snapshot.RootPosition - baseline.RootPosition).Magnitude
+						<= ROUND_PLACEMENT_ROOT_DRIFT
+					and (snapshot.DoorCenter - baseline.DoorCenter).Magnitude
+						<= ROUND_PLACEMENT_DOOR_DRIFT
+					and snapshot.DoorNormal:Dot(baseline.DoorNormal) >= 0.999
+					and (not snapshot.PreviewAxis
+						or not baseline.PreviewAxis
+						or math.abs(
+							snapshot.PreviewAxis:Dot(baseline.PreviewAxis)
+						) >= 0.998))
+			if not remainedStable then
+				stableSince = nil
+				stableRenderPasses = 0
+				stableHeartbeatPass = nil
+				baseline = nil
+			end
+			if not baseline then
+				baseline = snapshot
+				stableSince = os.clock()
+				stableHeartbeatPass = facingLock.HeartbeatPass
+			end
+			stableRenderPasses = stableRenderPasses + 1
+			if stableRenderPasses >= ROUND_PLACEMENT_SETTLE_RENDER_PASSES
+				and facingLock.HeartbeatPass - stableHeartbeatPass
+					>= ROUND_PLACEMENT_SETTLE_HEARTBEATS
+				and os.clock() - stableSince
+					>= ROUND_PLACEMENT_SETTLE_SECONDS then
+				return true, nil, renderPass
 			end
 		else
-			alignedSamples = 0
+			stableSince = nil
+			stableRenderPasses = 0
+			stableHeartbeatPass = nil
+			baseline = nil
 		end
 	until os.clock() >= deadline
-	return false, "placement preview did not align with the doorway"
+	return false,
+		"placement preview and player rotation did not remain settled at the doorway"
 end
 
 local fireRoundPlaceable: any = function(toolName, target, generation)
@@ -900,10 +987,11 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 		return false, facingReason
 	end
 	local guarded, guardedFailure = xpcall(function()
-		local aligned, alignReason = waitForRoundPreview(
+		local aligned, alignReason, settledRenderPass = waitForRoundPreview(
 			toolName,
 			target,
-			generation
+			generation,
+			facingLock
 		)
 		if not aligned then
 			dispatchFailure = alignReason
@@ -915,7 +1003,8 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 			dispatchFailure = remoteName .. " RemoteEvent was not found"
 			return
 		end
-		if not facingLock:Enforce()
+		if facingLock.RenderPass ~= settledRenderPass
+			or not facingLock:Enforce()
 			or not placementPreviewIsAligned(toolName, target) then
 			dispatchFailure =
 				"placement preview lost door alignment before dispatch"
@@ -947,7 +1036,8 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 		end
 		targetFrame = roundTargetCFrame(target)
 		beginAutomationMutation(2.5)
-		if not facingLock:Enforce()
+		if facingLock.RenderPass ~= settledRenderPass
+			or not facingLock:Enforce()
 			or not placementPreviewIsAligned(toolName, target) then
 			dispatchFailure =
 				"player facing changed before placement dispatch"
@@ -1100,6 +1190,7 @@ local setDoRoundEnabled = (function()
 	local equipRoundItem = roundUtilities.EquipItem
 	local roundApproachPositions = roundUtilities.ApproachPositions
 	local roundDoorReference = roundUtilities.ResolveDoorReference
+	local roundDoorGeometry = roundUtilities.DoorGeometry
 	local roundDoorApproaches = roundUtilities.DoorApproaches
 	local teleportNearRoundTarget = roundUtilities.TeleportNearTarget
 	local teleportToRoundDoorFace = roundUtilities.TeleportToDoorFace
@@ -1157,8 +1248,46 @@ local eligibleRoundDoors: any = function(includeExit)
 	return shuffleRoundList(doors)
 end
 
+local function roundDoorDistanceToRoom(doorModel, room)
+	local doorContainer = doorModel:FindFirstChild("Door") or doorModel
+	local doorReference = roundDoorReference(doorContainer) or doorContainer
+	local geometry = roundDoorGeometry(doorReference)
+	local doorPosition = geometry and geometry.Center
+		or getInstanceWorldPosition(doorReference)
+	if not doorPosition then
+		return math.huge
+	end
+	local bestDistance = math.huge
+	for _, bounds in ipairs(getRoomBoundingParts(room)) do
+		if bounds:IsA("BasePart") then
+			local localPoint = bounds.CFrame:PointToObjectSpace(doorPosition)
+			local xOutside = math.max(
+				math.abs(localPoint.X) - bounds.Size.X * 0.5,
+				0
+			)
+			local zOutside = math.max(
+				math.abs(localPoint.Z) - bounds.Size.Z * 0.5,
+				0
+			)
+			bestDistance = math.min(
+				bestDistance,
+				Vector2.new(xOutside, zOutside).Magnitude
+			)
+		end
+	end
+	if bestDistance < math.huge then
+		return bestDistance
+	end
+	local roomPosition = getInstanceWorldPosition(room)
+	if roomPosition then
+		local offset = doorPosition - roomPosition
+		return Vector2.new(offset.X, offset.Z).Magnitude
+	end
+	return math.huge
+end
+
 local function placeRoundToolsAtDoors(generation)
-	local rejectedDoorNames = {}
+	local rejectedDoors = setmetatable({}, {__mode = "k"})
 	local unavailableTools = {}
 	local warnings = {}
 	local warningKeys = {}
@@ -1168,19 +1297,41 @@ local function placeRoundToolsAtDoors(generation)
 			table.insert(warnings, message)
 		end
 	end
-	local function selectDoor()
+	local function selectDoor(toolKey)
 		local doors = eligibleRoundDoors(false)
+		if toolKey == "salt canister" then
+			table.sort(doors, function(first, second)
+				local firstDistance = roundDoorDistanceToRoom(
+					first,
+					doRoundState.lastFavouriteRoom
+				)
+				local secondDistance = roundDoorDistanceToRoom(
+					second,
+					doRoundState.lastFavouriteRoom
+				)
+				if firstDistance == secondDistance then
+					return string.lower(first.Name) < string.lower(second.Name)
+				end
+				return firstDistance < secondDistance
+			end)
+		end
 		for _, doorModel in ipairs(doors) do
 			local key = string.lower(tostring(doorModel.Name))
-			if not doRoundState.usedDoorNames[key]
-				and not rejectedDoorNames[key] then
+			if not rejectedDoors[doorModel]
+				and ((toolKey == "salt canister"
+					and not doRoundState.usedSaltDoorModels[doorModel])
+					or (toolKey ~= "salt canister"
+						and not doRoundState.usedDoorNames[key])) then
 				return doorModel, key
 			end
+		end
+		if toolKey == "salt canister" then
+			return nil, nil
 		end
 		local reusable = {}
 		for _, doorModel in ipairs(doors) do
 			local key = string.lower(tostring(doorModel.Name))
-			if not rejectedDoorNames[key] then
+			if not rejectedDoors[doorModel] then
 				table.insert(reusable, {Model = doorModel, Key = key})
 			end
 		end
@@ -1259,16 +1410,21 @@ local function placeRoundToolsAtDoors(generation)
 				continue
 			end
 
-			local selectedDoor, selectedKey = selectDoor()
+			local selectedDoor, selectedKey = selectDoor(toolKey)
 			if not selectedDoor then
+				if toolKey == "salt canister" then
+					doRoundState.completedDoorTools[toolKey] = true
+				end
 				addWarning(
 					toolKey .. ":doors",
 					toolName
 						.. " still has Uses="
 						.. tostring(uses)
-						.. ", but no safe non-exit door face was available"
+						.. (toolKey == "salt canister"
+							and ", but every distinct nearby non-exit door model was already used or unavailable"
+							or ", but no safe non-exit door face was available")
 				)
-				rejectedDoorNames = {}
+				rejectedDoors = setmetatable({}, {__mode = "k"})
 				continue
 			end
 
@@ -1283,7 +1439,6 @@ local function placeRoundToolsAtDoors(generation)
 			local placementReason
 			local dispatched = false
 			local observedUses
-			local teleportedToDoor = false
 			for _, approach in ipairs(shuffleRoundList(approaches)) do
 				if not roundActionIsSafe(generation) then
 					return false, roundUnsafeReason(generation)
@@ -1294,7 +1449,6 @@ local function placeRoundToolsAtDoors(generation)
 					generation
 				)
 				if teleported and facePlayerTowardRoundDoor(door) then
-					teleportedToDoor = true
 					doRoundState.usedDoorNames[selectedKey] = true
 					doRoundState.lastDoorName = selectedKey
 					doRoundWait(generation, 0.1)
@@ -1312,6 +1466,12 @@ local function placeRoundToolsAtDoors(generation)
 					doRoundState.completedDoorTools[toolKey] = true
 				end
 			end
+			if toolKey == "salt canister" and (placed or dispatched) then
+				doRoundState.usedSaltDoorModels[selectedDoor] = true
+			end
+			if toolKey == "holy oil" and (placed or dispatched) then
+				doRoundState.completedDoorTools[toolKey] = true
+			end
 			if placed then
 				passAttemptedPlacement = true
 				doRoundState.doorToolPlacements[toolKey] =
@@ -1325,9 +1485,12 @@ local function placeRoundToolsAtDoors(generation)
 				end
 				addWarning(toolKey .. ":dispatch", placementReason)
 			else
-				if not teleportedToDoor then
-					rejectedDoorNames[selectedKey] = true
+				if placementReason == "hunt started"
+					or placementReason == "ghost unavailable"
+					or placementReason == "Do-Round cancelled" then
+					return false, placementReason
 				end
+				rejectedDoors[selectedDoor] = true
 				addWarning(toolKey .. ":placement", placementReason)
 			end
 		end
@@ -2036,6 +2199,7 @@ setEnabled = function(enabled, finalPhase)
 		doRoundState.roundMap = nil
 		doRoundState.roundGhost = nil
 		doRoundState.usedDoorNames = {}
+		doRoundState.usedSaltDoorModels = setmetatable({}, {__mode = "k"})
 		doRoundState.completedDoorTools = {}
 		doRoundState.doorToolPlacements = {}
 		doRoundState.doorToolUses = {}
