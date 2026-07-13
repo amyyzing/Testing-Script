@@ -97,6 +97,7 @@ local doRoundState = {
 	autoSpiritBoxLease = false,
 	questionsActive = false,
 	usedDoorNames = {},
+	usedSaltDoorModels = setmetatable({}, {__mode = "k"}),
 	completedDoorTools = {},
 	doorToolPlacements = {},
 	doorToolUses = {},
@@ -2594,8 +2595,8 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 		perkTrackerState.phantomNoPatternHunts = 0
 		perkTrackerState.phantomMimicrySkinwalkerClue = false
 		perkTrackerState.phantomMimicryPreviousSkinwalkerDetection = nil
+		perkTrackerState.phantomPatternRecordedThisHunt = false
 	end
-	perkTrackerState.phantomPatternRecordedThisHunt = false
 	perkTrackerState.phantomQualifiedCyclesThisHunt = 0
 	perkTrackerState.phantomMatchedCyclesThisHunt = 0
 	perkTrackerState.phantomContradictoryCyclesThisHunt = 0
@@ -2698,7 +2699,8 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 	perkTrackerState.dullahanSpeedSamples = {}
 	perkTrackerState.dullahanIncreaseEvents = {}
 	perkTrackerState.dullahanHadQualifiedWindow = false
-	perkTrackerState.dullahanPatternDetected = false
+	perkTrackerState.dullahanPatternDetected = preserveFindings
+		and perkDetections.Dullahan ~= nil
 	perkTrackerState.dullahanPatternObservedThisHunt = false
 	perkTrackerState.dullahanCompletedNoIncreaseHunt = false
 	perkTrackerState.dybbukMaybeReady = false
@@ -2797,7 +2799,20 @@ local function getGhostTransparencyState(ghost)
 	if typeof(transparency) == "number" then
 		return transparency >= 0.5
 	end
-	return nil
+	if not ghost then
+		return nil
+	end
+	local observedVisualPart = false
+	for _, descendant in ipairs(ghost:GetDescendants()) do
+		if descendant:IsA("BasePart")
+			and descendant.Name ~= "HumanoidRootPart" then
+			observedVisualPart = true
+			if descendant.Transparency < 0.95 then
+				return false
+			end
+		end
+	end
+	return observedVisualPart and true or nil
 end
 local function getAverageTeamEnergy()
 	local players = Services.Players:GetPlayers()
@@ -3663,7 +3678,7 @@ analyzePhantom = function(now, huntEnded)
 			table.insert(samples, sample)
 		end
 	end
-	if #samples < 12 then
+	if #samples < 4 then
 		return
 	end
 
@@ -3684,12 +3699,103 @@ analyzePhantom = function(now, huntEnded)
 		end
 		table.insert(run.Samples, sample)
 	end
-	if #runs < 3 then
+	local lastRun = runs[#runs]
+	if lastRun and now - lastRun.StartTime >= 0.18 then
+		lastRun.EndTime = now
+	end
+
+	local function stablePhaseSpeed(run)
+		if not run or not run.EndTime
+			or run.EndTime - run.StartTime < 0.15 then
+			return nil
+		end
+		local speeds = {}
+		for _, sample in ipairs(run.Samples) do
+			if sample.Time >= run.StartTime
+				and sample.Time <= run.EndTime then
+				table.insert(speeds, sample.GhostWalkSpeed)
+			end
+		end
+		if #speeds < 2 then
+			return nil
+		end
+		local phaseMedian = median(speeds)
+		if not phaseMedian
+			or standardDeviation(speeds)
+				> math.max(0.12, phaseMedian * 0.02) then
+			return nil
+		end
+		return phaseMedian
+	end
+
+	local absoluteQualified = 0
+	local absoluteMatched = 0
+	local matchedVisibleSpeed
+	local matchedInvisibleSpeed
+	local matchedMultiplier
+	local mapFactor = getMapSizeSpeedFactor()
+	for index, invisibleRun in ipairs(runs) do
+		if not invisibleRun.Invisible then
+			continue
+		end
+		local invisibleSpeed = stablePhaseSpeed(invisibleRun)
+		local adjacentVisibleSpeeds = {}
+		for _, adjacentIndex in ipairs({index - 1, index + 1}) do
+			local visibleRun = runs[adjacentIndex]
+			if visibleRun and not visibleRun.Invisible then
+				local visibleSpeed = stablePhaseSpeed(visibleRun)
+				if visibleSpeed then
+					table.insert(adjacentVisibleSpeeds, visibleSpeed)
+				end
+			end
+		end
+		local visibleSpeed = median(adjacentVisibleSpeeds)
+		if not visibleSpeed or not invisibleSpeed then
+			continue
+		end
+		absoluteQualified = absoluteQualified + 1
+		local expectedVisible, visibleError, multiplier =
+			closestConfiguredBaseSpeed(visibleSpeed, 11)
+		local expectedInvisible = multiplier
+			and 13.5 * mapFactor * multiplier
+		local ratio = invisibleSpeed / visibleSpeed
+		if expectedVisible and expectedInvisible and multiplier
+			and visibleError <= math.max(0.15, expectedVisible * 0.025)
+			and math.abs(invisibleSpeed - expectedInvisible)
+				<= math.max(0.18, expectedInvisible * 0.025)
+			and math.abs(ratio - (13.5 / 11)) <= 0.04 then
+			absoluteMatched = absoluteMatched + 1
+			matchedVisibleSpeed = visibleSpeed
+			matchedInvisibleSpeed = invisibleSpeed
+			matchedMultiplier = multiplier
+		end
+	end
+	if absoluteMatched >= 1 then
+		perkTrackerState.phantomQualifiedCyclesThisHunt = absoluteQualified
+		perkTrackerState.phantomMatchedCyclesThisHunt = absoluteMatched
+		perkTrackerState.phantomContradictoryCyclesThisHunt = 0
+		if not perkTrackerState.phantomPatternRecordedThisHunt then
+			perkTrackerState.phantomPatternRecordedThisHunt = true
+			perkTrackerState.phantomPatternHunts =
+				perkTrackerState.phantomPatternHunts + 1
+		end
+		local confidence = perkTrackerState.phantomPatternHunts >= 2
+			and 99
+			or 95
+		recordPattern(
+			"a stable visible/invisible hunt pair matched the map-scaled Phantom speeds ("
+				.. string.format("%.2f", matchedVisibleSpeed)
+				.. " visible, "
+				.. string.format("%.2f", matchedInvisibleSpeed)
+				.. " invisible, "
+				.. string.format("%.2fx", matchedMultiplier)
+				.. " configured speed)",
+			confidence
+		)
 		return
 	end
-	local lastRun = runs[#runs]
-	if lastRun and now - lastRun.StartTime >= 0.35 then
-		lastRun.EndTime = now
+	if #runs < 3 then
+		return
 	end
 
 	local function stableRunSpeed(run)
@@ -3898,10 +4004,10 @@ local function analyzeDullahan(now)
 	local samples = state.dullahanSpeedSamples
 	local previous = samples[#samples]
 	local interval = previous and now - previous.Time or nil
-	if interval and interval < 0.075 then
+	if interval and interval < 0.07 then
 		return
 	end
-	if interval and interval > 0.22 then
+	if interval and interval > 0.3 then
 		state.dullahanSpeedSamples = {}
 		state.dullahanIncreaseEvents = {}
 		samples = state.dullahanSpeedSamples
@@ -3910,7 +4016,7 @@ local function analyzeDullahan(now)
 	end
 	table.insert(samples, {Time = now, Speed = currentSpeed})
 
-	while samples[1] and now - samples[1].Time > 0.9 do
+	while samples[1] and now - samples[1].Time > 0.7 do
 		table.remove(samples, 1)
 	end
 
@@ -3919,13 +4025,13 @@ local function analyzeDullahan(now)
 		local firstIndex = #samples - 4
 		local firstSample = samples[firstIndex]
 		local span = now - firstSample.Time
-		qualifiedWindow = span >= 0.3 and span <= 0.7
+		qualifiedWindow = span >= 0.28 and span <= 0.65
 		if qualifiedWindow then
 			for index = firstIndex + 1, #samples do
 				local sampleInterval = samples[index].Time
 					- samples[index - 1].Time
-				if sampleInterval < 0.075
-					or sampleInterval > 0.22 then
+				if sampleInterval < 0.07
+					or sampleInterval > 0.3 then
 					qualifiedWindow = false
 					break
 				end
@@ -3940,12 +4046,12 @@ local function analyzeDullahan(now)
 	end
 
 	local increaseEvents = {}
-	for index = 2, #samples do
+	local firstIndex = #samples - 4
+	for index = firstIndex + 1, #samples do
 		local before = samples[index - 1]
 		local after = samples[index]
 		local increase = after.Speed - before.Speed
-		local minimumStep = math.max(0.01, before.Speed * 0.001)
-		if increase >= minimumStep then
+		if increase >= 0.001 then
 			table.insert(increaseEvents, {
 				Time = after.Time,
 				Delta = increase,
@@ -3966,7 +4072,7 @@ local function analyzeDullahan(now)
 	clearPerkDetection("Dybbuk")
 	recordPerkDetection(
 		"Dullahan",
-		"Ghost WalkSpeed increased in at least three hunt intervals across five or more 0.1-second samples; decreases were ignored",
+		"Ghost WalkSpeed increased in at least three short intervals across five hunting samples; decreases were ignored",
 		PERK_CONFIDENCE.Dullahan
 	)
 	updateGhostIdentification(ghost)
