@@ -5,8 +5,17 @@ A modular Demonology evidence and behavior assistant written in Luau. The origin
 ## Run
 
 ```luau
-loadstring(game:HttpGet("https://raw.githubusercontent.com/amyyzing/Testing-Script/main/logic.luau"))()
+local Auto = true
+loadstring(game:HttpGet("https://raw.githubusercontent.com/amyyzing/Testing-Script/main/logic.luau"))(Auto)
 ```
+
+Pass the local `Auto` value into the downloaded chunk as shown; a separate
+`loadstring` cannot read an unpassed lexical local. The loader also remembers the
+last boolean in `getgenv().DemonologyAuto`. With Auto enabled it queues a guarded
+self-loader through `queue_on_teleport`/`queueonteleport` whenever `AttemptStart`
+or `RequestReturnToLobby` initiates a teleport. A round arrival loads the GUI and
+turns on Do-Round automatically. A lobby return fires `LoadingFinished` before
+starting the next lobby macro.
 
 The script requires an environment that provides `game:HttpGet` and `loadstring`. Some optional features also capability-check executor APIs such as `gethui`, `firesignal`, `getconnections`, and `fireproximityprompt`. It is not a normal Roblox Studio `LocalScript`.
 
@@ -16,7 +25,7 @@ Before fetching GUI modules, the bootstrap performs a discardable one-shot check
 for the `Workspace.Ghost` model. When it exists, the normal in-round GUI loads.
 When it does not exist, the GUI is skipped and the loader changes the job site to
 School, applies the Minus difficulty change, applies the `john4` difficulty preset
-twice, applies the green equipment preset, and changes the player status before
+once, applies the green equipment preset, and changes the player status before
 attempting to start the round. Every macro dispatch has its own 0.5-second safety
 delay.
 
@@ -77,15 +86,19 @@ hunts, and maintain displaced or stably-disabled equipment. A Pretty Sure/Certai
 single-ghost identification is selected immediately regardless of hunt state;
 automation teleports to and verifies Base Camp, then fires `RequestReturnToLobby`
 without waiting for the hunt to end. Otherwise, after three minutes the timer
-selects a highest-confidence ghost, performs the same verified Base Camp return,
-and fires `RequestReturnToLobby` to finish the round.
+watchdog cancels any unfinished setup or maintenance work, selects a
+highest-confidence ghost, performs the same verified Base Camp return, and keeps
+firing `RequestReturnToLobby` once per second until `LocalPlayer.OnTeleport`
+confirms the lobby teleport has begun. Neither completion path waits for a hunt
+to end.
 
 Modules are plain remote chunks: each returns a table or factory, and the bootstrap injects dependencies explicitly. The ghost catalog never deletes its source records; candidate lists are derived so a reset or evidence-mode change can restore ruled-out ghosts.
 
-The bootstrap fetches ghost-package sources with a six-worker queue, retries each
-source up to three times, and caches both source and executed modules for the run.
-The loading screen reports module-level progress before the package is assembled,
-so the per-ghost layout does not become a long serial request chain.
+The bootstrap prefetches every runtime source with a ten-worker queue, gives each
+HTTP attempt an eight-second timeout, retries each source up to three times, and
+caches both source and executed modules for the run. The loading screen reports
+module-level progress before the package is assembled, so one stalled request no
+longer requires manually executing the loader again.
 
 ## Ghost observation lifecycle
 

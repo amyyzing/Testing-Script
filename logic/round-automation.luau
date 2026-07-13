@@ -27,6 +27,12 @@ return function(dependencies: any)
 	local setDoRoundStatus: any = assert(dependencies.SetDoRoundStatus, "round-automation requires SetDoRoundStatus")
 	local setGhostIdentificationLabel: any = assert(dependencies.SetGhostIdentificationLabel, "round-automation requires SetGhostIdentificationLabel")
 	local releasePlayerMovement: any = assert(dependencies.ReleasePlayerMovement, "round-automation requires ReleasePlayerMovement")
+	local prepareTeleport: any = dependencies.PrepareTeleport
+	if type(prepareTeleport) ~= "function" then
+		prepareTeleport = function()
+			return true
+		end
+	end
 local roundUtilities: any = (function()
 local DROPPED_ROOM_ITEMS = {
 	"Spirit Box",
@@ -2870,8 +2876,27 @@ local function requestRoundReturnToLobby(generation)
 	if not remote or not remote:IsA("RemoteEvent") then
 		return false, "RequestReturnToLobby RemoteEvent was not found"
 	end
+	local teleportBegan = false
+	local connected, teleportConnection = pcall(function()
+		return player.OnTeleport:Connect(function(state)
+			if state ~= Enum.TeleportState.Failed then
+				teleportBegan = true
+			end
+		end)
+	end)
+	if not connected then
+		return false, "LocalPlayer.OnTeleport could not be observed"
+	end
+	local function disconnectTeleportListener()
+		if teleportConnection and teleportConnection.Connected then
+			teleportConnection:Disconnect()
+		end
+	end
+	local queueWarningShown = false
 	while doRoundOperationActive(generation) do
-		if not returnRoundToBase(generation) then
+		if not playerIsInsideRoundBaseCamp()
+			and not returnRoundToBase(generation) then
+			disconnectTeleportListener()
 			return false, "Do-Round cancelled before the Base Camp return"
 		end
 		if not playerIsInsideRoundBaseCamp() then
@@ -2885,13 +2910,134 @@ local function requestRoundReturnToLobby(generation)
 		if not playerIsInsideRoundBaseCamp() then
 			continue
 		end
-		local fired = pcall(remote.FireServer, remote)
-		if fired then
+		local preparedCall, prepared, prepareFailure = pcall(
+			prepareTeleport,
+			"ReturnToLobby"
+		)
+		if (not preparedCall or prepared == false)
+			and not queueWarningShown
+			and presenter and presenter.Notify then
+			queueWarningShown = true
+			presenter:Notify(
+				not preparedCall
+					and ("return teleport preparation failed: " .. tostring(prepared))
+					or tostring(prepareFailure
+						or "return teleport execution was not prepared")
+			)
+		end
+		pcall(remote.FireServer, remote)
+		local nextFireAt = os.clock() + 1
+		while doRoundOperationActive(generation)
+			and not teleportBegan
+			and os.clock() < nextFireAt do
+			task.wait(math.min(0.05, math.max(0, nextFireAt - os.clock())))
+		end
+		if teleportBegan then
+			disconnectTeleportListener()
 			return true
 		end
-		return false, "RequestReturnToLobby failed to fire"
 	end
+	disconnectTeleportListener()
 	return false, "Do-Round cancelled before returning to the lobby"
+end
+
+local function chooseRoundTimeoutFallback()
+	local guess = perkTrackerState.currentGhostGuess
+	local score = perkTrackerState.currentGhostGuessScore or 0
+	local timeoutCandidates = perkTrackerState.getRemainingCandidates(false)
+	if #timeoutCandidates == 0 then
+		for _, profile in ipairs(GHOST_PROFILES) do
+			if not perkTrackerState.isGhostRuledOut(profile.Name) then
+				table.insert(timeoutCandidates, profile.Name)
+			end
+		end
+	end
+	if #timeoutCandidates == 0 then
+		-- Contradictory rule-outs must not prevent a timed round from ending.
+		for _, profile in ipairs(GHOST_PROFILES) do
+			table.insert(timeoutCandidates, profile.Name)
+		end
+	end
+	if perkTrackerState.evidenceMode == "Mimicry" then
+		local included = {}
+		for _, name in ipairs(timeoutCandidates) do
+			included[name] = true
+		end
+		for name, detection in pairs(perkDetections) do
+			if detection.Persistent
+				and not perkTrackerState.isGhostRuledOut(name)
+				and not included[name] then
+				table.insert(timeoutCandidates, name)
+				included[name] = true
+			end
+		end
+	end
+	local fallback = GhostModule.SelectHighestConfidenceGuess({
+		Candidates = timeoutCandidates,
+		Detections = perkDetections,
+		CurrentGuess = guess,
+		CurrentScore = score,
+		OrbObserved = perkTrackerState.orbObserved == true,
+		RandomUnit = function()
+			return math.random()
+		end,
+		RandomIndex = function(count)
+			return math.random(count)
+		end,
+	})
+	if not fallback then
+		return nil, 0
+	end
+	local fallbackDetection = perkDetections[fallback]
+	local fallbackScore = fallbackDetection
+		and tonumber(fallbackDetection.Confidence)
+		or 0
+	if guess and string.find(guess, fallback, 1, true) then
+		fallbackScore = math.max(fallbackScore, score)
+	end
+	return fallback, math.max(fallbackScore, 1)
+end
+
+local function finishRoundWithGhost(
+	ghostName,
+	confidence,
+	certain,
+	generation,
+	finalPhase
+)
+	perkTrackerState.currentGhostGuess = ghostName
+	perkTrackerState.currentGhostGuessScore = confidence
+	perkTrackerState.currentGhostGuessCertain = certain == true
+	setGhostIdentificationLabel(ghostName, confidence, certain == true)
+	while doRoundOperationActive(generation) do
+		setDoRoundStatus("Selecting ghost guess")
+		if selectRoundJournalGhost(ghostName, generation) then
+			local returned, returnReason = requestRoundReturnToLobby(generation)
+			if returned then
+				setEnabled(false, finalPhase)
+				return true
+			end
+			if not doRoundOperationActive(generation) then
+				return false, returnReason
+			end
+		end
+		task.wait(0.2)
+	end
+	return false, "Do-Round cancelled before lobby return"
+end
+
+local function finishTimedRound(generation)
+	local fallback, fallbackScore = chooseRoundTimeoutFallback()
+	if not fallback then
+		return false, "no ghost profile was available for the timed guess"
+	end
+	return finishRoundWithGhost(
+		fallback,
+		fallbackScore,
+		false,
+		generation,
+		"Selected " .. fallback
+	)
 end
 
 local function runDoRound(generation)
@@ -3041,7 +3187,6 @@ local function runDoRound(generation)
 		waitForRoundHuntEnd(generation)
 		teleportToFavouriteRoom(roundTeleportOptions(generation))
 		doRoundState.questionsActive = true
-		local timeoutFallback
 		while doRoundOperationActive(generation) do
 			ghost = getGhostModel()
 			if workspace:FindFirstChild("Map") ~= doRoundState.roundMap then
@@ -3071,17 +3216,23 @@ local function runDoRound(generation)
 			local certain = perkTrackerState.currentGhostGuessCertain == true
 			local singleGuess = guess
 				and not string.find(guess, "/", 1, true)
-			if singleGuess and (certain or score >= 80) then
-				if selectRoundJournalGhost(guess, generation) then
-					local returned, returnReason =
-						requestRoundReturnToLobby(generation)
-					if not returned then
-						error(returnReason or "Lobby return failed", 0)
-					end
-					setEnabled(false, "Identified " .. guess)
+			if singleGuess and (certain or score >= 80)
+				and not doRoundState.completionClaimed then
+				doRoundState.completionClaimed = true
+				local finished, finishReason = finishRoundWithGhost(
+					guess,
+					score,
+					certain,
+					generation,
+					"Identified " .. guess
+				)
+				if finished then
 					return
 				end
-				setDoRoundStatus("Selecting ghost guess")
+				doRoundState.completionClaimed = false
+				if doRoundOperationActive(generation) then
+					error(finishReason or "Lobby return failed", 0)
+				end
 			end
 			if roundIsHunting() then
 				doRoundState.questionsActive = false
@@ -3094,86 +3245,6 @@ local function runDoRound(generation)
 				end
 				doRoundState.questionsActive = true
 				continue
-			end
-
-			if doRoundState.startedAt
-				and os.clock() - doRoundState.startedAt >= 180 then
-				if not timeoutFallback then
-					local timeoutCandidates =
-						perkTrackerState.getRemainingCandidates(false)
-					if #timeoutCandidates == 0 then
-						-- Contradictory evidence can empty the evidence-filtered list.
-						-- Prefer every ghost that has not been explicitly ruled out.
-						for _, profile in ipairs(GHOST_PROFILES) do
-							if not perkTrackerState.isGhostRuledOut(profile.Name) then
-								table.insert(timeoutCandidates, profile.Name)
-							end
-						end
-					end
-					if #timeoutCandidates == 0 then
-						-- A timed round must still conclude even if contradictory rule-outs
-						-- eliminated everybody. In that exceptional case, rank the complete
-						-- catalog by the confidence observations that remain.
-						for _, profile in ipairs(GHOST_PROFILES) do
-							table.insert(timeoutCandidates, profile.Name)
-						end
-					end
-					if perkTrackerState.evidenceMode == "Mimicry" then
-						local included = {}
-						for _, name in ipairs(timeoutCandidates) do
-							included[name] = true
-						end
-						for name, detection in pairs(perkDetections) do
-							if detection.Persistent
-								and not perkTrackerState.isGhostRuledOut(name)
-								and not included[name] then
-								table.insert(timeoutCandidates, name)
-								included[name] = true
-							end
-						end
-					end
-					timeoutFallback = GhostModule.SelectHighestConfidenceGuess({
-						Candidates = timeoutCandidates,
-						Detections = perkDetections,
-						CurrentGuess = guess,
-						CurrentScore = score,
-						OrbObserved = perkTrackerState.orbObserved == true,
-						RandomUnit = function()
-							return math.random()
-						end,
-						RandomIndex = function(count)
-							return math.random(count)
-						end,
-					})
-				end
-				if timeoutFallback then
-					local fallbackDetection = perkDetections[timeoutFallback]
-					local fallbackScore = fallbackDetection
-						and tonumber(fallbackDetection.Confidence)
-						or 0
-					if guess and string.find(guess, timeoutFallback, 1, true) then
-						fallbackScore = math.max(fallbackScore, score)
-					end
-					fallbackScore = math.max(fallbackScore, 1)
-					perkTrackerState.currentGhostGuess = timeoutFallback
-					perkTrackerState.currentGhostGuessScore = fallbackScore
-					perkTrackerState.currentGhostGuessCertain = false
-					setGhostIdentificationLabel(
-						timeoutFallback,
-						perkTrackerState.currentGhostGuessScore,
-						false
-					)
-					if selectRoundJournalGhost(timeoutFallback, generation) then
-						local returned, returnReason =
-							requestRoundReturnToLobby(generation)
-						if not returned then
-							error(returnReason or "Lobby return failed", 0)
-						end
-						setEnabled(false, "Selected " .. timeoutFallback)
-						return
-					end
-				end
-				setDoRoundStatus(timeoutFallback and "Selecting ghost guess" or "Timed out")
 			end
 
 			local character = player.Character
@@ -3205,6 +3276,45 @@ local function runDoRound(generation)
 	end
 end
 
+local function startRoundTimeoutWatchdog(generation)
+	doRoundState.timeoutThread = task.delay(180, function()
+		if not doRoundOperationActive(generation)
+			or doRoundState.completionClaimed then
+			return
+		end
+		doRoundState.completionClaimed = true
+		-- Invalidate every setup/maintenance operation immediately. The new
+		-- generation belongs exclusively to timed completion, so an active hunt
+		-- or a yielded placement routine cannot postpone the three-minute return.
+		doRoundState.generation = doRoundState.generation + 1
+		local completionGeneration = doRoundState.generation
+		doRoundState.timeoutThread = nil
+		doRoundState.questionsActive = false
+		releaseRoundMovement()
+		while doRoundOperationActive(completionGeneration) do
+			local completedCall, completed, completionFailure = xpcall(
+				function()
+					return finishTimedRound(completionGeneration)
+				end,
+				debug.traceback
+			)
+			if completedCall and completed then
+				return
+			end
+			if not doRoundOperationActive(completionGeneration) then
+				return
+			end
+			if presenter and presenter.Notify then
+				presenter:Notify(
+					tostring(completionFailure or completed):match("^[^\n]+")
+						or "Timed lobby return failed; retrying"
+				)
+			end
+			task.wait(0.5)
+		end
+	end)
+end
+
 setEnabled = function(enabled, finalPhase)
 	enabled = enabled == true
 	if doRoundState.enabled == enabled then
@@ -3230,6 +3340,7 @@ setEnabled = function(enabled, finalPhase)
 			end
 		end
 		doRoundState.startedAt = os.clock()
+		doRoundState.completionClaimed = false
 		doRoundState.lastElapsed = 0
 		doRoundState.phase = "Checking ghost room"
 		doRoundState.roundMap = nil
@@ -3276,6 +3387,7 @@ setEnabled = function(enabled, finalPhase)
 		refreshAutoSpiritBoxEnabled()
 		setDoRoundStatus(doRoundState.phase)
 		local generation = doRoundState.generation
+		startRoundTimeoutWatchdog(generation)
 		doRoundState.thread = task.spawn(function()
 			runDoRound(generation)
 		end)
@@ -3312,6 +3424,8 @@ setEnabled = function(enabled, finalPhase)
 		doRoundState.questionsActive = false
 		refreshAutoSpiritBoxEnabled()
 		doRoundState.thread = nil
+		doRoundState.timeoutThread = nil
+		doRoundState.completionClaimed = false
 		doRoundState.startedAt = nil
 		doRoundState.roundMap = nil
 		doRoundState.roundGhost = nil

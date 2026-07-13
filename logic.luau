@@ -1,3 +1,5 @@
+local requestedAuto, requestedArrivalContext = ...
+
 if not game:IsLoaded() then
 	game.Loaded:Wait()
 end
@@ -5,6 +7,20 @@ end
 local BASE_URL = "https://raw.githubusercontent.com/amyyzing/Testing-Script/main/"
 local RUN_VERSION = tostring(os.time())
 local environment = (getgenv and getgenv()) or _G
+local autoEnabled
+if type(requestedAuto) == "boolean" then
+	autoEnabled = requestedAuto
+elseif type(environment.DemonologyAuto) == "boolean" then
+	autoEnabled = environment.DemonologyAuto
+elseif type(environment.Auto) == "boolean" then
+	autoEnabled = environment.Auto
+else
+	autoEnabled = false
+end
+local arrivalContext = type(requestedArrivalContext) == "string"
+	and requestedArrivalContext
+	or nil
+environment.DemonologyAuto = autoEnabled
 local Services = {
 	Players = game:GetService("Players"),
 	RunService = game:GetService("RunService"),
@@ -61,6 +77,16 @@ local GHOST_PACKAGE_PATHS = {
 	"ghost/analyzers/speed-pattern.luau",
 	"ghost/analyzers/speed-math.luau",
 }
+local RUNTIME_MODULE_PATHS = {
+	"gui/aesthetic.luau",
+	"gui/gui-logic.luau",
+	"logic/ghost-module.luau",
+	"logic/round-automation.luau",
+	"logic/logic.luau",
+}
+for _, path in ipairs(GHOST_PACKAGE_PATHS) do
+	table.insert(RUNTIME_MODULE_PATHS, path)
+end
 local generation = (tonumber(environment.DemonologyGeneration) or 0) + 1
 environment.DemonologyGeneration = generation
 
@@ -72,6 +98,8 @@ elseif environment.UntitledGuiCleanup then
 end
 
 local session = {
+	Auto = autoEnabled,
+	ArrivalContext = arrivalContext,
 	Destroyed = false,
 	Generation = generation,
 }
@@ -108,6 +136,9 @@ function session:Destroy(keepLoader)
 	if not keepLoader and self.Loader then
 		pcall(self.Loader.Destroy, self.Loader)
 	end
+	if self.TeleportConnection and self.TeleportConnection.Connected then
+		self.TeleportConnection:Disconnect()
+	end
 
 	if ownsSession then
 		environment.DemonologySession = nil
@@ -119,6 +150,76 @@ function session:Destroy(keepLoader)
 		environment.UntitledGuiInstance = nil
 		environment.UntitledGuiCleanup = nil
 	end
+end
+
+local queueOnTeleport = environment.queue_on_teleport
+	or environment.queueonteleport
+local executorNamespace = environment.syn or environment.fluxus or environment.krnl
+if type(queueOnTeleport) ~= "function" and type(executorNamespace) == "table" then
+	queueOnTeleport = executorNamespace.queue_on_teleport
+		or executorNamespace.queueonteleport
+end
+
+local function queuedLoaderSource(context)
+	return string.format([[
+local environment = (getgenv and getgenv()) or _G
+if environment.DemonologyAutoExecuted then
+	return
+end
+environment.DemonologyAutoExecuted = true
+if not game:IsLoaded() then
+	game.Loaded:Wait()
+end
+local compiler = loadstring or load
+assert(type(compiler) == "function", "This executor does not provide loadstring")
+local url = %q .. "?v=" .. tostring(os.time())
+local source = game:HttpGet(url)
+local chunk, compileError = compiler(source, "@DemonologyAutoLoader")
+assert(chunk, compileError)
+chunk(true, %q)
+]], BASE_URL .. "logic.luau", tostring(context or "Teleport"))
+end
+
+function session:PrepareTeleport(context)
+	if not self.Auto then
+		return true
+	end
+	if type(queueOnTeleport) ~= "function" then
+		return false, "this executor does not provide queue_on_teleport"
+	end
+	if not self.TeleportConnection then
+		return false, self.TeleportConnectionFailure
+			or "the teleport listener could not be connected"
+	end
+	self.PendingTeleportContext = tostring(context or "Teleport")
+	self.TeleportQueued = false
+	self.TeleportQueueFailure = nil
+	return true
+end
+
+local teleportConnected, teleportConnection = pcall(function()
+	return player.OnTeleport:Connect(function()
+		if not isCurrent()
+			or not session.Auto
+			or session.TeleportQueued
+			or not session.PendingTeleportContext then
+			return
+		end
+		local queued, queueFailure = pcall(
+			queueOnTeleport,
+			queuedLoaderSource(session.PendingTeleportContext)
+		)
+		if queued then
+			session.TeleportQueued = true
+		else
+			session.TeleportQueueFailure = tostring(queueFailure)
+		end
+	end)
+end)
+if teleportConnected then
+	session.TeleportConnection = teleportConnection
+else
+	session.TeleportConnectionFailure = tostring(teleportConnection)
 end
 
 local LOBBY_MACRO_DELAY = 0.5
@@ -138,12 +239,20 @@ local function runLobbyStartMacro()
 
 	-- Resolve everything before dispatch so a missing endpoint cannot leave the
 	-- lobby only partially configured.
+	local loadingFinished = arrivalContext == "ReturnToLobby"
+		and requireRemote("LoadingFinished")
+		or nil
 	local changeJobSite = requireRemote("ChangeJobSite")
 	local changeDifficulty = requireRemote("ChangeDifficulty")
 	local applyDifficultyPreset = requireRemote("ApplyDifficultyPreset")
 	local applyEquipmentPreset = requireRemote("ApplyEquipmentPreset")
 	local changeStatus = requireRemote("ChangeStatus")
 	local attemptStart = requireRemote("AttemptStart")
+	local prepared, prepareFailure = session:PrepareTeleport("AttemptStart")
+	if not prepared then
+		session.TeleportQueueFailure = prepareFailure
+			or "AttemptStart teleport execution was not prepared"
+	end
 
 	local function waitForDispatch()
 		assertCurrent()
@@ -151,14 +260,16 @@ local function runLobbyStartMacro()
 		assertCurrent()
 	end
 
+	if loadingFinished then
+		waitForDispatch()
+		loadingFinished:FireServer()
+	end
+
 	waitForDispatch()
 	changeJobSite:FireServer("School")
 
 	waitForDispatch()
 	changeDifficulty:FireServer("Minus")
-
-	waitForDispatch()
-	applyDifficultyPreset:FireServer("john4")
 
 	waitForDispatch()
 	applyDifficultyPreset:FireServer("john4")
@@ -173,12 +284,19 @@ local function runLobbyStartMacro()
 	attemptStart:FireServer()
 end
 
--- Discardable loader probe: take exactly one snapshot and create no listener.
--- A missing Workspace.Ghost means this execution is in the lobby setup path,
--- so run the ordered macro and do not construct the in-round interface.
+-- Discardable loader probe: take one final model snapshot and create no lasting
+-- listener. A queued AttemptStart arrival gets a short replication grace period
+-- so it cannot mistake a still-loading round for the lobby and start a loop.
 local loaderGhost = workspace:FindFirstChild("Ghost")
+if not loaderGhost and arrivalContext == "AttemptStart" then
+	loaderGhost = workspace:WaitForChild("Ghost", 15)
+end
 local shouldLoadRoundGui = loaderGhost ~= nil and loaderGhost:IsA("Model")
 loaderGhost = nil
+if arrivalContext == "AttemptStart" and not shouldLoadRoundGui then
+	session:Destroy()
+	error("AttemptStart arrival did not replicate Workspace.Ghost within 15 seconds", 0)
+end
 if not shouldLoadRoundGui then
 	session.Mode = "LobbyMacro"
 	local started, startFailure = xpcall(runLobbyStartMacro, debug.traceback)
@@ -189,6 +307,27 @@ if not shouldLoadRoundGui then
 	return session
 end
 
+local REMOTE_FETCH_TIMEOUT = 8
+
+local function fetchUrlWithTimeout(url)
+	local finished = false
+	local fetched = false
+	local response
+	task.spawn(function()
+		fetched, response = pcall(game.HttpGet, game, url)
+		finished = true
+	end)
+	local deadline = os.clock() + REMOTE_FETCH_TIMEOUT
+	while not finished and os.clock() < deadline do
+		assertCurrent()
+		task.wait(0.03)
+	end
+	if not finished then
+		return false, "request timed out after " .. tostring(REMOTE_FETCH_TIMEOUT) .. " seconds"
+	end
+	return fetched, response
+end
+
 local function fetchRemoteSource(path)
 	if sourceCache[path] then
 		return sourceCache[path]
@@ -197,7 +336,7 @@ local function fetchRemoteSource(path)
 	local lastFailure
 	for attempt = 1, 3 do
 		assertCurrent()
-		local fetched, source = pcall(game.HttpGet, game, url)
+		local fetched, source = fetchUrlWithTimeout(url)
 		if fetched and type(source) == "string" and source ~= "" then
 			sourceCache[path] = source
 			return source
@@ -243,7 +382,7 @@ local function prefetchRemoteSources(paths, onProgress)
 	local cursor = 0
 	local completed = 0
 	local firstFailure
-	local workerCount = math.min(6, #paths)
+	local workerCount = math.min(10, #paths)
 	local activeWorkers = workerCount
 	for _ = 1, workerCount do
 		task.spawn(function()
@@ -288,6 +427,24 @@ local ok, failure = xpcall(function()
 	})
 	session.Loader = loader
 	assertCurrent()
+	loader:SetStage(
+		"Downloading runtime modules 0/" .. tostring(#RUNTIME_MODULE_PATHS),
+		1,
+		9
+	)
+	prefetchRemoteSources(RUNTIME_MODULE_PATHS, function(completed, total, path)
+		local label = tostring(path):match("([^/]+)%.luau$") or tostring(path)
+		loader:SetStage(
+			("Downloading runtime modules %d/%d: %s..."):format(
+				completed,
+				total,
+				label
+			),
+			1,
+			9
+		)
+	end)
+	assertCurrent()
 
 	loader:SetStage("Loading interface theme and copy…", 1, 9)
 	local Aesthetic = loadRemoteModule("gui/aesthetic.luau")
@@ -295,15 +452,6 @@ local ok, failure = xpcall(function()
 
 	loader:SetStage("Loading ghost catalog…", 2, 9)
 	local GhostModule = loadRemoteModule("logic/ghost-module.luau")
-	assertCurrent()
-	prefetchRemoteSources(GHOST_PACKAGE_PATHS, function(completed, total, path)
-		local label = tostring(path):match("([^/]+)%.luau$") or tostring(path)
-		loader:SetStage(
-			("Loading ghost modules %d/%d: %s..."):format(completed, total, label),
-			2,
-			9
-		)
-	end)
 	assertCurrent()
 	loader:SetStage("Assembling ghost observer package...", 2, 9)
 	local createGhostPackage = loadRemoteModule("ghost/init.luau")
@@ -353,6 +501,7 @@ local ok, failure = xpcall(function()
 
 	loader:SetStage("Starting ghost trackers…", 8, 9)
 	local controller = createLogic({
+		AutoStart = autoEnabled,
 		Services = Services,
 		Player = player,
 		Environment = environment,
@@ -362,6 +511,9 @@ local ok, failure = xpcall(function()
 		RoundAutomation = createRoundAutomation,
 		View = view,
 		Presenter = presenter,
+		PrepareTeleport = function(context)
+			return session:PrepareTeleport(context)
+		end,
 	})
 	session.Controller = controller
 	presenter:Bind(controller)

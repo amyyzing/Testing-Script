@@ -9117,6 +9117,7 @@ local roundAutomation: any = createRoundAutomation({
 	SetDoRoundStatus = setDoRoundStatus,
 	SetGhostIdentificationLabel = setGhostIdentificationLabel,
 	ReleasePlayerMovement = doRoundState.releasePlayerMovement,
+	PrepareTeleport = dependencies.PrepareTeleport,
 })
 local function setDoRoundEnabled(enabled, finalPhase)
 	return roundAutomation.SetEnabled(enabled, finalPhase)
@@ -10092,6 +10093,9 @@ function Controller:Start()
 
 	bindSpiritBoxRemoteListeners()
 	updateEvidence()
+	if dependencies.AutoStart == true and not doRoundState.enabled then
+		setDoRoundEnabled(true)
+	end
 	return self
 end
 
