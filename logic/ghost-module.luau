@@ -203,11 +203,12 @@ end
 
 local Profiles = {
 	profile("Aswang", {"EMFLevel5", "GhostWriting", "Wither"}, "wiki-documented", perks({
-		note("Speed rises by about 20% after each unique hunter kill; a confirmed salt crossing slows it.", SOURCE.Aswang, "wiki-documented", false, "Trait", "Compare hunts before and after a unique kill, or observe an actual salt crossing."),
+		note("During one hunt, the same touched SaltLine becomes DisturbedSaltLine, WalkSpeed temporarily falls below its reliable pre-touch baseline, then returns to that baseline.", SOURCE.Aswang, "wiki-documented", false, "Trait", "Require the contact, disturbance, repeated slowdown samples, and later recovery from the same hunt."),
 	}, {
-		note("The ghost became noticeably faster after a hunter died.", SOURCE.Aswang, "wiki-documented", false, "Trait", "A single speed estimate is less reliable than a controlled comparison."),
+		note("A hunting ghost directly disturbed salt and showed a repeated speed dip, but recovery has not been sampled yet.", SOURCE.Aswang, "wiki-documented", false, "Trait", "Keep sampling through the temporary slowdown window before upgrading confidence."),
+		note("Across controlled hunt-state comparisons, WalkSpeed rises by about 20% after each unique hunter kill.", SOURCE.Aswang, "wiki-documented", false, "Trait", "Compare stable speeds before and after the kill rather than relying on one estimate."),
 	}, {
-		note("Otherwise behaves like a normal ghost until a kill or salt interaction occurs.", SOURCE.Aswang, "wiki-documented", false, "Caveat"),
+		note("Disturbed salt by itself, a non-hunt speed change, or an unreliable pre-touch baseline is not diagnostic.", SOURCE.Aswang, "wiki-documented", false, "Caveat"),
 	})),
 	profile("Banshee", {"FreezingTemperatures", "GhostOrb", "Handprints"}, "wiki-documented", perks({
 		note("A distinct, subtitle-supported wail occurred at the start of a hunt after Skinwalker was ruled out.", SOURCE.Banshee, "wiki-documented", true, "Ability", "Skinwalker may mimic the wail."),
@@ -282,11 +283,11 @@ local Profiles = {
 		note("One fast hunt or one manifestation is a risky relative-speed/activity tell.", SOURCE.Oni, "wiki-documented", false, "Caveat"),
 	})),
 	profile("Phantom", {"EMFLevel5", "GhostOrb", "Handprints"}, "wiki-documented", perks({
-		note("Repeated hunts show a consistently slow blink pattern and acceleration specifically during invisible intervals.", SOURCE.Phantom, "wiki-documented", true, "Trait", "Skinwalker mimicry of slow blinking is listed with citation needed."),
+		note("Across complete visible-invisible-visible hunt cycles, stable invisible-phase WalkSpeed is about 13.5/11 times the adjacent visible baseline; repeated qualified hunts strengthen certainty.", SOURCE.Phantom, "wiki-documented", true, "Trait", "Ignore transition-boundary samples, and retain Skinwalker as an equal possibility in Mimicry mode."),
 	}, {
-		note("It remains invisible longer than normal during a consistent hunt blink pattern.", SOURCE.Phantom, "wiki-documented", true, "Trait"),
+		note("Several mature cycles show faster invisible movement and a slow, consistent blink cadence within one hunt.", SOURCE.Phantom, "wiki-documented", true, "Trait"),
 	}, {
-		note("Being difficult to see once is a subtle and unreliable blink-speed estimate.", SOURCE.Phantom, "wiki-documented", true, "Caveat"),
+		note("One transition edge, an immature phase, or absolute speed without paired visible and invisible baselines is not diagnostic.", SOURCE.Phantom, "wiki-documented", true, "Caveat"),
 	})),
 	profile("Ravager", {"EMFLevel5", "GhostWriting", "SpiritBox"}, "wiki-recent-stub", perks({
 		note("A vortex pulls nearby objects into a tornado during a hunt.", SOURCE.Ravager, "wiki-recent-stub", false, "Trait", "The guide reports roughly a one-in-three activation chance."),
