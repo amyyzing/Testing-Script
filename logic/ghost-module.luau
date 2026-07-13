@@ -226,9 +226,9 @@ local Profiles = {
 	})),
 	profile("Dullahan", {"FreezingTemperatures", "LaserProjector", "Wither"}, "wiki-documented", perks({
 		note("A clear Photo Camera image shows it without a head.", SOURCE.Dullahan, "wiki-documented", false, "Weakness"),
-		note("Speed repeatedly ramps during sustained line of sight and resets when line of sight breaks.", SOURCE.Dullahan, "wiki-documented", false, "Trait"),
+		note("During a hunt, WalkSpeed rises in several short intervals; line of sight is not required and intervening decreases do not invalidate the pattern.", SOURCE.Dullahan, "wiki-documented", false, "Trait"),
 	}, {
-		note("It appears to accelerate while continuously seeing a hunter.", SOURCE.Dullahan, "wiki-documented", false, "Trait"),
+		note("At least three upward WalkSpeed steps appear across five roughly 0.1-second hunting samples.", SOURCE.Dullahan, "wiki-documented", false, "Trait"),
 	}, {
 		note("A fast ghost or a naturally partial-head model can be mistaken for this tell.", SOURCE.Dullahan, "wiki-documented", false, "Caveat"),
 	})),
@@ -283,11 +283,11 @@ local Profiles = {
 		note("One fast hunt or one manifestation is a risky relative-speed/activity tell.", SOURCE.Oni, "wiki-documented", false, "Caveat"),
 	})),
 	profile("Phantom", {"EMFLevel5", "GhostOrb", "Handprints"}, "wiki-documented", perks({
-		note("Across complete visible-invisible-visible hunt cycles, stable invisible-phase WalkSpeed is about 13.5/11 times the adjacent visible baseline; repeated qualified hunts strengthen certainty.", SOURCE.Phantom, "wiki-documented", true, "Trait", "Ignore transition-boundary samples, and retain Skinwalker as an equal possibility in Mimicry mode."),
+		note("At 100% configured speed its stable visible/invisible hunt speeds are 11/13.5 on Small maps, 11.55/14.175 on Medium maps, and 12.1/14.85 on Large maps; both modes scale together at other speed settings.", SOURCE.Phantom, "wiki-documented", true, "Trait", "Retain Skinwalker as an equal possibility in Mimicry mode."),
 	}, {
-		note("Several mature cycles show faster invisible movement and a slow, consistent blink cadence within one hunt.", SOURCE.Phantom, "wiki-documented", true, "Trait"),
+		note("A stable paired phase shows the ghost moving about 13.5/11 times faster while invisible than while visible.", SOURCE.Phantom, "wiki-documented", true, "Trait"),
 	}, {
-		note("One transition edge, an immature phase, or absolute speed without paired visible and invisible baselines is not diagnostic.", SOURCE.Phantom, "wiki-documented", true, "Caveat"),
+		note("A transition edge or an unpaired speed sample is not diagnostic; compare stable visible and invisible phases at the same configured speed.", SOURCE.Phantom, "wiki-documented", true, "Caveat"),
 	})),
 	profile("Ravager", {"EMFLevel5", "GhostWriting", "SpiritBox"}, "wiki-recent-stub", perks({
 		note("A vortex pulls nearby objects into a tornado during a hunt.", SOURCE.Ravager, "wiki-recent-stub", false, "Trait", "The guide reports roughly a one-in-three activation chance."),
