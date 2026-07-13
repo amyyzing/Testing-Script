@@ -1,6 +1,6 @@
 # Testing Script
 
-A modular Demonology evidence and behavior assistant written in Luau. The original single-file script is split into independently loaded UI, presentation, catalog, and runtime modules.
+A modular Demonology evidence and behavior assistant written in Luau. The original single-file script is split into independently loaded UI, control, automation, and per-ghost observation modules.
 
 ## Run
 
@@ -19,9 +19,16 @@ logic.luau                 Remote bootstrap and module loading lifecycle
 gui/load-screen.luau       Loading progress and failure UI
 gui/aesthetic.luau         Theme, reusable copy, and GUI construction
 gui/gui-logic.luau         Buttons, dropdown, drag/resize, hotkey, and rendering
-logic/logic.luau           Evidence scans, trackers, feature actions, and cleanup
+ghost/init.luau             Remote-safe manifest and ghost package assembly
+ghost/engine.luau           Evidence normalization, catalog filtering, and ranking
+ghost/runtime.luau          Ordered observer lifecycle and event dispatch
+ghost/collector.luau        Raw observation feeds, hunt buffers, and lifecycle state
+ghost/tracker.luau          Detection, rule-out, confidence, TTL, and persistence state
+ghost/session.luau          Candidates, confidence ties, evidence guesses, and final choice
+ghost/<Name>.luau           One ghost profile and its observation policy
+ghost/tests/*.spec.luau     Package, observer, lifecycle, and policy regressions
+logic/logic.luau            GUI feature controls, Roblox world adapters, actions, and cleanup
 logic/round-automation.luau Hunt-safe Do-Round sequencing, door placement, and item recovery
-logic/ghost-module.luau    Ghost catalog, confidence notes, filtering, and ranking
 ```
 
 `Do Round` prepares the seven configured room items, retains Salt Canister and
@@ -30,11 +37,13 @@ questions from the favourite room, escapes hunts, and maintains displaced or
 stably-disabled equipment. Its visible timer ends on a stable Pretty Sure/Certain
 identification or selects the highest-confidence remaining guess after three minutes.
 
-Modules are plain remote chunks: each returns a table or factory, and the bootstrap injects dependencies explicitly. The ghost catalog never deletes its source records; candidate lists are derived so a reset or evidence-mode change can restore ruled-out ghosts.
+Modules are plain remote chunks: each returns a table or factory, and the bootstrap injects dependencies explicitly. `ghost/init.luau` loads the singular ghost package in manifest order, builds the catalog, and exposes the observer runtime without relying on repository-relative `require` calls in the executor.
 
 ## Ghost data
 
-The catalog contains the current 25-ghost roster, normalized evidence names, perk notes grouped into `Pretty Sure`, `Maybe`, and `Idk`, and source/status metadata for disputed, stub, or recently added pages. Filtering uses stable internal keys for compatibility with the runtime (`GhostWriting` and `Handprints`) while the interface displays the current names (`Inscription` and `Prints`).
+The `ghost` directory contains one source definition for each of the current 25 ghosts. Every definition owns its evidence, confidence metadata, aliases, perk notes grouped into `Pretty Sure`, `Maybe`, and `Idk`, and named observation keys. Ghosts with observable automatic patterns also own a `CreateObserver` policy for their positive findings, reversible clues, and rule-outs; Nightmare, Shadow, and Vesper currently remain metadata-only.
+
+Roblox-facing adapters send raw facts into `ghost/collector.luau`. The collector owns hunt and transparency sample buffers, `ghost/runtime.luau` dispatches those observations, and each named ghost module owns its pattern interpretation, positive observations, reversible clues, and rule-outs. `ghost/session.luau` is the single source of truth for remaining candidates, confidence ranking, Mimicry/Skinwalker handling, and final selection. `ghost/engine.luau` derives candidates instead of deleting source profiles, so resets and evidence-mode changes can restore compatible ghosts. Filtering retains the stable internal keys `GhostWriting` and `Handprints`, while the interface displays the current names `Inscription` and `Prints`.
 
 Primary references:
 
