@@ -837,11 +837,7 @@ local function beginAutomationMutation(duration)
 	)
 end
 
-local function roundDoorClosedState(doorModel, doorContainer)
-	local modelState = doorModel and doorModel:GetAttribute("DoorClosed")
-	if typeof(modelState) == "boolean" then
-		return modelState
-	end
+local function collectRoundDoorStateCandidates(doorModel, doorContainer)
 	local candidates = {}
 	local seen = setmetatable({}, {__mode = "k"})
 	local function add(object)
@@ -867,8 +863,20 @@ local function roundDoorClosedState(doorModel, doorContainer)
 			end
 		end
 	end
+	return candidates
+end
+
+local function roundDoorClosedState(doorModel, doorContainer, stateCandidates)
+	local modelState = doorModel and doorModel:GetAttribute("DoorClosed")
+	if typeof(modelState) == "boolean" then
+		return modelState
+	end
+	local candidates = stateCandidates
+		and stateCandidates.DoorContainer == doorContainer
+		and stateCandidates.Objects
+		or collectRoundDoorStateCandidates(doorModel, doorContainer)
 	for _, object in ipairs(candidates) do
-		if object:GetAttribute("DoorClosed") == false then
+		if object.Parent and object:GetAttribute("DoorClosed") == false then
 			return false
 		end
 	end
@@ -882,12 +890,21 @@ local function waitForStableClosedDoor(doorModel, generation)
 	local deadline = os.clock() + 3
 	local stablePasses = 0
 	local previous
+	local doorContainer
+	local stateCandidates
 	repeat
 		if not roundActionIsSafe(generation) then
 			return nil, nil, roundUnsafeReason(generation)
 		end
-		local doorContainer = doorModel:FindFirstChild("Door") or doorModel
-		if not roundDoorClosedState(doorModel, doorContainer) then
+		local currentDoorContainer = doorModel:FindFirstChild("Door") or doorModel
+		if currentDoorContainer ~= doorContainer then
+			doorContainer = currentDoorContainer
+			stateCandidates = {
+				DoorContainer = doorContainer,
+				Objects = collectRoundDoorStateCandidates(doorModel, doorContainer),
+			}
+		end
+		if not roundDoorClosedState(doorModel, doorContainer, stateCandidates) then
 			stablePasses = 0
 			previous = nil
 		else
@@ -930,11 +947,15 @@ local function prepareRoundDoorForPlacement(doorModel, generation)
 		return nil, nil, "door model disappeared"
 	end
 	local doorContainer = doorModel:FindFirstChild("Door") or doorModel
+	local stateCandidates = {
+		DoorContainer = doorContainer,
+		Objects = collectRoundDoorStateCandidates(doorModel, doorContainer),
+	}
 	local reference = roundDoorReference(doorContainer)
 	if not reference then
 		return nil, nil, "DoorModel.Door.DoorUnion was unavailable"
 	end
-	if not roundDoorClosedState(doorModel, doorContainer) then
+	if not roundDoorClosedState(doorModel, doorContainer, stateCandidates) then
 		local approached = false
 		local approaches = roundDoorApproaches(reference)
 		for _, approach in ipairs(approaches) do
@@ -975,24 +996,37 @@ local function prepareRoundDoorForPlacement(doorModel, generation)
 		-- The approach can take long enough for another actor to close the door.
 		-- Re-read immediately before toggling so a closed door is never reopened.
 		doorContainer = doorModel:FindFirstChild("Door") or doorModel
-		if not roundDoorClosedState(doorModel, doorContainer) then
+		stateCandidates = {
+			DoorContainer = doorContainer,
+			Objects = collectRoundDoorStateCandidates(doorModel, doorContainer),
+		}
+		if not roundDoorClosedState(doorModel, doorContainer, stateCandidates) then
 			local fired = pcall(remote.FireServer, remote, doorContainer)
 			if not fired then
 				return nil, nil, "door close interaction failed"
 			end
 		end
-		local closeDeadline = os.clock() + 2
+		-- A single exact-instance toggle is intentional: retrying before the
+		-- replicated DoorClosed value arrives can reopen this physical door.
+		local closeDeadline = os.clock() + 4
 		repeat
 			if not roundActionIsSafe(generation) then
 				return nil, nil, roundUnsafeReason(generation)
 			end
-			doorContainer = doorModel:FindFirstChild("Door") or doorModel
-			if roundDoorClosedState(doorModel, doorContainer) then
+			local currentDoorContainer = doorModel:FindFirstChild("Door") or doorModel
+			if currentDoorContainer ~= doorContainer then
+				doorContainer = currentDoorContainer
+				stateCandidates = {
+					DoorContainer = doorContainer,
+					Objects = collectRoundDoorStateCandidates(doorModel, doorContainer),
+				}
+			end
+			if roundDoorClosedState(doorModel, doorContainer, stateCandidates) then
 				break
 			end
 			doRoundWait(generation, 0.05)
 		until os.clock() >= closeDeadline
-		if not roundDoorClosedState(doorModel, doorContainer) then
+		if not roundDoorClosedState(doorModel, doorContainer, stateCandidates) then
 			return nil, nil, "door did not close"
 		end
 	end

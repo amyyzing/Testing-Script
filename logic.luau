@@ -222,7 +222,7 @@ else
 	session.TeleportConnectionFailure = tostring(teleportConnection)
 end
 
-local LOBBY_MACRO_DELAY = 0.5
+local LOBBY_MACRO_DELAY = 0.75
 
 local function runLobbyStartMacro()
 	local events = Services.ReplicatedStorage:FindFirstChild("Events")

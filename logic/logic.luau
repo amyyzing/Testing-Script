@@ -296,6 +296,9 @@ local perkTrackerState = {
 	syncJournal = function() end,
 	orbObserved = false,
 	skinwalkerOrbQualified = false,
+	deepEvidenceWorkspaceBound = false,
+	deepEvidenceInitialScanDone = false,
+	observeDeepEvidenceObject = function() end,
 	lidarVisibleObserved = false,
 	crossItemsFolder = nil,
 	crossTrackedModels = setmetatable({}, {__mode = "k"}),
@@ -2136,6 +2139,7 @@ perkTrackerState.resetEvidenceState = function()
 	spiritBoxTentative = false
 	perkTrackerState.orbObserved = false
 	perkTrackerState.skinwalkerOrbQualified = false
+	perkTrackerState.deepEvidenceInitialScanDone = false
 	perkTrackerState.lidarVisibleObserved = false
 	perkTrackerState.dullahanSpeedSamples = {}
 	perkTrackerState.dullahanIncreaseEvents = {}
@@ -2959,6 +2963,7 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 	perkTrackerState.holyOilBurningSince =
 		setmetatable({}, {__mode = "k"})
 	perkTrackerState.orbObserved = false
+	perkTrackerState.deepEvidenceInitialScanDone = false
 	if not preserveFindings then
 		perkTrackerState.skinwalkerOrbQualified = false
 	end
@@ -9153,34 +9158,57 @@ local function escapeCurrentHunt()
 	end
 end
 local function scanDeepEvidence()
-	local needPrint = not evidenceFound.Print
-	local needOrb = not perkTrackerState.orbObserved
-
-	if needPrint or needOrb then
-		for _, object in ipairs(workspace:GetDescendants()) do
-			if needPrint
-				and object:IsA("BasePart")
-				and (
-					object.Name == "Handprint1"
-					or object.Name == "Handprint2"
-					or object.Name == "Footprint"
-					or object.Name == "Footprint1"
-				) then
-				local saltPiles =
-					workspace:FindFirstChild("SaltPiles")
-				if not saltPiles
-					or not object:IsDescendantOf(saltPiles) then
-					evidenceFound.Print = true
-					needPrint = false
-				end
-			elseif needOrb
-				and object:IsA("BasePart")
-				and object.Name == "GhostOrb" then
-				perkTrackerState.orbObserved = true
-				needOrb = false
+	if not perkTrackerState.deepEvidenceWorkspaceBound then
+		perkTrackerState.deepEvidenceWorkspaceBound = true
+		perkTrackerState.observeDeepEvidenceObject = function(object)
+			if not runtimeIsActive()
+				or not object
+				or not object.Parent
+				or not object:IsA("BasePart") then
+				return
 			end
+			local objectName = object.Name
+			if not evidenceFound.Print
+				and (
+					objectName == "Handprint1"
+					or objectName == "Handprint2"
+					or objectName == "Footprint"
+					or objectName == "Footprint1"
+				) then
+				local saltPiles = workspace:FindFirstChild("SaltPiles")
+				if not saltPiles or not object:IsDescendantOf(saltPiles) then
+					evidenceFound.Print = true
+				end
+			elseif not perkTrackerState.orbObserved
+				and objectName == "GhostOrb" then
+				perkTrackerState.orbObserved = true
+			end
+		end
+		connect(workspace.DescendantAdded, function(object)
+			if not object:IsA("BasePart") then
+				return
+			end
+			local objectName = object.Name
+			if objectName ~= "GhostOrb"
+				and objectName ~= "Handprint1"
+				and objectName ~= "Handprint2"
+				and objectName ~= "Footprint"
+				and objectName ~= "Footprint1" then
+				return
+			end
+			-- Some replicated effects receive their final parent one scheduler step
+			-- after DescendantAdded. Observe only matching names, once settled.
+			task.defer(function()
+				perkTrackerState.observeDeepEvidenceObject(object)
+			end)
+		end)
+	end
 
-			if not needPrint and not needOrb then
+	if not perkTrackerState.deepEvidenceInitialScanDone then
+		perkTrackerState.deepEvidenceInitialScanDone = true
+		for _, object in ipairs(workspace:GetDescendants()) do
+			perkTrackerState.observeDeepEvidenceObject(object)
+			if evidenceFound.Print and perkTrackerState.orbObserved then
 				break
 			end
 		end
