@@ -58,6 +58,7 @@ local ranked = GhostModule.RankDetections({
 expect(ranked[1].Ghost == "Siren", "higher confidence should rank first")
 expect(ranked[1].TierName == "Pretty Sure", "95 confidence should be Pretty Sure")
 
+local uniqueChooserCalled = false
 local highestDetection = GhostModule.SelectHighestConfidenceGuess({
 	Candidates = {"Siren", "Keres", "Wisp"},
 	Detections = {
@@ -66,10 +67,29 @@ local highestDetection = GhostModule.SelectHighestConfidenceGuess({
 		Wisp = {Score = 60},
 	},
 	RandomIndex = function()
-		return 1
+		uniqueChooserCalled = true
+		error("a unique maximum must not use randomness")
+	end,
+	RandomUnit = function()
+		uniqueChooserCalled = true
+		error("a unique maximum must not use weighted randomness")
 	end,
 })
 expect(highestDetection == "Siren", "highest candidate detection should be selected")
+expect(not uniqueChooserCalled, "a unique maximum should be selected deterministically")
+
+local excludedHighDetection = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Leviathan", "Keres"},
+	Detections = {
+		Skinwalker = 99,
+		Leviathan = 60,
+		Keres = 35,
+	},
+})
+expect(
+	excludedHighDetection == "Leviathan",
+	"a high-confidence ghost excluded from Candidates must not be selected"
+)
 
 local compositeCurrentGuess = GhostModule.SelectHighestConfidenceGuess({
 	Candidates = {"Leviathan", "Skinwalker", "Wisp"},
@@ -125,6 +145,78 @@ local deduplicated = GhostModule.SelectHighestConfidenceGuess({
 })
 expect(deduplicated == "Keres", "keyed candidate names should be supported deterministically")
 
+local function weightedGuess(candidates, unit, halfWeight)
+	local detections = {}
+	for _, name in ipairs(candidates) do
+		detections[name] = 60
+	end
+	return GhostModule.SelectHighestConfidenceGuess({
+		Candidates = candidates,
+		Detections = detections,
+		SkinwalkerHalfWeight = halfWeight,
+		RandomUnit = function()
+			return unit
+		end,
+	})
+end
+
+expect(
+	weightedGuess({"Skinwalker", "Leviathan"}, 0.249999, true)
+		== "Skinwalker",
+	"Skinwalker should own the first quarter of a two-way reduced-weight tie"
+)
+expect(
+	weightedGuess({"Skinwalker", "Leviathan"}, 0.25, true)
+		== "Leviathan",
+	"the two-way reduced-weight boundary should pass to the non-Skinwalker ghost"
+)
+
+expect(
+	weightedGuess({"Skinwalker", "Ravager", "Leviathan"}, 1 / 6 - 0.000001, true)
+		== "Skinwalker",
+	"Skinwalker should own one sixth of a three-way reduced-weight tie"
+)
+expect(
+	weightedGuess({"Skinwalker", "Ravager", "Leviathan"}, 1 / 6, true)
+		== "Ravager",
+	"the Skinwalker three-way boundary should pass to the first redistributed ghost"
+)
+expect(
+	weightedGuess({"Skinwalker", "Ravager", "Leviathan"}, 7 / 12 - 0.000001, true)
+		== "Ravager",
+	"the first non-Skinwalker should retain its redistributed interval"
+)
+expect(
+	weightedGuess({"Skinwalker", "Ravager", "Leviathan"}, 7 / 12, true)
+		== "Leviathan",
+	"the second three-way boundary should pass to the final ghost"
+)
+
+expect(
+	weightedGuess({"Skinwalker", "Leviathan"}, 0.49, false)
+		== "Skinwalker",
+	"when Orb evidence disables the penalty, Skinwalker should have an equal share"
+)
+expect(
+	weightedGuess({"Skinwalker", "Leviathan"}, 0.5, false)
+		== "Leviathan",
+	"equal weighting should split a two-way tie at one half"
+)
+
+local uniformCompatibility = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Skinwalker", "Leviathan"},
+	Detections = {Skinwalker = 60, Leviathan = 60},
+	SkinwalkerHalfWeight = false,
+	RandomIndex = function(count)
+		expect(count == 2, "uniform RandomIndex should still receive the tied count")
+		return 2
+	end,
+})
+expect(
+	uniformCompatibility == "Leviathan",
+	"RandomIndex should remain compatible for uniformly weighted ties"
+)
+
 expect(GhostModule.SelectHighestConfidenceGuess() == nil, "missing options should return nil")
 expect(
 	GhostModule.SelectHighestConfidenceGuess({Candidates = {}}) == nil,
@@ -136,7 +228,7 @@ expect(
 )
 expect(
 	GhostModule.SelectHighestConfidenceGuess({
-		Candidates = {"Siren"},
+		Candidates = {"Siren", "Keres"},
 		RandomIndex = function()
 			return 0
 		end,

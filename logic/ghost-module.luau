@@ -203,12 +203,12 @@ end
 
 local Profiles = {
 	profile("Aswang", {"EMFLevel5", "GhostWriting", "Wither"}, "wiki-documented", perks({
-		note("During one hunt, the same touched SaltLine becomes DisturbedSaltLine, WalkSpeed temporarily falls below its reliable pre-touch baseline, then returns to that baseline.", SOURCE.Aswang, "wiki-documented", false, "Trait", "Require the contact, disturbance, repeated slowdown samples, and later recovery from the same hunt."),
+		note("During one hunt, direct salt contact is followed by repeated lower WalkSpeed samples and then recovery toward the pre-contact speed.", SOURCE.Aswang, "wiki-documented", false, "Trait", "The contact and temporary same-hunt slowdown are the core pattern; disturbance corroborates the contact but is not required for the speed comparison."),
 	}, {
-		note("A hunting ghost directly disturbed salt and showed a repeated speed dip, but recovery has not been sampled yet.", SOURCE.Aswang, "wiki-documented", false, "Trait", "Keep sampling through the temporary slowdown window before upgrading confidence."),
+		note("A hunting ghost touched salt and showed a repeated speed dip, but recovery has not been sampled yet.", SOURCE.Aswang, "wiki-documented", false, "Trait", "Keep sampling through the temporary slowdown window before upgrading confidence."),
 		note("Across controlled hunt-state comparisons, WalkSpeed rises by about 20% after each unique hunter kill.", SOURCE.Aswang, "wiki-documented", false, "Trait", "Compare stable speeds before and after the kill rather than relying on one estimate."),
 	}, {
-		note("Disturbed salt by itself, a non-hunt speed change, or an unreliable pre-touch baseline is not diagnostic.", SOURCE.Aswang, "wiki-documented", false, "Caveat"),
+		note("Disturbed salt by itself or a slowdown after contact outside a hunt is not diagnostic for Aswang.", SOURCE.Aswang, "wiki-documented", false, "Caveat"),
 	})),
 	profile("Banshee", {"FreezingTemperatures", "GhostOrb", "Handprints"}, "wiki-documented", perks({
 		note("A distinct, subtitle-supported wail occurred at the start of a hunt after Skinwalker was ruled out.", SOURCE.Banshee, "wiki-documented", true, "Ability", "Skinwalker may mimic the wail."),
@@ -283,11 +283,11 @@ local Profiles = {
 		note("One fast hunt or one manifestation is a risky relative-speed/activity tell.", SOURCE.Oni, "wiki-documented", false, "Caveat"),
 	})),
 	profile("Phantom", {"EMFLevel5", "GhostOrb", "Handprints"}, "wiki-documented", perks({
-		note("At 100% configured speed its stable visible/invisible hunt speeds are 11/13.5 on Small maps, 11.55/14.175 on Medium maps, and 12.1/14.85 on Large maps; both modes scale together at other speed settings.", SOURCE.Phantom, "wiki-documented", true, "Trait", "Retain Skinwalker as an equal possibility in Mimicry mode."),
+		note("Within the same hunt, settled Transparency=1 WalkSpeed is about 13.5/11 times the settled Transparency=0 WalkSpeed.", SOURCE.Phantom, "wiki-documented", true, "Trait", "Transparency is binary: 0 is visible and 1 is invisible. Retain Skinwalker as an equal possibility in Mimicry mode."),
 	}, {
-		note("A stable paired phase shows the ghost moving about 13.5/11 times faster while invisible than while visible.", SOURCE.Phantom, "wiki-documented", true, "Trait"),
+		note("One settled visible/invisible speed pair shows the invisible phase clearly faster than the visible phase.", SOURCE.Phantom, "wiki-documented", true, "Trait"),
 	}, {
-		note("A transition edge or an unpaired speed sample is not diagnostic; compare stable visible and invisible phases at the same configured speed.", SOURCE.Phantom, "wiki-documented", true, "Caveat"),
+		note("Ignore the first replication sample after Transparency changes; compare settled samples from both binary phases.", SOURCE.Phantom, "wiki-documented", true, "Caveat"),
 	})),
 	profile("Ravager", {"EMFLevel5", "GhostWriting", "SpiritBox"}, "wiki-recent-stub", perks({
 		note("A vortex pulls nearby objects into a tornado during a hunt.", SOURCE.Ravager, "wiki-recent-stub", false, "Trait", "The guide reports roughly a one-in-three activation chance."),
@@ -379,7 +379,7 @@ local Profiles = {
 		note("Hunts only seemed to start in the favorite room; that room can change on higher difficulty.", SOURCE.Wisp, "wiki-documented", false, "Trait"),
 	}), {"The Wisp", "Will-o-the-Wisp", "Will o the Wisp"}),
 	profile("Wraith", {"EMFLevel5", "LaserProjector", "SpiritBox"}, "wiki-documented", perks({
-		note("It is directly observed crossing a salt line without disturbing it.", SOURCE.Wraith, "wiki-documented", false, "Weakness"),
+		note("It is directly observed touching or crossing a salt line without disturbing it, whether hunting or not.", SOURCE.Wraith, "wiki-documented", false, "Weakness"),
 		note("Measured passive energy drain is roughly 0.2-0.4% per second faster than normal.", SOURCE.Wraith, "wiki-documented", false, "Trait"),
 	}, {
 		note("The party's energy falls unusually quickly across a sustained sample.", SOURCE.Wraith, "wiki-documented", false, "Trait"),
@@ -727,6 +727,57 @@ local function selectHighestConfidenceGuess(options)
 			table.insert(tied, name)
 		end
 	end
+	if #tied == 1 then
+		return tied[1]
+	end
+
+	local hasSkinwalker = false
+	for _, name in ipairs(tied) do
+		if name == "Skinwalker" then
+			hasSkinwalker = true
+			break
+		end
+	end
+	local useSkinwalkerWeights = options.SkinwalkerHalfWeight == true
+		and hasSkinwalker
+		and #tied > 1
+
+	local function getRandomUnit()
+		if options.RandomUnit == nil then
+			return math.random()
+		end
+		if type(options.RandomUnit) ~= "function" then
+			return nil
+		end
+		local ok, value = pcall(options.RandomUnit)
+		if not ok or type(value) ~= "number" or value ~= value
+			or value < 0 or value >= 1 then
+			return nil
+		end
+		return value
+	end
+
+	if useSkinwalkerWeights then
+		-- Halving Skinwalker's original 1/N share and distributing the removed
+		-- half equally keeps the total weight at N. For three tied ghosts this
+		-- produces 1/6 for Skinwalker and 5/12 for each other ghost.
+		local unit = getRandomUnit()
+		if unit == nil then
+			return nil
+		end
+		local totalWeight = #tied
+		local otherWeight = 1 + 0.5 / (#tied - 1)
+		local target = unit * totalWeight
+		local cumulative = 0
+		for _, name in ipairs(tied) do
+			cumulative = cumulative
+				+ (name == "Skinwalker" and 0.5 or otherWeight)
+			if target < cumulative then
+				return name
+			end
+		end
+		return tied[#tied]
+	end
 
 	local index
 	if options.RandomIndex ~= nil then
@@ -739,6 +790,12 @@ local function selectHighestConfidenceGuess(options)
 			return nil
 		end
 		index = selected
+	elseif options.RandomUnit ~= nil then
+		local unit = getRandomUnit()
+		if unit == nil then
+			return nil
+		end
+		index = math.floor(unit * #tied) + 1
 	else
 		index = math.random(#tied)
 	end
