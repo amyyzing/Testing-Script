@@ -623,6 +623,15 @@ local function getConfirmedEvidence()
 		Wither = evidenceFound.Wither,
 	}
 end
+perkTrackerState.getConfirmedEvidence = function()
+	local snapshot = {}
+	for evidenceName, found in pairs(getConfirmedEvidence()) do
+		if found then
+			snapshot[evidenceName] = true
+		end
+	end
+	return snapshot
+end
 local function getObservedEvidence()
 	local observed = getConfirmedEvidence()
 	if spiritBoxTentative then

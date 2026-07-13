@@ -190,6 +190,28 @@ local highestDetection = GhostModule.SelectHighestConfidenceGuess({
 })
 expect(highestDetection == "Siren", "highest candidate detection should be selected")
 
+local certainEvidenceBeatsPerkConfidence = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Keres", "Siren", "Ghoul", "Nightmare"},
+	Detections = {
+		Keres = 99,
+		Siren = 99,
+		Ghoul = 0,
+		Nightmare = 0,
+	},
+	ConfirmedEvidence = {
+		SpiritBox = true,
+		GhostOrb = true,
+	},
+	RandomIndex = function(count)
+		expect(count == 2, "Spirit Box plus Orb should leave only Ghoul and Nightmare")
+		return 1
+	end,
+})
+expect(
+	certainEvidenceBeatsPerkConfidence == "Ghoul",
+	"confirmed evidence must outrank incompatible perk detections"
+)
+
 local compositeCurrentGuess = GhostModule.SelectHighestConfidenceGuess({
 	Candidates = {"Leviathan", "Skinwalker", "Wisp"},
 	Detections = {

@@ -2985,6 +2985,13 @@ local function chooseRoundTimeoutFallback()
 	local score = perkTrackerState.currentGhostGuessScore or 0
 	local timeoutCandidates = perkTrackerState.getRemainingCandidates(false)
 	if #timeoutCandidates == 0 then
+		-- Confirmed evidence is stronger than behavioral/perk rule-outs. If
+		-- those signals conflict, relax only the rule-outs while retaining the
+		-- evidence-compatible pool. This prevents a timed fallback from
+		-- reintroducing ghosts that cannot have the observed evidence.
+		timeoutCandidates = perkTrackerState.getRemainingCandidates(true)
+	end
+	if #timeoutCandidates == 0 then
 		for _, profile in ipairs(GHOST_PROFILES) do
 			if not perkTrackerState.isGhostRuledOut(profile.Name) then
 				table.insert(timeoutCandidates, profile.Name)
@@ -3016,6 +3023,9 @@ local function chooseRoundTimeoutFallback()
 		Detections = perkDetections,
 		CurrentGuess = guess,
 		CurrentScore = score,
+		ConfirmedEvidence = perkTrackerState.evidenceMode ~= "Mimicry"
+			and perkTrackerState.getConfirmedEvidence()
+			or nil,
 		OrbObserved = perkTrackerState.orbObserved == true,
 		RandomUnit = function()
 			return math.random()

@@ -747,6 +747,38 @@ local function selectHighestConfidenceGuess(options)
 		return nil
 	end
 
+	-- A confirmed evidence observation is harder evidence than a behavioral
+	-- confidence score. Restrict the timeout pool to profiles with the fewest
+	-- conflicts before comparing perk detections. Normally this means exact
+	-- compatibility; the best-fit fallback only matters if the observations
+	-- themselves are contradictory.
+	local confirmedEvidence = collectEvidence(options.ConfirmedEvidence)
+	if next(confirmedEvidence) ~= nil then
+		local fewestConflicts = math.huge
+		local evidenceCandidates = {}
+		for _, name in ipairs(candidates) do
+			local conflicts = 0
+			for evidenceKey in pairs(confirmedEvidence) do
+				if not supportsEvidence(name, evidenceKey, {
+					IncludeFalseEvidence = true,
+				}) then
+					conflicts = conflicts + 1
+				end
+			end
+			if conflicts < fewestConflicts then
+				fewestConflicts = conflicts
+				evidenceCandidates = {name}
+			elseif conflicts == fewestConflicts then
+				table.insert(evidenceCandidates, name)
+			end
+		end
+		candidates = evidenceCandidates
+		allowed = {}
+		for _, name in ipairs(candidates) do
+			allowed[name] = true
+		end
+	end
+
 	local scores = {}
 	local detections = type(options.Detections) == "table" and options.Detections or {}
 	for _, name in ipairs(candidates) do
