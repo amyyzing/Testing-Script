@@ -66,6 +66,7 @@ Aesthetic.Copy = {
 			["Hunt escape"] = "Hunt escape",
 			["Maintaining room items"] = "Maintaining items",
 			["Returning to Base Camp"] = "Returning to camp",
+			["Returning to lobby"] = "Returning to lobby",
 		},
 	},
 	PerkLogs = {

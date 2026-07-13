@@ -1877,6 +1877,22 @@ local setDoRoundEnabled = (function()
 			end,
 		}
 	end
+	local function roundBaseCampRoom()
+		local rooms = findRoomsFolder()
+		if not rooms then
+			return nil
+		end
+		return rooms:FindFirstChild("Base Camp")
+			or rooms:FindFirstChild("BaseCamp")
+			or findFavouriteRoom(rooms, "Base Camp")
+	end
+	local function playerIsInsideRoundBaseCamp()
+		local room = roundBaseCampRoom()
+		local character = player.Character
+		return room ~= nil
+			and character ~= nil
+			and instanceIsInsideRoom(character, room)
+	end
 	local function returnRoundToBase(generation)
 		while doRoundOperationActive(generation) do
 			setDoRoundStatus("Returning to Base Camp")
@@ -1884,6 +1900,9 @@ local setDoRoundEnabled = (function()
 				roundTeleportOptions(generation)
 			)
 			if teleported then
+				Services.RunService.Heartbeat:Wait()
+			end
+			if teleported and playerIsInsideRoundBaseCamp() then
 				return true
 			end
 			task.wait(0.15)
@@ -2818,6 +2837,39 @@ local function waitForRoundHuntEnd(generation)
 	return escaped
 end
 
+local function requestRoundReturnToLobby(generation)
+	local events = Services.ReplicatedStorage:FindFirstChild("Events")
+	local remote = events and events:FindFirstChild("RequestReturnToLobby")
+	if not remote or not remote:IsA("RemoteEvent") then
+		return false, "RequestReturnToLobby RemoteEvent was not found"
+	end
+	while doRoundOperationActive(generation) do
+		if roundIsHunting() then
+			waitForRoundHuntEnd(generation)
+		end
+		if not returnRoundToBase(generation) then
+			return false, "Do-Round cancelled before the Base Camp return"
+		end
+		if not playerIsInsideRoundBaseCamp() then
+			doRoundWait(generation, 0.1)
+			continue
+		end
+		setDoRoundStatus("Returning to lobby")
+		doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
+		-- A hunt transition or displacement during the safety delay invalidates
+		-- this attempt. Wait it out and re-establish Base Camp before retrying.
+		if roundIsHunting() or not playerIsInsideRoundBaseCamp() then
+			continue
+		end
+		local fired = pcall(remote.FireServer, remote)
+		if fired then
+			return true
+		end
+		return false, "RequestReturnToLobby failed to fire"
+	end
+	return false, "Do-Round cancelled before returning to the lobby"
+end
+
 local function runDoRound(generation)
 	local success, failure = xpcall(function()
 		setDoRoundStatus("Checking ghost room")
@@ -2965,8 +3017,6 @@ local function runDoRound(generation)
 		waitForRoundHuntEnd(generation)
 		teleportToFavouriteRoom(roundTeleportOptions(generation))
 		doRoundState.questionsActive = true
-		local qualifiedName
-		local qualifiedSince
 		local timeoutFallback
 		while doRoundOperationActive(generation) do
 			ghost = getGhostModel()
@@ -3002,8 +3052,6 @@ local function runDoRound(generation)
 					)
 				end
 				doRoundState.questionsActive = true
-				qualifiedName = nil
-				qualifiedSince = nil
 				continue
 			end
 
@@ -3013,21 +3061,16 @@ local function runDoRound(generation)
 			local singleGuess = guess
 				and not string.find(guess, "/", 1, true)
 			if singleGuess and (certain or score >= 80) then
-				if qualifiedName ~= guess then
-					qualifiedName = guess
-					qualifiedSince = os.clock()
-				elseif os.clock() - qualifiedSince >= 1.5 then
-					if selectRoundJournalGhost(guess, generation) then
-						if returnRoundToBase(generation) then
-							setEnabled(false, "Identified " .. guess)
-						end
-						return
+				if selectRoundJournalGhost(guess, generation) then
+					local returned, returnReason =
+						requestRoundReturnToLobby(generation)
+					if not returned then
+						error(returnReason or "Lobby return failed", 0)
 					end
-					setDoRoundStatus("Selecting ghost guess")
+					setEnabled(false, "Identified " .. guess)
+					return
 				end
-			else
-				qualifiedName = nil
-				qualifiedSince = nil
+				setDoRoundStatus("Selecting ghost guess")
 			end
 
 			if doRoundState.startedAt
