@@ -125,22 +125,7 @@ local ok, failure = xpcall(function()
 	assertCurrent()
 
 	loader:SetStage("Loading ghost catalog…", 2, 9)
-	local createGhostPackage = loadRemoteModule("ghost/init.luau")
-	local GhostPackage = createGhostPackage({
-		LoadModule = loadRemoteModule,
-		OnProgress = function(ghostName, index, total)
-			loader:SetStage(
-				("Loading ghost observations: %s (%d/%d)"):format(
-					tostring(ghostName),
-					index,
-					total
-				),
-				2,
-				9
-			)
-		end,
-	})
-	local GhostModule = GhostPackage.Catalog
+	local GhostModule = loadRemoteModule("logic/ghost-module.luau")
 	assertCurrent()
 
 	loader:SetStage("Loading round automation…", 3, 9)
@@ -184,7 +169,6 @@ local ok, failure = xpcall(function()
 		Environment = environment,
 		Generation = generation,
 		GhostModule = GhostModule,
-		GhostPackage = GhostPackage,
 		RoundAutomation = createRoundAutomation,
 		View = view,
 		Presenter = presenter,
