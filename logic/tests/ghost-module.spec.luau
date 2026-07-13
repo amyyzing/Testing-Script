@@ -79,15 +79,38 @@ local compositeCurrentGuess = GhostModule.SelectHighestConfidenceGuess({
 	},
 	CurrentGuess = "Leviathan / Skinwalker / Demon",
 	CurrentScore = 95,
-	RandomIndex = function(count)
-		expect(count == 2, "only allowed composite names should tie")
-		return 2
+	RandomUnit = function()
+		-- With no Orb, Skinwalker owns the final quarter of a two-way tie.
+		return 0.9
 	end,
 })
 expect(
 	compositeCurrentGuess == "Skinwalker",
 	"current composite score should apply to each allowed parsed name"
 )
+
+local skinwalkerDeweighted = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Ravager", "Leviathan", "Skinwalker"},
+	Detections = {Ravager = 60, Leviathan = 60, Skinwalker = 60},
+	RandomUnit = function()
+		return 0.85
+	end,
+})
+expect(
+	skinwalkerDeweighted == "Skinwalker",
+	"without Orb, Skinwalker should retain half of its equal-share tie weight"
+)
+
+local skinwalkerWithOrb = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Ravager", "Leviathan", "Skinwalker"},
+	Detections = {Ravager = 60, Leviathan = 60, Skinwalker = 60},
+	OrbObserved = true,
+	RandomIndex = function(count)
+		expect(count == 3, "Orb should restore equal tie weighting")
+		return 3
+	end,
+})
+expect(skinwalkerWithOrb == "Skinwalker", "Orb should remove the Skinwalker penalty")
 
 local detectionBeatsCurrent = GhostModule.SelectHighestConfidenceGuess({
 	Candidates = {"Siren", "Keres"},

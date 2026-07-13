@@ -17,6 +17,50 @@ local Services = {
 }
 local player = Services.Players.LocalPlayer
 local SUPERSEDED = "__DEMONOLOGY_SUPERSEDED__"
+local moduleCache = {}
+local sourceCache = {}
+local GHOST_PACKAGE_PATHS = {
+	"ghost/init.luau",
+	"ghost/events.luau",
+	"ghost/evidence-ledger.luau",
+	"ghost/resolver.luau",
+	"ghost/coordinator.luau",
+	"ghost/catalog.luau",
+	"ghost/Aswang.luau",
+	"ghost/Banshee.luau",
+	"ghost/Demon.luau",
+	"ghost/Dullahan.luau",
+	"ghost/Dybbuk.luau",
+	"ghost/Entity.luau",
+	"ghost/Ghoul.luau",
+	"ghost/Keres.luau",
+	"ghost/Leviathan.luau",
+	"ghost/Nightmare.luau",
+	"ghost/Oni.luau",
+	"ghost/Phantom.luau",
+	"ghost/Ravager.luau",
+	"ghost/Revenant.luau",
+	"ghost/Shadow.luau",
+	"ghost/Siren.luau",
+	"ghost/Skinwalker.luau",
+	"ghost/Specter.luau",
+	"ghost/Spirit.luau",
+	"ghost/Umbra.luau",
+	"ghost/Vesper.luau",
+	"ghost/Vex.luau",
+	"ghost/Wendigo.luau",
+	"ghost/Wisp.luau",
+	"ghost/Wraith.luau",
+	"ghost/trackers/active/hunt-state.luau",
+	"ghost/trackers/active/signal-bridge.luau",
+	"ghost/trackers/dormant/speed-pairs.luau",
+	"ghost/trackers/dormant/speed-probe.luau",
+	"ghost/trackers/dormant/observation-window.luau",
+	"ghost/trackers/discardable/static-ghost-facts.luau",
+	"ghost/trackers/discardable/qualified-one-shot.luau",
+	"ghost/analyzers/speed-pattern.luau",
+	"ghost/analyzers/speed-math.luau",
+}
 local generation = (tonumber(environment.DemonologyGeneration) or 0) + 1
 environment.DemonologyGeneration = generation
 
@@ -77,15 +121,35 @@ function session:Destroy(keepLoader)
 	end
 end
 
-local function loadRemoteModule(path)
+local function fetchRemoteSource(path)
+	if sourceCache[path] then
+		return sourceCache[path]
+	end
 	local url = BASE_URL .. path .. "?v=" .. RUN_VERSION
-	local fetched, source = pcall(game.HttpGet, game, url)
-	if not fetched then
-		error(("HTTP fetch failed for %s: %s"):format(path, tostring(source)), 0)
+	local lastFailure
+	for attempt = 1, 3 do
+		assertCurrent()
+		local fetched, source = pcall(game.HttpGet, game, url)
+		if fetched and type(source) == "string" and source ~= "" then
+			sourceCache[path] = source
+			return source
+		end
+		lastFailure = fetched
+			and "GitHub returned an empty module"
+			or tostring(source)
+		if attempt < 3 then
+			task.wait(0.12 * attempt)
+		end
 	end
-	if type(source) ~= "string" or source == "" then
-		error("GitHub returned an empty module for " .. path, 0)
+	error(("HTTP fetch failed for %s after three attempts: %s")
+		:format(path, tostring(lastFailure)), 0)
+end
+
+local function loadRemoteModule(path)
+	if moduleCache[path] then
+		return moduleCache[path]
 	end
+	local source = fetchRemoteSource(path)
 
 	local compiler = loadstring or load
 	if type(compiler) ~= "function" then
@@ -103,7 +167,44 @@ local function loadRemoteModule(path)
 	if type(module) ~= "table" and type(module) ~= "function" then
 		error(("%s must return a table or factory function"):format(path), 0)
 	end
+	moduleCache[path] = module
 	return module
+end
+
+local function prefetchRemoteSources(paths, onProgress)
+	local cursor = 0
+	local completed = 0
+	local firstFailure
+	local workerCount = math.min(6, #paths)
+	local activeWorkers = workerCount
+	for _ = 1, workerCount do
+		task.spawn(function()
+			while isCurrent() and not firstFailure do
+				cursor = cursor + 1
+				local path = paths[cursor]
+				if not path then
+					break
+				end
+				local ok, failure = pcall(fetchRemoteSource, path)
+				if not ok then
+					firstFailure = firstFailure or failure
+					break
+				end
+				completed = completed + 1
+				if type(onProgress) == "function" then
+					pcall(onProgress, completed, #paths, path)
+				end
+			end
+			activeWorkers = activeWorkers - 1
+		end)
+	end
+	while activeWorkers > 0 do
+		assertCurrent()
+		task.wait()
+	end
+	if firstFailure then
+		error(firstFailure, 0)
+	end
 end
 
 local ok, failure = xpcall(function()
@@ -126,6 +227,26 @@ local ok, failure = xpcall(function()
 
 	loader:SetStage("Loading ghost catalog…", 2, 9)
 	local GhostModule = loadRemoteModule("logic/ghost-module.luau")
+	assertCurrent()
+	prefetchRemoteSources(GHOST_PACKAGE_PATHS, function(completed, total, path)
+		local label = tostring(path):match("([^/]+)%.luau$") or tostring(path)
+		loader:SetStage(
+			("Loading ghost modules %d/%d: %s..."):format(completed, total, label),
+			2,
+			9
+		)
+	end)
+	assertCurrent()
+	loader:SetStage("Assembling ghost observer package...", 2, 9)
+	local createGhostPackage = loadRemoteModule("ghost/init.luau")
+	local GhostPackage = createGhostPackage({
+		LoadModule = function(path)
+			assertCurrent()
+			local label = tostring(path):match("([^/]+)%.luau$") or tostring(path)
+			loader:SetStage("Loading ghost observer " .. label .. "...", 2, 9)
+			return loadRemoteModule(path)
+		end,
+	})
 	assertCurrent()
 
 	loader:SetStage("Loading round automation…", 3, 9)
@@ -169,6 +290,7 @@ local ok, failure = xpcall(function()
 		Environment = environment,
 		Generation = generation,
 		GhostModule = GhostModule,
+		GhostPackage = GhostPackage,
 		RoundAutomation = createRoundAutomation,
 		View = view,
 		Presenter = presenter,

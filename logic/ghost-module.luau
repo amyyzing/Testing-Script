@@ -728,6 +728,45 @@ local function selectHighestConfidenceGuess(options)
 		end
 	end
 
+	local skinwalkerTied = false
+	if #tied > 1 and options.OrbObserved ~= true then
+		for _, name in ipairs(tied) do
+			if name == "Skinwalker" then
+				skinwalkerTied = true
+				break
+			end
+		end
+	end
+	if skinwalkerTied then
+		local redistributed = 0.5 / math.max(#tied - 1, 1)
+		local totalWeight = 0
+		local weights = {}
+		for index, name in ipairs(tied) do
+			local weight = name == "Skinwalker"
+				and 0.5
+				or 1 + redistributed
+			weights[index] = weight
+			totalWeight = totalWeight + weight
+		end
+		local unit
+		if type(options.RandomUnit) == "function" then
+			local ok, value = pcall(options.RandomUnit)
+			if ok and type(value) == "number" and value == value then
+				unit = math.clamp(value, 0, 0.999999999)
+			end
+		end
+		unit = unit or math.random()
+		local roll = unit * totalWeight
+		local cumulative = 0
+		for index, name in ipairs(tied) do
+			cumulative = cumulative + weights[index]
+			if roll < cumulative then
+				return name
+			end
+		end
+		return tied[#tied]
+	end
+
 	local index
 	if options.RandomIndex ~= nil then
 		if type(options.RandomIndex) ~= "function" then
