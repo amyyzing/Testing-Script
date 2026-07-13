@@ -43,6 +43,10 @@ local POWERED_ROOM_ITEMS = {
 	["emf reader"] = true,
 }
 local ROUND_HELD_ITEMS = {"Salt Canister", "Holy Oil"}
+local ROUND_DOOR_MAX_PLAYER_DISTANCE = 3
+local ROUND_DOOR_STAND_DISTANCE = 2.9
+local ROUND_PLACEMENT_MAX_PLAYER_DISTANCE = 3
+local roundDoorFacingLockSequence = 0
 
 local function normalizeRoundItemName(value)
 	local normalized = string.lower(tostring(value or ""))
@@ -195,6 +199,10 @@ local function roundDoorReference(target)
 	if target:IsA("BasePart") then
 		return target
 	end
+	local doorUnion = target:FindFirstChild("DoorUnion", true)
+	if doorUnion and doorUnion:IsA("BasePart") then
+		return doorUnion
+	end
 	if not target:IsA("Model") then
 		return target:FindFirstChildWhichIsA("BasePart", true)
 	end
@@ -233,6 +241,8 @@ local function roundDoorGeometry(target)
 	local normalAxis
 	local wideLength
 	local thickness
+	local usesDoorUnionOrientation = string.lower(reference.Name)
+		== "doorunion"
 	if size.X >= size.Z then
 		wideAxis = right
 		normalAxis = look
@@ -244,11 +254,11 @@ local function roundDoorGeometry(target)
 		wideLength = size.Z
 		thickness = size.X
 	end
+	local maximumDistance = ROUND_DOOR_STAND_DISTANCE
 	local minimumDistance = math.min(
 		math.max(thickness * 0.5 + 2.1, 2.2),
-		4.5
+		maximumDistance
 	)
-	local maximumDistance = 4.75
 	local standDistance = math.clamp(
 		thickness * 0.5 + 2.85,
 		minimumDistance,
@@ -256,6 +266,9 @@ local function roundDoorGeometry(target)
 	)
 	return {
 		Reference = reference,
+		DoorUnionOrientation = usesDoorUnionOrientation
+			and reference.Orientation
+			or nil,
 		Frame = frame,
 		Center = frame.Position,
 		WideAxis = wideAxis,
@@ -377,7 +390,7 @@ local function teleportToRoundDoorFace(target, approach, generation)
 	return teleportToRoomBoundingBoxCenter(room, {
 		PreferredPositions = preferred,
 		TargetPosition = geometry.Center,
-		MaximumTargetDistance = 5,
+		MaximumTargetDistance = ROUND_DOOR_MAX_PLAYER_DISTANCE,
 		MaximumPreferredDistance = 0.95,
 		LookDirection = approach.Facing,
 		RequireStrict = true,
@@ -389,11 +402,11 @@ local function teleportToRoundDoorFace(target, approach, generation)
 			)
 			local lateral = math.abs(relative:Dot(geometry.WideAxis))
 			local signedNormal = relative:Dot(geometry.NormalAxis)
-			return relative.Magnitude <= 4.75
+			return relative.Magnitude <= ROUND_DOOR_MAX_PLAYER_DISTANCE
 				and lateral <= 0.65
 				and signedNormal * approach.Side > 0
 				and math.abs(signedNormal) >= geometry.MinimumDistance - 0.1
-				and math.abs(signedNormal) <= geometry.MaximumDistance + 0.1
+				and math.abs(signedNormal) <= geometry.MaximumDistance
 		end,
 		IsActive = function()
 			return generation == nil
@@ -519,12 +532,14 @@ local function roundDoorFacingContext(target)
 		root.Position.Z - geometry.Center.Z
 	)
 	local signedNormal = rootOffset:Dot(geometry.NormalAxis)
-	if math.abs(signedNormal) < 0.05 or rootOffset.Magnitude > 5 then
+	if math.abs(signedNormal) < 0.05
+		or rootOffset.Magnitude > ROUND_DOOR_MAX_PLAYER_DISTANCE then
 		return nil, geometry, root
 	end
 	local expectedFacing = geometry.NormalAxis
 		* (signedNormal > 0 and -1 or 1)
 	return {
+		Target = target,
 		Character = character,
 		Root = root,
 		Humanoid = humanoid,
@@ -544,10 +559,17 @@ local function enforceRoundDoorFacing(context)
 	local root = context.Root
 	local expectedFacing = context.ExpectedFacing
 	local turned = pcall(function()
-		root.CFrame = CFrame.lookAt(
+		local desiredRoot = CFrame.lookAt(
 			root.Position,
 			root.Position + expectedFacing
 		)
+		local pivotOffset = root.CFrame:ToObjectSpace(
+			context.Character:GetPivot()
+		)
+		context.Humanoid:Move(Vector3.zero, false)
+		context.Character:PivotTo(desiredRoot * pivotOffset)
+		root.CFrame = desiredRoot
+		root.AssemblyLinearVelocity = Vector3.zero
 		root.AssemblyAngularVelocity = Vector3.zero
 	end)
 	if not turned then
@@ -565,6 +587,39 @@ local function enforceRoundDoorFacing(context)
 		) <= 0.05
 end
 
+local function enforceRoundDoorCameraFacing(context)
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return false
+	end
+	local oldLook = camera.CFrame.LookVector
+	local oldHorizontal = Vector3.new(oldLook.X, 0, oldLook.Z)
+	local expected = context.ExpectedFacing
+	if oldHorizontal.Magnitude < 0.05 or expected.Magnitude < 0.05 then
+		return false
+	end
+	oldHorizontal = oldHorizontal.Unit
+	expected = expected.Unit
+	local yawDelta = math.atan2(
+		oldHorizontal:Cross(expected).Y,
+		oldHorizontal:Dot(expected)
+	)
+	local position = camera.CFrame.Position
+	local rotationOnly = camera.CFrame - position
+	local rotated = pcall(function()
+		camera.CFrame = CFrame.new(position)
+			* CFrame.fromAxisAngle(Vector3.yAxis, yawDelta)
+			* rotationOnly
+	end)
+	if not rotated then
+		return false
+	end
+	local newLook = camera.CFrame.LookVector
+	local newHorizontal = Vector3.new(newLook.X, 0, newLook.Z)
+	return newHorizontal.Magnitude >= 0.05
+		and newHorizontal.Unit:Dot(expected) >= 0.985
+end
+
 local function facePlayerTowardRoundDoor(target)
 	local context, geometry, root = roundDoorFacingContext(target)
 	return enforceRoundDoorFacing(context), geometry, root
@@ -579,12 +634,22 @@ local function beginRoundDoorFacingLock(target)
 		Context = context,
 		OriginalAutoRotate = context.Humanoid.AutoRotate,
 		Released = false,
-		Connection = nil,
+		Connections = {},
+		RenderStepName = nil,
 	}
 	function lock:Enforce()
 		if self.Released then
 			return false
 		end
+		local refreshed = roundDoorFacingContext(self.Context.Target)
+		if not refreshed
+			or refreshed.Character ~= self.Context.Character
+			or refreshed.Root ~= self.Context.Root
+			or refreshed.Humanoid ~= self.Context.Humanoid then
+			return false
+		end
+		self.Context.Geometry = refreshed.Geometry
+		self.Context.ExpectedFacing = refreshed.ExpectedFacing
 		local contextIsCurrent = player.Character == self.Context.Character
 			and self.Context.Character.Parent
 			and self.Context.Root.Parent
@@ -599,14 +664,24 @@ local function beginRoundDoorFacingLock(target)
 			return false
 		end
 		return enforceRoundDoorFacing(self.Context)
+			and enforceRoundDoorCameraFacing(self.Context)
 	end
 	function lock:Release()
 		if self.Released then
 			return
 		end
 		self.Released = true
-		if self.Connection and self.Connection.Connected then
-			self.Connection:Disconnect()
+		for _, connection in ipairs(self.Connections) do
+			if connection.Connected then
+				connection:Disconnect()
+			end
+		end
+		if self.RenderStepName then
+			pcall(function()
+				Services.RunService:UnbindFromRenderStep(
+					self.RenderStepName
+				)
+			end)
 		end
 		local humanoid = self.Context.Humanoid
 		if humanoid.Parent
@@ -622,20 +697,41 @@ local function beginRoundDoorFacingLock(target)
 	if not disabled then
 		return nil, "player facing lock could not disable AutoRotate"
 	end
-	local connected, connection = pcall(function()
-		return Services.RunService.PreSimulation:Connect(function()
-			if not lock:Enforce() then
-				lock:Release()
-			end
+	for _, signal in ipairs({
+		Services.RunService.PreSimulation,
+		Services.RunService.Heartbeat,
+	}) do
+		local connected, connection = pcall(function()
+			return signal:Connect(function()
+				if not lock:Enforce() then
+					lock:Release()
+				end
+			end)
 		end)
-	end)
-	if not connected then
-		pcall(function()
-			context.Humanoid.AutoRotate = lock.OriginalAutoRotate
-		end)
-		return nil, "player facing lock could not bind to simulation"
+		if not connected then
+			lock:Release()
+			return nil, "player facing lock could not bind to simulation"
+		end
+		table.insert(lock.Connections, connection)
 	end
-	lock.Connection = connection
+	roundDoorFacingLockSequence = roundDoorFacingLockSequence + 1
+	lock.RenderStepName = "DemonologyDoorFacing_"
+		.. tostring(roundDoorFacingLockSequence)
+	local renderBound = pcall(function()
+		Services.RunService:BindToRenderStep(
+			lock.RenderStepName,
+			Enum.RenderPriority.Camera.Value + 1,
+			function()
+				if not lock:Enforce() then
+					lock:Release()
+				end
+			end
+		)
+	end)
+	if not renderBound then
+		lock:Release()
+		return nil, "player facing lock could not bind after the camera"
+	end
 	if not lock:Enforce() then
 		lock:Release()
 		return nil, "player facing lock could not rotate the character"
@@ -657,10 +753,10 @@ local function playerHasDoorPlacementGeometry(target)
 	)
 	local rootLateral = math.abs(rootOffset:Dot(geometry.WideAxis))
 	local rootNormal = rootOffset:Dot(geometry.NormalAxis)
-	if rootOffset.Magnitude > 5
+	if rootOffset.Magnitude > ROUND_DOOR_MAX_PLAYER_DISTANCE
 		or rootLateral > 0.65
 		or math.abs(rootNormal) < geometry.MinimumDistance - 0.15
-		or math.abs(rootNormal) > geometry.MaximumDistance + 0.15 then
+		or math.abs(rootNormal) > geometry.MaximumDistance then
 		return false, geometry, root
 	end
 	local facing = Vector3.new(
@@ -693,8 +789,29 @@ local placementPreviewIsAligned: any = function(toolName, target)
 		0,
 		previewPart.Position.Z - geometry.Center.Z
 	)
+	local previewPlayerOffset = Vector3.new(
+		previewPart.Position.X - root.Position.X,
+		0,
+		previewPart.Position.Z - root.Position.Z
+	)
+	local doorPlayerOffset = Vector3.new(
+		geometry.Center.X - root.Position.X,
+		0,
+		geometry.Center.Z - root.Position.Z
+	)
+	if previewPlayerOffset.Magnitude
+		> ROUND_PLACEMENT_MAX_PLAYER_DISTANCE
+		or doorPlayerOffset.Magnitude < 0.05
+		or previewPlayerOffset:Dot(doorPlayerOffset.Unit) <= 0 then
+		return false
+	end
+	local maximumDoorNormalOffset = math.min(
+		math.max(geometry.Thickness * 0.5 + 0.5, 0.75),
+		1.25
+	)
 	if math.abs(previewOffset:Dot(geometry.WideAxis)) > 0.9
-		or math.abs(previewOffset:Dot(geometry.NormalAxis)) > 2.5 then
+		or math.abs(previewOffset:Dot(geometry.NormalAxis))
+			> maximumDoorNormalOffset then
 		return false
 	end
 	if toolName == "Salt Canister" then
@@ -775,6 +892,7 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 	local placementFolder
 	local existingPlacements = setmetatable({}, {__mode = "k"})
 	local targetFrame
+	local dispatchRootPosition
 	local dispatchAccepted = false
 	local dispatchFailure
 	local facingLock, facingReason = beginRoundDoorFacingLock(target)
@@ -835,6 +953,13 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 				"player facing changed before placement dispatch"
 			return
 		end
+		local dispatchRoot = player.Character
+			and player.Character:FindFirstChild("HumanoidRootPart")
+		if not dispatchRoot then
+			dispatchFailure = "player root was unavailable before placement dispatch"
+			return
+		end
+		dispatchRootPosition = dispatchRoot.Position
 		local fired = pcall(remote.FireServer, remote)
 		if not fired then
 			dispatchFailure = remoteName .. " failed"
@@ -873,13 +998,20 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 			for _, child in ipairs(placementFolder:GetChildren()) do
 				if not existingPlacements[child] then
 					local position = getInstanceWorldPosition(child)
-					if position and targetFrame
+					if position and targetFrame and dispatchRootPosition
 						and (Vector3.new(position.X, 0, position.Z)
 							- Vector3.new(
 								targetFrame.Position.X,
 								0,
 								targetFrame.Position.Z
-							)).Magnitude <= 5 then
+							)).Magnitude <= ROUND_DOOR_MAX_PLAYER_DISTANCE
+						and (Vector3.new(position.X, 0, position.Z)
+							- Vector3.new(
+								dispatchRootPosition.X,
+								0,
+								dispatchRootPosition.Z
+							)).Magnitude
+							<= ROUND_PLACEMENT_MAX_PLAYER_DISTANCE then
 						confirmed = true
 						break
 					end
@@ -939,6 +1071,7 @@ end
 		GetEquippedItem = getRoundEquippedItem,
 		EquipItem = equipRoundItem,
 		ApproachPositions = roundApproachPositions,
+		ResolveDoorReference = roundDoorReference,
 		DoorGeometry = roundDoorGeometry,
 		DoorApproaches = roundDoorApproaches,
 		TeleportNearTarget = teleportNearRoundTarget,
@@ -966,6 +1099,7 @@ local setDoRoundEnabled = (function()
 	local getRoundEquippedItem = roundUtilities.GetEquippedItem
 	local equipRoundItem = roundUtilities.EquipItem
 	local roundApproachPositions = roundUtilities.ApproachPositions
+	local roundDoorReference = roundUtilities.ResolveDoorReference
 	local roundDoorApproaches = roundUtilities.DoorApproaches
 	local teleportNearRoundTarget = roundUtilities.TeleportNearTarget
 	local teleportToRoundDoorFace = roundUtilities.TeleportToDoorFace
@@ -1141,7 +1275,9 @@ local function placeRoundToolsAtDoors(generation)
 			setDoRoundStatus(
 				"Laying " .. toolName .. " (" .. tostring(uses) .. " left)"
 			)
-			local door = selectedDoor:FindFirstChild("Door") or selectedDoor
+			local doorContainer =
+				selectedDoor:FindFirstChild("Door") or selectedDoor
+			local door = roundDoorReference(doorContainer) or doorContainer
 			local approaches = roundDoorApproaches(door)
 			local placed = false
 			local placementReason
@@ -1228,15 +1364,17 @@ local function openRoundExitDoor(generation)
 		if exitModel:GetAttribute("DoorClosed") == false then
 			return true
 		end
-		local door = exitModel:FindFirstChild("Door")
-		if door then
-			local approaches, center = roundDoorApproaches(door)
+		local doorContainer = exitModel:FindFirstChild("Door")
+		local doorReference = doorContainer
+			and (roundDoorReference(doorContainer) or doorContainer)
+		if doorContainer and doorReference then
+			local approaches, center = roundDoorApproaches(doorReference)
 			for _, approach in ipairs(shuffleRoundList(approaches)) do
 				if not roundActionIsSafe(generation) then
 					return false, roundUnsafeReason(generation)
 				end
 				local teleported = teleportToRoundDoorFace(
-					door,
+					doorReference,
 					approach,
 					generation
 				)
@@ -1252,7 +1390,11 @@ local function openRoundExitDoor(generation)
 						return true
 					end
 					beginAutomationMutation(1.5)
-					local fired = pcall(remote.FireServer, remote, door)
+					local fired = pcall(
+						remote.FireServer,
+						remote,
+						doorContainer
+					)
 					if fired then
 						doRoundWait(generation, 0.45)
 						if exitModel:GetAttribute("DoorClosed") == false then

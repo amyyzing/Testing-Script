@@ -135,6 +135,7 @@ local ghostProxyDirty = false
 local ghostProxyAddedConnection
 local ghostProxyRemovingConnection
 local observeWalkSpeedChange = function() end
+local analyzePhantom = function() end
 local perkTrackerState = {
 	ghost = nil,
 	ghostMissingSince = nil,
@@ -157,6 +158,14 @@ local perkTrackerState = {
 	transparencyIntervals = {},
 	lastTransparencyState = nil,
 	lastTransparencyTransitionTime = nil,
+	phantomPatternHunts = 0,
+	phantomNoPatternHunts = 0,
+	phantomPatternRecordedThisHunt = false,
+	phantomQualifiedCyclesThisHunt = 0,
+	phantomMatchedCyclesThisHunt = 0,
+	phantomContradictoryCyclesThisHunt = 0,
+	phantomMimicrySkinwalkerClue = false,
+	phantomMimicryPreviousSkinwalkerDetection = nil,
 	vexLastValue = nil,
 	updateVexState = function() end,
 	wendigoSnapshots = {},
@@ -2580,6 +2589,16 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 	perkTrackerState.transparencyIntervals = {}
 	perkTrackerState.lastTransparencyState = nil
 	perkTrackerState.lastTransparencyTransitionTime = nil
+	if not preserveFindings then
+		perkTrackerState.phantomPatternHunts = 0
+		perkTrackerState.phantomNoPatternHunts = 0
+		perkTrackerState.phantomMimicrySkinwalkerClue = false
+		perkTrackerState.phantomMimicryPreviousSkinwalkerDetection = nil
+	end
+	perkTrackerState.phantomPatternRecordedThisHunt = false
+	perkTrackerState.phantomQualifiedCyclesThisHunt = 0
+	perkTrackerState.phantomMatchedCyclesThisHunt = 0
+	perkTrackerState.phantomContradictoryCyclesThisHunt = 0
 	perkTrackerState.vexLastValue = nil
 	perkTrackerState.wendigoSnapshots = {}
 	perkTrackerState.wendigoPendingTransitions = {}
@@ -3426,7 +3445,12 @@ local function handleHuntTransition(ghost, hunting, now)
 		perkTrackerState.transparencyTransitions = {}
 		perkTrackerState.transparencyIntervals = {}
 		perkTrackerState.lastTransparencyTransitionTime = nil
+		perkTrackerState.phantomPatternRecordedThisHunt = false
+		perkTrackerState.phantomQualifiedCyclesThisHunt = 0
+		perkTrackerState.phantomMatchedCyclesThisHunt = 0
+		perkTrackerState.phantomContradictoryCyclesThisHunt = 0
 	elseif not hunting and previous then
+		analyzePhantom(now, true)
 		perkTrackerState.huntStartedAt = nil
 		if perkTrackerState.dullahanPatternDetected
 			or perkTrackerState.dullahanPatternObservedThisHunt then
@@ -3561,120 +3585,207 @@ local function updateWispOffFavouriteNegative(ghost, hunting, now)
 	)
 	updateGhostIdentification(ghost)
 end
-local function analyzePhantom(now)
+analyzePhantom = function(now, huntEnded)
+	local ghost = perkTrackerState.ghost
+	if not ghost then
+		return
+	end
+	local function recordPattern(reason, confidence)
+		local previousPhantom = perkDetections.Phantom
+		local previousPhantomConfidence = previousPhantom
+			and previousPhantom.Confidence
+		local previousPhantomReason = previousPhantom
+			and previousPhantom.Reason
+		local previousSkinwalker = perkDetections.Skinwalker
+		local previousSkinwalkerConfidence = previousSkinwalker
+			and previousSkinwalker.Confidence
+		local previousSkinwalkerReason = previousSkinwalker
+			and previousSkinwalker.Reason
+		perkTrackerState.clearGhostRuleOut("Phantom")
+		recordPerkDetection("Phantom", reason, confidence)
+		if perkTrackerState.evidenceMode == "Mimicry"
+			and not perkTrackerState.isGhostRuledOut("Skinwalker") then
+			local mimicReason =
+				"Mimicry mode: Skinwalker can copy the observed Phantom blinking and invisible-speed trait"
+			if previousSkinwalker
+				and previousSkinwalkerReason ~= mimicReason
+				and confidence > (previousSkinwalkerConfidence or 0)
+				and not perkTrackerState.phantomMimicryPreviousSkinwalkerDetection then
+				perkTrackerState.phantomMimicryPreviousSkinwalkerDetection =
+					table.clone(previousSkinwalker)
+			end
+			if not previousSkinwalker
+				or previousSkinwalkerReason == mimicReason
+				or confidence > (previousSkinwalkerConfidence or 0) then
+				recordPerkDetection(
+					"Skinwalker",
+					mimicReason,
+					confidence
+				)
+			end
+			local mimicDetection = perkDetections.Skinwalker
+			if mimicDetection and mimicDetection.Reason == mimicReason then
+				perkTrackerState.phantomMimicrySkinwalkerClue = true
+			end
+		end
+		local currentPhantom = perkDetections.Phantom
+		local currentSkinwalker = perkDetections.Skinwalker
+		if (currentPhantom and (
+			currentPhantom.Confidence ~= previousPhantomConfidence
+				or currentPhantom.Reason ~= previousPhantomReason
+		)) or (currentSkinwalker and (
+			currentSkinwalker.Confidence ~= previousSkinwalkerConfidence
+				or currentSkinwalker.Reason ~= previousSkinwalkerReason
+		)) then
+			updateGhostIdentification(ghost)
+		end
+	end
+
+	local replicatedBlinkSpeed = readReplicatedGhostValue(
+		ghost,
+		"WalkSpeedWhileBlinking"
+	)
+	if typeof(replicatedBlinkSpeed) == "number"
+		and math.abs(replicatedBlinkSpeed - 13.5) <= 0.05 then
+		recordPattern(
+			"the replicated WalkSpeedWhileBlinking flag was exactly 13.5",
+			99
+		)
+		return
+	end
+
 	local samples = {}
 	for _, sample in ipairs(perkTrackerState.motionSamples) do
 		if sample.Hunting
-			and sample.Time >= now - 8
 			and typeof(sample.GhostWalkSpeed) == "number"
 			and sample.GhostWalkSpeed > 0
 			and typeof(sample.Invisible) == "boolean" then
 			table.insert(samples, sample)
 		end
 	end
-	if #samples < 7 then
+	if #samples < 12 then
 		return
 	end
-	local transitions = {}
-	for index = 2, #samples do
-		local beforeSample = samples[index - 1]
-		local afterSample = samples[index]
-		if beforeSample.Invisible ~= afterSample.Invisible then
-			local beforeValues = {}
-			local afterValues = {}
-			for sampleIndex = math.max(1, index - 3), index - 1 do
-				local sample = samples[sampleIndex]
-				if sample.Invisible == beforeSample.Invisible then
-					table.insert(
-						beforeValues,
-						sample.GhostWalkSpeed
-					)
-				end
+
+	local runs = {}
+	for _, sample in ipairs(samples) do
+		local run = runs[#runs]
+		if not run or run.Invisible ~= sample.Invisible then
+			if run then
+				run.EndTime = sample.Time
 			end
-			for sampleIndex = index, math.min(#samples, index + 2) do
-				local sample = samples[sampleIndex]
-				if sample.Invisible == afterSample.Invisible then
-					table.insert(
-						afterValues,
-						sample.GhostWalkSpeed
-					)
-				end
-			end
-			local beforeSpeed = median(beforeValues)
-			local afterSpeed = median(afterValues)
-			if beforeSpeed and afterSpeed then
-				table.insert(transitions, {
-					BeforeInvisible = beforeSample.Invisible,
-					AfterInvisible = afterSample.Invisible,
-					BeforeSpeed = beforeSpeed,
-					AfterSpeed = afterSpeed,
-				})
-			end
+			run = {
+				Invisible = sample.Invisible,
+				StartTime = sample.Time,
+				EndTime = nil,
+				Samples = {},
+			}
+			table.insert(runs, run)
 		end
+		table.insert(run.Samples, sample)
 	end
-	if #transitions < 3 then
+	if #runs < 3 then
 		return
 	end
-	local mapFactor = getMapSizeSpeedFactor()
-	local bestMatched = 0
-	local bestMultiplier
-	for step = 0, 6 do
-		local multiplier = 0.5 + step * 0.25
-		local visibleExpected =
-			11 * mapFactor * multiplier
-		local invisibleExpected =
-			13.5 * mapFactor * multiplier
-		local matched = 0
-		for _, transition in ipairs(transitions) do
-			local beforeExpected =
-				transition.BeforeInvisible
-				and invisibleExpected
-				or visibleExpected
-			local afterExpected =
-				transition.AfterInvisible
-				and invisibleExpected
-				or visibleExpected
-			local beforeTolerance =
-				math.max(0.18, beforeExpected * 0.035)
-			local afterTolerance =
-				math.max(0.18, afterExpected * 0.035)
-			local expectedDirection =
-				afterExpected - beforeExpected
-			local observedDirection =
-				transition.AfterSpeed - transition.BeforeSpeed
-			if math.abs(
-					transition.BeforeSpeed - beforeExpected
-				) <= beforeTolerance
-				and math.abs(
-					transition.AfterSpeed - afterExpected
-				) <= afterTolerance
-				and observedDirection * expectedDirection > 0 then
-				matched = matched + 1
+	local lastRun = runs[#runs]
+	if lastRun and now - lastRun.StartTime >= 0.35 then
+		lastRun.EndTime = now
+	end
+
+	local function stableRunSpeed(run)
+		if not run or not run.EndTime
+			or run.EndTime - run.StartTime < 0.35 then
+			return nil
+		end
+		local speeds = {}
+		for _, sample in ipairs(run.Samples) do
+			if sample.Time >= run.StartTime + 0.12
+				and sample.Time <= run.EndTime - 0.08 then
+				table.insert(speeds, sample.GhostWalkSpeed)
 			end
 		end
-		if matched > bestMatched then
-			bestMatched = matched
-			bestMultiplier = multiplier
+		if #speeds < 2 then
+			return nil
+		end
+		return median(speeds)
+	end
+
+	local qualified = 0
+	local matched = 0
+	local contradictory = 0
+	local matchedRatios = {}
+	local invisibleDurations = {}
+	for index = 2, #runs - 1 do
+		local invisibleRun = runs[index]
+		local beforeRun = runs[index - 1]
+		local afterRun = runs[index + 1]
+		if invisibleRun.Invisible
+			and not beforeRun.Invisible
+			and not afterRun.Invisible then
+			local beforeSpeed = stableRunSpeed(beforeRun)
+			local invisibleSpeed = stableRunSpeed(invisibleRun)
+			local afterSpeed = stableRunSpeed(afterRun)
+			if beforeSpeed and invisibleSpeed and afterSpeed then
+				local visibleBaseline = median({beforeSpeed, afterSpeed})
+				if visibleBaseline and visibleBaseline > 0 then
+					local ratio = invisibleSpeed / visibleBaseline
+					qualified = qualified + 1
+					table.insert(
+						invisibleDurations,
+						invisibleRun.EndTime - invisibleRun.StartTime
+					)
+					if ratio >= 1.15 and ratio <= 1.4 then
+						matched = matched + 1
+						table.insert(matchedRatios, ratio)
+					elseif ratio <= 1.06 then
+						contradictory = contradictory + 1
+					end
+				end
+			end
 		end
 	end
-	if bestMatched >= 3 then
-		perkTrackerState.clearGhostRuleOut("Phantom")
-		recordPerkDetection(
-			"Phantom",
-			"three transparency transitions synchronized with the 11/13.5 WalkSpeed modes at "
-				.. tostring(
-					math.floor(bestMultiplier * 100 + 0.5)
-				)
-				.. "% Ghost Walkspeed Multiplier",
-			99
+	perkTrackerState.phantomQualifiedCyclesThisHunt = qualified
+	perkTrackerState.phantomMatchedCyclesThisHunt = matched
+	perkTrackerState.phantomContradictoryCyclesThisHunt = contradictory
+
+	if matched >= 3
+		and matched / math.max(qualified, 1) >= 0.75
+		and contradictory <= 1 then
+		if not perkTrackerState.phantomPatternRecordedThisHunt then
+			perkTrackerState.phantomPatternRecordedThisHunt = true
+			perkTrackerState.phantomPatternHunts =
+				perkTrackerState.phantomPatternHunts + 1
+		end
+		local ratio = median(matchedRatios) or (13.5 / 11)
+		local invisibleDuration = median(invisibleDurations)
+		local confidence = perkTrackerState.phantomPatternHunts >= 2
+			and 99
+			or 95
+		recordPattern(
+			"three complete visible-invisible-visible hunt cycles showed invisible WalkSpeed about "
+				.. tostring(math.floor((ratio - 1) * 100 + 0.5))
+				.. "% faster than the adjacent visible baseline"
+				.. (invisibleDuration
+					and (", with a median invisible interval of "
+						.. string.format("%.2f", invisibleDuration)
+						.. "s")
+					or ""),
+			confidence
 		)
-	else
-		clearPerkDetection("Phantom")
-		perkTrackerState.ruleOutGhost(
-			"Phantom",
-			"three transparency transitions failed the WalkSpeed synchronization check",
-			99
-		)
+	elseif huntEnded and qualified >= 3
+		and contradictory == qualified then
+		perkTrackerState.phantomNoPatternHunts =
+			perkTrackerState.phantomNoPatternHunts + 1
+		if perkTrackerState.phantomNoPatternHunts >= 2
+			and perkTrackerState.phantomPatternHunts == 0 then
+			clearPerkDetection("Phantom")
+			perkTrackerState.ruleOutGhost(
+				"Phantom",
+				"two completed hunts each contained three mature blink cycles with no invisible-linked WalkSpeed increase",
+				90
+			)
+			updateGhostIdentification(ghost)
+		end
 	end
 end
 perkTrackerState.analyzeSpecter = function(
@@ -4261,27 +4372,37 @@ perkTrackerState.markSaltDisturbed = function(disturbedModel)
 	if not observation then
 		local ghost = getGhostModel()
 		local ghostPosition = ghost and ghost:GetPivot().Position or nil
+		local ghostOffset = ghostPosition and disturbedPosition
+			and (ghostPosition - disturbedPosition)
+			or nil
 		if not ghost
 			or not ghostPosition
 			or not disturbedPosition
-			or (ghostPosition - disturbedPosition).Magnitude > 6 then
+			or not ghostOffset
+			or Vector3.new(ghostOffset.X, 0, ghostOffset.Z).Magnitude > 3.5
+			or math.abs(ghostOffset.Y) > 5 then
 			return
 		end
 		local preSpeed, preSampleCount, baselineReliable =
 			perkTrackerState.recentSaltPreSpeed(ghost, now)
 		observation = {
 			StartedAt = now,
+			TouchAt = now,
 			Position = disturbedPosition,
 			PreSpeed = preSpeed,
 			PreSampleCount = preSampleCount,
 			BaselineReliable = baselineReliable,
-			PostSpeeds = {},
-			LastPostSampleAt = nil,
+			SpeedSamples = {},
+			LastSpeedSampleAt = nil,
 			Ghost = ghost,
 			HuntingAtTouch = ghost:GetAttribute("Hunting") == true,
 			Disturbed = false,
 			WraithResolved = false,
 			AswangResolved = false,
+			AswangSlowObserved = false,
+			AswangSlowAt = nil,
+			AswangMinimumSpeed = nil,
+			Phase = "AwaitDisturbance",
 			Synthetic = true,
 		}
 	end
@@ -4293,8 +4414,8 @@ perkTrackerState.markSaltDisturbed = function(disturbedModel)
 	observation.Position = disturbedPosition or observation.Position
 	observation.Disturbed = true
 	observation.DisturbedAt = now
-	observation.PostSpeeds = {}
-	observation.LastPostSampleAt = nil
+	observation.SpeedSamples = observation.SpeedSamples or {}
+	observation.Phase = "SeekDrop"
 	observation.WraithResolved = true
 	perkTrackerState.wraithRuledOut = true
 	perkTrackerState.ruleOutGhost(
@@ -4316,19 +4437,21 @@ perkTrackerState.recentSaltPreSpeed = function(ghost, now)
 			and sample.Hunting ~= currentHunting then
 			break
 		end
-		if sample.Time <= now
+		if sample.Time <= now - 0.03
 			and typeof(sample.GhostWalkSpeed) == "number"
 			and sample.GhostWalkSpeed > 0 then
 			table.insert(recentSpeeds, sample.GhostWalkSpeed)
 		end
 	end
 	if #recentSpeeds > 0 then
-		return median(table.clone(recentSpeeds)), #recentSpeeds, true
+		return median(table.clone(recentSpeeds)),
+			#recentSpeeds,
+			#recentSpeeds >= 3
 	end
 	local humanoid = ghost and ghost:FindFirstChildOfClass("Humanoid")
 	local liveSpeed = humanoid and humanoid.WalkSpeed or nil
 	if typeof(liveSpeed) == "number" and liveSpeed > 0 then
-		return liveSpeed, 0, true
+		return liveSpeed, 0, false
 	end
 	return nil, 0, false
 end
@@ -4350,25 +4473,24 @@ perkTrackerState.beginSaltTouch = function(saltModel)
 	end
 	local preSpeed, preSampleCount, baselineReliable =
 		perkTrackerState.recentSaltPreSpeed(ghost, now)
-	local humanoid = ghost:FindFirstChildOfClass("Humanoid")
-	local liveSpeed = humanoid and humanoid.WalkSpeed or nil
-	if typeof(liveSpeed) == "number" and liveSpeed > 0 then
-		preSpeed = liveSpeed
-		baselineReliable = true
-	end
 	perkTrackerState.saltPendingTouches[saltModel] = {
 		StartedAt = now,
+		TouchAt = now,
 		Position = perkTrackerState.saltModelPosition(saltModel),
 		PreSpeed = preSpeed,
 		PreSampleCount = preSampleCount,
 		BaselineReliable = baselineReliable,
-		PostSpeeds = {},
-		LastPostSampleAt = nil,
+		SpeedSamples = {},
+		LastSpeedSampleAt = nil,
 		Ghost = ghost,
 		HuntingAtTouch = ghost:GetAttribute("Hunting") == true,
 		Disturbed = false,
 		WraithResolved = false,
 		AswangResolved = false,
+		AswangSlowObserved = false,
+		AswangSlowAt = nil,
+		AswangMinimumSpeed = nil,
+		Phase = "AwaitDisturbance",
 		Synthetic = false,
 	}
 end
@@ -4502,61 +4624,101 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 			observation.AswangResolved = true
 		end
 		if not observation.AswangResolved
+			and observation.Ghost == ghost
+			and hunting
+			and observation.HuntingAtTouch == true
+			and typeof(currentSpeed) == "number"
+			and currentSpeed > 0
+			and (
+				not observation.LastSpeedSampleAt
+				or now - observation.LastSpeedSampleAt >= 0.075
+			) then
+			observation.LastSpeedSampleAt = now
+			observation.SpeedSamples = observation.SpeedSamples or {}
+			table.insert(observation.SpeedSamples, {
+				Time = now,
+				Speed = currentSpeed,
+				Disturbed = observation.Disturbed == true,
+			})
+		end
+		if not observation.AswangResolved
 			and observation.Disturbed
 			and observation.Ghost == ghost
 			and hunting
 			and observation.HuntingAtTouch == true
-			and not observation.Synthetic
 			and observation.BaselineReliable
 			and typeof(observation.PreSpeed) == "number"
 			and observation.PreSpeed > 0
 			and typeof(currentSpeed) == "number"
 			and currentSpeed > 0 then
 			local disturbedAge = now - observation.DisturbedAt
-			if disturbedAge <= 2.0
-				and (
-					not observation.LastPostSampleAt
-					or now - observation.LastPostSampleAt >= 0.075
-				) then
-				observation.LastPostSampleAt = now
-				table.insert(observation.PostSpeeds, currentSpeed)
+			local dropCount = 0
+			local noDropCount = 0
+			local latestSlowAt
+			local minimumSpeed = math.huge
+			for _, speedSample in ipairs(observation.SpeedSamples or {}) do
+				local ratio = speedSample.Speed / observation.PreSpeed
+				minimumSpeed = math.min(minimumSpeed, speedSample.Speed)
+				if ratio <= 0.9 then
+					dropCount = dropCount + 1
+					latestSlowAt = speedSample.Time
+				end
+				if ratio >= 0.94 then
+					noDropCount = noDropCount + 1
+				end
 			end
-			if #observation.PostSpeeds >= 2 then
-				local dropCount = 0
-				local minimumRatio = math.huge
-				local firstRecent = math.max(1, #observation.PostSpeeds - 2)
-				for index = firstRecent, #observation.PostSpeeds do
-					local ratio = observation.PostSpeeds[index]
-						/ observation.PreSpeed
-					minimumRatio = math.min(minimumRatio, ratio)
-					if ratio <= 0.9 then
-						dropCount = dropCount + 1
+			if dropCount >= 2 and not observation.AswangSlowObserved then
+				observation.AswangSlowObserved = true
+				observation.AswangSlowAt = latestSlowAt
+				observation.AswangMinimumSpeed = minimumSpeed
+				observation.Phase = "SeekRecovery"
+				perkTrackerState.clearGhostRuleOut("Aswang")
+				recordPerkDetection(
+					"Aswang",
+					"during the same hunt, direct salt contact disturbed the pile and produced a repeated WalkSpeed drop below the pre-touch baseline",
+					95
+				)
+				updateGhostIdentification(ghost)
+			end
+			if observation.AswangSlowObserved then
+				local recoveryCount = 0
+				local slowAt = observation.AswangSlowAt or now
+				local lowSpeed = observation.AswangMinimumSpeed or minimumSpeed
+				for _, speedSample in ipairs(observation.SpeedSamples or {}) do
+					if speedSample.Time >= slowAt + 0.15
+						and speedSample.Speed >= observation.PreSpeed * 0.95
+						and speedSample.Speed >= lowSpeed * 1.08 then
+						recoveryCount = recoveryCount + 1
 					end
 				end
-				if dropCount >= 2 then
+				if recoveryCount >= 2 then
 					observation.AswangResolved = true
+					observation.Phase = "Recovered"
 					perkTrackerState.clearGhostRuleOut("Aswang")
 					recordPerkDetection(
 						"Aswang",
-						"during a hunt, the ghost directly touched salt, that pile became disturbed, and its WalkSpeed dropped across repeated samples",
+						"during one hunt, the ghost touched and disturbed salt, temporarily slowed across repeated samples, then recovered to its pre-touch WalkSpeed",
 						99
 					)
 					updateGhostIdentification(ghost)
-				elseif disturbedAge >= 2.0
-					and #observation.PostSpeeds >= 5
-					and minimumRatio >= 0.94 then
-					observation.AswangResolved = true
-					perkTrackerState.ruleOutGhost(
-						"Aswang",
-						"during a hunt, the directly touched salt became disturbed but the full post-contact window showed no meaningful WalkSpeed slowdown",
-						92
-					)
 				end
+			elseif disturbedAge >= 4
+				and #(observation.SpeedSamples or {}) >= 10
+				and noDropCount == #(observation.SpeedSamples or {})
+				and not perkDetections.Aswang then
+				observation.AswangResolved = true
+				clearPerkDetection("Aswang")
+				perkTrackerState.ruleOutGhost(
+					"Aswang",
+					"a verified hunting salt contact disturbed the pile, but a full four-second sample showed no temporary WalkSpeed drop",
+					90
+				)
+				updateGhostIdentification(ghost)
 			end
 		end
 		local observationAge = now
 			- (observation.DisturbedAt or observation.StartedAt)
-		if observationAge >= 3.5
+		if observationAge >= 6.5
 			or observation.Ghost ~= ghost then
 			perkTrackerState.saltPendingTouches[saltModel] = nil
 		end
@@ -8442,6 +8604,21 @@ function Controller:SetEvidenceMode(mode)
 	end
 	perkTrackerState.evidenceMode = mode
 	if mode == "Normal" then
+		local skinwalkerDetection = perkDetections.Skinwalker
+		if skinwalkerDetection
+			and skinwalkerDetection.Reason
+				== "Mimicry mode: Skinwalker can copy the observed Phantom blinking and invisible-speed trait" then
+			local previous =
+				perkTrackerState.phantomMimicryPreviousSkinwalkerDetection
+			if previous then
+				perkDetections.Skinwalker = previous
+				refreshPerkLogs()
+			else
+				clearPerkDetection("Skinwalker")
+			end
+		end
+		perkTrackerState.phantomMimicrySkinwalkerClue = false
+		perkTrackerState.phantomMimicryPreviousSkinwalkerDetection = nil
 		perkTrackerState.updateOrbEvidence()
 	end
 	updateGhostIdentification(getGhostModel())
