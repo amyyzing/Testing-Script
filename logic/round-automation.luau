@@ -1079,8 +1079,8 @@ local function enforceRoundDoorFacing(context)
 end
 
 local function enforceRoundDoorCameraFacing(context)
-	local camera = workspace.CurrentCamera
-	if not camera then
+	local camera = context.Camera or workspace.CurrentCamera
+	if not camera or workspace.CurrentCamera ~= camera then
 		return false
 	end
 	local oldLook = camera.CFrame.LookVector
@@ -1124,9 +1124,15 @@ local function beginRoundDoorFacingLock(target)
 	if not context then
 		return nil, "player could not face the door"
 	end
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return nil, "player camera was unavailable"
+	end
+	context.Camera = camera
 	local lock = {
 		Context = context,
 		OriginalAutoRotate = context.Humanoid.AutoRotate,
+		OriginalCameraType = camera.CameraType,
 		Released = false,
 		Connections = {},
 		RenderStepName = nil,
@@ -1158,6 +1164,7 @@ local function beginRoundDoorFacingLock(target)
 		end
 		local disabled = pcall(function()
 			self.Context.Humanoid.AutoRotate = false
+			self.Context.Camera.CameraType = Enum.CameraType.Scriptable
 		end)
 		if not disabled then
 			return false
@@ -1192,9 +1199,16 @@ local function beginRoundDoorFacingLock(target)
 				humanoid.AutoRotate = self.OriginalAutoRotate
 			end)
 		end
+		local camera = self.Context.Camera
+		if camera and workspace.CurrentCamera == camera then
+			pcall(function()
+				camera.CameraType = self.OriginalCameraType
+			end)
+		end
 	end
 	local disabled = pcall(function()
 		context.Humanoid.AutoRotate = false
+		camera.CameraType = Enum.CameraType.Scriptable
 	end)
 	if not disabled then
 		lock:Release()
@@ -2024,9 +2038,20 @@ end
 
 local function placeRoundToolsAtDoors(generation)
 	local rejectedDoors = setmetatable({}, {__mode = "k"})
+	local doorInstanceIds = setmetatable({}, {__mode = "k"})
+	local nextDoorInstanceId = 0
 	local equipFailures = {}
 	local warnings = {}
 	local warningKeys = {}
+	local function doorInstanceKey(doorModel)
+		local id = doorInstanceIds[doorModel]
+		if not id then
+			nextDoorInstanceId += 1
+			id = nextDoorInstanceId
+			doorInstanceIds[doorModel] = id
+		end
+		return normalizeRoundObjectName(doorModel.Name) .. ":" .. tostring(id)
+	end
 	local function addWarning(key, message)
 		if message and not warningKeys[key] then
 			warningKeys[key] = true
@@ -2050,26 +2075,28 @@ local function placeRoundToolsAtDoors(generation)
 			end
 			return firstDistance < secondDistance
 		end)
-		for _, doorModel in ipairs(doors) do
-			local key = normalizeRoundObjectName(doorModel.Name)
-			local saltEligible = toolKey == "salt canister"
-				and not doRoundState.reservedDoorModels[doorModel]
-				and not doRoundState.reservedDoorNames[key]
-				and not doRoundState.usedSaltDoorModels[doorModel]
-				and not doRoundState.usedSaltDoorNames[key]
-			local oilEligible = toolKey == "holy oil"
-				and not doRoundState.reservedDoorModels[doorModel]
-				and not doRoundState.reservedDoorNames[key]
-				and not doRoundState.usedSaltDoorModels[doorModel]
-				and not doRoundState.usedSaltDoorNames[key]
-				and not doRoundState.usedHolyOilDoorModels[doorModel]
-				and not doRoundState.usedHolyOilDoorNames[key]
-			if not rejectedDoors[doorModel]
-				and (saltEligible or oilEligible) then
-				return doorModel, key
+		-- Prefer a door whose name has not been used yet. Some maps contain
+		-- several distinct doors all named "Door"; the second pass deliberately
+		-- relaxes only the name check while retaining every instance check.
+		for requireUnusedName = 1, 0, -1 do
+			for _, doorModel in ipairs(doors) do
+				local key = normalizeRoundObjectName(doorModel.Name)
+				local instanceEligible = not rejectedDoors[doorModel]
+					and not doRoundState.reservedDoorModels[doorModel]
+					and not doRoundState.usedSaltDoorModels[doorModel]
+					and (toolKey ~= "holy oil"
+						or not doRoundState.usedHolyOilDoorModels[doorModel])
+				local nameEligible = requireUnusedName == 0
+					or (not doRoundState.reservedDoorNames[key]
+						and not doRoundState.usedSaltDoorNames[key]
+						and (toolKey ~= "holy oil"
+							or not doRoundState.usedHolyOilDoorNames[key]))
+				if instanceEligible and nameEligible then
+					return doorModel, key, doorInstanceKey(doorModel)
+				end
 			end
 		end
-		return nil, nil
+		return nil, nil, nil
 	end
 
 	for _, toolName in ipairs(ROUND_HELD_ITEMS) do
@@ -2141,7 +2168,7 @@ local function placeRoundToolsAtDoors(generation)
 				break
 			end
 
-			local selectedDoor, selectedKey = selectDoor(toolKey)
+			local selectedDoor, selectedKey, selectedInstanceKey = selectDoor(toolKey)
 			if not selectedDoor then
 				doRoundState.completedDoorTools[toolKey] = true
 				addWarning(
@@ -2169,7 +2196,7 @@ local function placeRoundToolsAtDoors(generation)
 				end
 				rejectedDoors[selectedDoor] = true
 				addWarning(
-					toolKey .. ":prepare:" .. selectedKey,
+					toolKey .. ":prepare:" .. selectedInstanceKey,
 					prepareReason
 				)
 				doRoundWait(generation, 0.2)
@@ -2261,7 +2288,7 @@ local function placeRoundToolsAtDoors(generation)
 				end
 				rejectedDoors[selectedDoor] = true
 				addWarning(
-					toolKey .. ":dispatch:" .. selectedKey,
+					toolKey .. ":dispatch:" .. selectedInstanceKey,
 					placementReason
 				)
 			else
@@ -2272,7 +2299,7 @@ local function placeRoundToolsAtDoors(generation)
 				end
 				rejectedDoors[selectedDoor] = true
 				addWarning(
-					toolKey .. ":placement:" .. selectedKey,
+					toolKey .. ":placement:" .. selectedInstanceKey,
 					placementReason
 				)
 			end
@@ -3076,7 +3103,7 @@ local function runDoRound(generation)
 						perkTrackerState.getRemainingCandidates(false)
 					if #timeoutCandidates == 0 then
 						-- Contradictory evidence can empty the evidence-filtered list.
-						-- Widen to every still-eligible ghost, never to a ruled-out one.
+						-- Prefer every ghost that has not been explicitly ruled out.
 						for _, profile in ipairs(GHOST_PROFILES) do
 							if not perkTrackerState.isGhostRuledOut(profile.Name) then
 								table.insert(timeoutCandidates, profile.Name)
@@ -3084,10 +3111,12 @@ local function runDoRound(generation)
 						end
 					end
 					if #timeoutCandidates == 0 then
-						if returnRoundToBase(generation) then
-							setEnabled(false, "No eligible ghost remained")
+						-- A timed round must still conclude even if contradictory rule-outs
+						-- eliminated everybody. In that exceptional case, rank the complete
+						-- catalog by the confidence observations that remain.
+						for _, profile in ipairs(GHOST_PROFILES) do
+							table.insert(timeoutCandidates, profile.Name)
 						end
-						return
 					end
 					if perkTrackerState.evidenceMode == "Mimicry" then
 						local included = {}
@@ -3135,9 +3164,12 @@ local function runDoRound(generation)
 						false
 					)
 					if selectRoundJournalGhost(timeoutFallback, generation) then
-						if returnRoundToBase(generation) then
-							setEnabled(false, "Selected " .. timeoutFallback)
+						local returned, returnReason =
+							requestRoundReturnToLobby(generation)
+						if not returned then
+							error(returnReason or "Lobby return failed", 0)
 						end
+						setEnabled(false, "Selected " .. timeoutFallback)
 						return
 					end
 				end

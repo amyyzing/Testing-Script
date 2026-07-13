@@ -36,10 +36,13 @@ any favourite-room bounding box and use the root `Workspace.Items` model's
 `ItemName`; inventory confirmation uses `LocalPlayer.ToolsHolder`. Pickups are made
 from at most eight studs away.
 
-Door placeables use the nearest distinct non-exit door names. Each door is closed
-and allowed to settle before its `DoorUnion` wide face is recalculated. The player
-is held no more than two studs in front of that face, looking toward its centre,
-while the camera and placement preview settle. Before the salt door approach is
+Door placeables prefer the nearest distinct non-exit door names, then fall back to
+different physical door instances when a map gives multiple doors the same name.
+Each door is closed and allowed to settle before its `DoorUnion` wide face is
+recalculated. The player is held no more than two studs in front of that face,
+looking toward its centre, while a temporary Scriptable camera lock lets the
+camera and placement preview settle; the original camera mode is restored after
+each attempt. Before the salt door approach is
 chosen, the live player-to-`Camera.SaltLine.Salt` XZ distance is sampled and used
 to place the salt preview on the door's XZ centre. Salt continues across unique
 doors until `Uses` reaches zero; Holy Oil dispatches once at a different door. Both placement
@@ -65,8 +68,9 @@ open an exit, ask Spirit Box questions from the favourite room, escape active
 hunts, and maintain displaced or stably-disabled equipment. A Pretty Sure/Certain
 single-ghost identification is selected immediately regardless of hunt state;
 automation teleports to and verifies Base Camp, then fires `RequestReturnToLobby`
-without waiting for the hunt to end. Otherwise, the timer chooses among the
-highest-confidence remaining ghosts after three minutes.
+without waiting for the hunt to end. Otherwise, after three minutes the timer
+selects a highest-confidence ghost, performs the same verified Base Camp return,
+and fires `RequestReturnToLobby` to finish the round.
 
 Modules are plain remote chunks: each returns a table or factory, and the bootstrap injects dependencies explicitly. The ghost catalog never deletes its source records; candidate lists are derived so a reset or evidence-mode change can restore ruled-out ghosts.
 
