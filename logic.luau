@@ -120,23 +120,27 @@ local ok, failure = xpcall(function()
 	session.Loader = loader
 	assertCurrent()
 
-	loader:SetStage("Loading interface theme and copy…", 1, 8)
+	loader:SetStage("Loading interface theme and copy…", 1, 9)
 	local Aesthetic = loadRemoteModule("gui/aesthetic.luau")
 	assertCurrent()
 
-	loader:SetStage("Loading ghost catalog…", 2, 8)
+	loader:SetStage("Loading ghost catalog…", 2, 9)
 	local GhostModule = loadRemoteModule("logic/ghost-module.luau")
 	assertCurrent()
 
-	loader:SetStage("Loading evidence and behavior trackers…", 3, 8)
+	loader:SetStage("Loading round automation…", 3, 9)
+	local createRoundAutomation = loadRemoteModule("logic/round-automation.luau")
+	assertCurrent()
+
+	loader:SetStage("Loading evidence and behavior trackers…", 4, 9)
 	local createLogic = loadRemoteModule("logic/logic.luau")
 	assertCurrent()
 
-	loader:SetStage("Loading interface controls…", 4, 8)
+	loader:SetStage("Loading interface controls…", 5, 9)
 	local GuiLogic = loadRemoteModule("gui/gui-logic.luau")
 	assertCurrent()
 
-	loader:SetStage("Building the interface…", 5, 8)
+	loader:SetStage("Building the interface…", 6, 9)
 	local view = Aesthetic.Create({
 		Services = Services,
 		Player = player,
@@ -146,7 +150,7 @@ local ok, failure = xpcall(function()
 	session.View = view
 	assertCurrent()
 
-	loader:SetStage("Starting the presentation layer…", 6, 8)
+	loader:SetStage("Starting the presentation layer…", 7, 9)
 	local presenter = GuiLogic.new({
 		Services = Services,
 		Player = player,
@@ -158,13 +162,14 @@ local ok, failure = xpcall(function()
 	session.Presenter = presenter
 	assertCurrent()
 
-	loader:SetStage("Starting ghost trackers…", 7, 8)
+	loader:SetStage("Starting ghost trackers…", 8, 9)
 	local controller = createLogic({
 		Services = Services,
 		Player = player,
 		Environment = environment,
 		Generation = generation,
 		GhostModule = GhostModule,
+		RoundAutomation = createRoundAutomation,
 		View = view,
 		Presenter = presenter,
 	})
@@ -176,7 +181,7 @@ local ok, failure = xpcall(function()
 
 	environment.DemonologyUI = session
 	environment.UntitledGuiLoaded = true
-	loader:SetStage("Ready", 8, 8)
+	loader:SetStage("Ready", 9, 9)
 end, debug.traceback)
 
 if not ok then
