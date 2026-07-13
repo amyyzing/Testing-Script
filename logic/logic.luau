@@ -7655,37 +7655,65 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 			root.AssemblyAngularVelocity = Vector3.zero
 			Services.RunService.Heartbeat:Wait()
 		end
+		local releaseMovement = options.ReleaseMovementOnCancel == true
+			and not teleportIsActive()
 		if root.Parent then
-			root.Anchored = originalAnchored
+			root.Anchored = if releaseMovement then false else originalAnchored
 		end
 		if humanoid.Parent then
-			humanoid.PlatformStand = originalPlatformStand
-			humanoid.AutoRotate = originalAutoRotate
+			humanoid.PlatformStand = if releaseMovement
+				then false
+				else originalPlatformStand
+			humanoid.AutoRotate = if releaseMovement
+				then true
+				else originalAutoRotate
 			for state, enabled in pairs(disabledStates) do
 				pcall(function()
-					humanoid:SetStateEnabled(state, enabled)
+					humanoid:SetStateEnabled(
+						state,
+						releaseMovement and true or enabled
+					)
+				end)
+			end
+			if releaseMovement then
+				pcall(function()
+					humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 				end)
 			end
 		end
 		destroyBodyGeometryProbe()
 		return false,
-			"no grounded destination remained stable during teleport"
+			releaseMovement and "teleport was cancelled"
+				or "no grounded destination remained stable during teleport"
 	end
 	if not teleportIsActive() then
+		local releaseMovement = options.ReleaseMovementOnCancel == true
 		if root.Parent and character.Parent then
 			pcall(function()
 				character:PivotTo(originalPivot)
 			end)
 			root.AssemblyLinearVelocity = Vector3.zero
 			root.AssemblyAngularVelocity = Vector3.zero
-			root.Anchored = originalAnchored
+			root.Anchored = if releaseMovement then false else originalAnchored
 		end
 		if humanoid.Parent then
-			humanoid.PlatformStand = originalPlatformStand
-			humanoid.AutoRotate = originalAutoRotate
+			humanoid.PlatformStand = if releaseMovement
+				then false
+				else originalPlatformStand
+			humanoid.AutoRotate = if releaseMovement
+				then true
+				else originalAutoRotate
 			for state, enabled in pairs(disabledStates) do
 				pcall(function()
-					humanoid:SetStateEnabled(state, enabled)
+					humanoid:SetStateEnabled(
+						state,
+						releaseMovement and true or enabled
+					)
+				end)
+			end
+			if releaseMovement then
+				pcall(function()
+					humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 				end)
 			end
 		end
@@ -9009,6 +9037,57 @@ local function placeItemsInFavouriteRoom(owner)
 	return true, operationGeneration
 end
 
+doRoundState.movementReleaseSequence = 0
+doRoundState.releasePlayerMovement = function()
+	doRoundState.movementReleaseSequence =
+		(doRoundState.movementReleaseSequence or 0) + 1
+	local releaseSequence = doRoundState.movementReleaseSequence
+	local function restoreCurrentCharacter()
+		if doRoundState.enabled or player:GetAttribute("Dead") == true then
+			return false
+		end
+		local character = player.Character
+		local root = character
+			and character:FindFirstChild("HumanoidRootPart")
+		local humanoid = character
+			and character:FindFirstChildOfClass("Humanoid")
+		if not character or not root or not humanoid
+			or humanoid.Health <= 0 then
+			return false
+		end
+		pcall(function()
+			root.Anchored = false
+			humanoid.Sit = false
+			humanoid.PlatformStand = false
+			humanoid.AutoRotate = true
+			for _, state in ipairs({
+				Enum.HumanoidStateType.FallingDown,
+				Enum.HumanoidStateType.Ragdoll,
+				Enum.HumanoidStateType.Freefall,
+			}) do
+				humanoid:SetStateEnabled(state, true)
+			end
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end)
+		return true
+	end
+	restoreCurrentCharacter()
+	task.spawn(function()
+		-- A cancelled teleport can still be unwinding from a Heartbeat yield.
+		-- Reassert the normal live-player state long enough for that cooperative
+		-- cancellation path to finish, but stop immediately if automation restarts.
+		for _ = 1, 12 do
+			Services.RunService.Heartbeat:Wait()
+			if releaseSequence ~= doRoundState.movementReleaseSequence
+				or doRoundState.enabled
+				or not runtimeIsActive() then
+				return
+			end
+			restoreCurrentCharacter()
+		end
+	end)
+end
+
 local roundAutomation: any = createRoundAutomation({
 	Services = Services,
 	Player = player,
@@ -9037,6 +9116,7 @@ local roundAutomation: any = createRoundAutomation({
 	RefreshAutoSpiritBoxEnabled = refreshAutoSpiritBoxEnabled,
 	SetDoRoundStatus = setDoRoundStatus,
 	SetGhostIdentificationLabel = setGhostIdentificationLabel,
+	ReleasePlayerMovement = doRoundState.releasePlayerMovement,
 })
 local function setDoRoundEnabled(enabled, finalPhase)
 	return roundAutomation.SetEnabled(enabled, finalPhase)

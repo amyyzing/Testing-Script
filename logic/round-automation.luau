@@ -26,6 +26,7 @@ return function(dependencies: any)
 	local refreshAutoSpiritBoxEnabled: any = assert(dependencies.RefreshAutoSpiritBoxEnabled, "round-automation requires RefreshAutoSpiritBoxEnabled")
 	local setDoRoundStatus: any = assert(dependencies.SetDoRoundStatus, "round-automation requires SetDoRoundStatus")
 	local setGhostIdentificationLabel: any = assert(dependencies.SetGhostIdentificationLabel, "round-automation requires SetGhostIdentificationLabel")
+	local releasePlayerMovement: any = assert(dependencies.ReleasePlayerMovement, "round-automation requires ReleasePlayerMovement")
 local roundUtilities: any = (function()
 local DROPPED_ROOM_ITEMS = {
 	"Spirit Box",
@@ -688,6 +689,7 @@ local function teleportNearRoundTarget(target, preferredPosition, generation)
 		MaximumTargetDistance = 9.25,
 		LookAtPosition = center,
 		RequireStrict = true,
+		ReleaseMovementOnCancel = true,
 		IsActive = function()
 			return generation == nil
 				or (runtimeIsActive()
@@ -714,6 +716,7 @@ local function teleportToRoundDoorFace(target, approach, generation)
 		MaximumPreferredDistance = approach.MaximumPreferredDistance or 0.8,
 		LookDirection = approach.Facing,
 		RequireStrict = true,
+		ReleaseMovementOnCancel = true,
 		CandidateValidator = function(position)
 			local relative = Vector3.new(
 				position.X - geometry.Center.X,
@@ -1126,6 +1129,9 @@ local function beginRoundDoorFacingLock(target)
 		HeartbeatPass = 0,
 		RenderPass = 0,
 	}
+	doRoundState.facingLocks = doRoundState.facingLocks
+		or setmetatable({}, {__mode = "k"})
+	doRoundState.facingLocks[lock] = true
 	function lock:Enforce()
 		if self.Released then
 			return false
@@ -1160,6 +1166,9 @@ local function beginRoundDoorFacingLock(target)
 			return
 		end
 		self.Released = true
+		if doRoundState.facingLocks then
+			doRoundState.facingLocks[self] = nil
+		end
 		for _, connection in ipairs(self.Connections) do
 			if connection.Connected then
 				connection:Disconnect()
@@ -1184,6 +1193,7 @@ local function beginRoundDoorFacingLock(target)
 		context.Humanoid.AutoRotate = false
 	end)
 	if not disabled then
+		lock:Release()
 		return nil, "player facing lock could not disable AutoRotate"
 	end
 	local preSimulationConnected, preSimulationConnection = pcall(function()
@@ -1857,6 +1867,7 @@ local setDoRoundEnabled = (function()
 		roundUtilities.MaintenanceRetryBackoff
 	local function roundTeleportOptions(generation)
 		return {
+			ReleaseMovementOnCancel = true,
 			IsActive = function()
 				return doRoundOperationActive(generation)
 			end,
@@ -2740,7 +2751,14 @@ local function selectRoundJournalGhost(ghostName, generation)
 	return false
 end
 
-local setEnabled
+	local setEnabled
+	local function releaseRoundMovement()
+		for lock in pairs(doRoundState.facingLocks or {}) do
+			pcall(lock.Release, lock)
+		end
+		doRoundState.facingLocks = setmetatable({}, {__mode = "k"})
+		releasePlayerMovement()
+	end
 
 local function waitForRoundHuntEnd(generation)
 	local escaped = false
@@ -3090,6 +3108,9 @@ end
 setEnabled = function(enabled, finalPhase)
 	enabled = enabled == true
 	if doRoundState.enabled == enabled then
+		if not enabled then
+			releaseRoundMovement()
+		end
 		if finalPhase then
 			setDoRoundStatus(finalPhase)
 		end
@@ -3186,6 +3207,7 @@ setEnabled = function(enabled, finalPhase)
 			placeRoomItemsButton.Text = COPY.Controls.PlaceRoomItems
 			placeRoomItemsButton.BackgroundColor3 = COLORS.cardHover
 		end
+		releaseRoundMovement()
 		doRoundState.autoSpiritBoxLease = false
 		doRoundState.questionsActive = false
 		refreshAutoSpiritBoxEnabled()

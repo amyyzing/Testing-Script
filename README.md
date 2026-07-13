@@ -46,6 +46,10 @@ doors until `Uses` reaches zero; Holy Oil dispatches once at a different door. B
 previews must remain within two studs of the player, touch valid room bounds, and
 pass floor and clearance checks before the remote is fired.
 
+Turning `Do Round` off immediately releases any door-facing render lock and
+restores a live character's unanchored, rotating humanoid state. Cancellation-aware
+teleports also restore movement instead of preserving a transient automation lock.
+
 Base Camp returns evaluate every Base Camp bound and prefer the safest result
 closest to an identified Exit Door; if no exit can be identified, the Truck is the
 distance reference.
