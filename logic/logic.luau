@@ -3360,6 +3360,40 @@ local function instanceIsInsideRoom(instance, room)
 	end
 	return false
 end
+automationHelpers.worldItemIsInsideRoomBounds = function(item: any, room: any): boolean
+	local itemsFolder: any = workspace:FindFirstChild("Items")
+	if not itemsFolder
+		or not item
+		or item.Parent ~= itemsFolder
+		or not item:IsA("Model") then
+		return false
+	end
+	local itemName: any = item:GetAttribute("ItemName")
+	if typeof(itemName) ~= "string" or itemName == "" then
+		return false
+	end
+	-- Membership is intentionally only a model-position-in-any-bound check.
+	-- Collision/open-space/lower-height rules belong to prospective placement,
+	-- not to deciding whether an existing Workspace.Items model is already in
+	-- its favourite room.
+	if instanceIsInsideRoom(item, room) then
+		return true
+	end
+	-- Some item models use an offset pivot. The geometric center is a safe
+	-- representative fallback without requiring every part/corner to fit.
+	local ok: boolean, frame: any = pcall(function(): any
+		return item:GetBoundingBox()
+	end)
+	if not ok or not frame then
+		return false
+	end
+	for _, bounds: any in ipairs(getRoomBoundingParts(room)) do
+		if pointIsInsidePart(bounds, frame.Position) then
+			return true
+		end
+	end
+	return false
+end
 local function _findRoomContainingInstance(instance)
 	local roomsFolder = findRoomsFolder()
 	if not roomsFolder or not instance then
@@ -8467,10 +8501,12 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 					local items = workspace:FindFirstChild("Items")
 					if items then
 						for _, worldItem in ipairs(items:GetChildren()) do
-							if sameItemName(
-								worldItem:GetAttribute("ItemName") or worldItem.Name,
-								itemName
-							) then
+							local worldItemName = worldItem:IsA("Model")
+								and worldItem:GetAttribute("ItemName")
+								or nil
+							if typeof(worldItemName) == "string"
+								and worldItemName ~= ""
+								and sameItemName(worldItemName, itemName) then
 								existingWorldItems[worldItem] = true
 							end
 						end
@@ -8481,12 +8517,12 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 					inventorySlotKey(slotNumber)
 				)
 				local deadline = os.clock() + 1.65
-					repeat
-						assertOperationActive()
-						if countPhysicalInventoryItem(
-								itemName,
-								includeBurntCross
-							) < beforeCount then
+				repeat
+					assertOperationActive()
+					if countPhysicalInventoryItem(
+						itemName,
+						includeBurntCross
+					) < beforeCount then
 						if not requireRoomReturn then
 							return true
 						end
@@ -8496,12 +8532,14 @@ local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 							assertOperationActive()
 							if items then
 								for _, worldItem in ipairs(items:GetChildren()) do
+									local worldItemName = worldItem:IsA("Model")
+										and worldItem:GetAttribute("ItemName")
+										or nil
 									if not existingWorldItems[worldItem]
-										and sameItemName(
-											worldItem:GetAttribute("ItemName") or worldItem.Name,
-											itemName
-										)
-										and automationHelpers.worldItemIsFullyInsideRoom(
+										and typeof(worldItemName) == "string"
+										and worldItemName ~= ""
+										and sameItemName(worldItemName, itemName)
+										and automationHelpers.worldItemIsInsideRoomBounds(
 											worldItem,
 											dropRoom
 										) then
@@ -9170,6 +9208,7 @@ local roundAutomation: any = createRoundAutomation({
 	DistanceFromPositionToInstance = automationHelpers.distanceFromPositionToInstance,
 	CharacterIsFullyInsideRoom = automationHelpers.characterIsFullyInsideRoom,
 	WorldItemIsFullyInsideRoom = automationHelpers.worldItemIsFullyInsideRoom,
+	WorldItemIsInsideRoomBounds = automationHelpers.worldItemIsInsideRoomBounds,
 	WorldItemIsBurntCross = automationHelpers.worldItemIsBurntCross,
 	HasOrbEvidence = function()
 		return evidenceFound.Orb or perkTrackerState.orbObserved
