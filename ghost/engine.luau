@@ -1,7 +1,13 @@
--- Demonology ghost catalogue and evidence helpers.
+-- Demonology ghost catalogue and evidence helpers.  The concrete ghost
+-- definitions are loaded separately so this engine remains data-driven.
 --
 -- Internal evidence keys intentionally retain the names used by the original
 -- monolith. DisplayName and CurrentName expose the current in-game/wiki names.
+
+return function(rawDefinitions)
+if type(rawDefinitions) ~= "table" then
+	error("ghost/engine.luau requires an ordered definition array", 2)
+end
 
 local GhostModule = {}
 
@@ -117,338 +123,313 @@ local function copyArray(source)
 	return result
 end
 
-local function note(text, sourceUrl, status, mimickable, kind, conditions)
-	local result = {
-		Text = text,
-		Source = sourceUrl,
-		SourceUrl = sourceUrl,
-		SourceURL = sourceUrl,
-		Status = status,
-		Mimickable = mimickable == true,
-		Kind = kind or "Trait",
-	}
-	if conditions then
-		result.Conditions = conditions
+local REQUIRED_GHOST_COUNT = 25
+local PERK_TIERS = {"Pretty Sure", "Maybe", "Idk"}
+
+local function requireNonEmptyString(value, label)
+	if type(value) ~= "string" or value == "" then
+		error(label .. " must be a non-empty string", 3)
+	end
+	return value
+end
+
+local function normalizeStringArray(rawValues, label, allowEquivalentTokens)
+	rawValues = rawValues or {}
+	if type(rawValues) ~= "table" then
+		error(label .. " must be an array", 3)
+	end
+	local result = {}
+	local seen = {}
+	local entryCount = 0
+	for key in pairs(rawValues) do
+		if type(key) ~= "number"
+			or key % 1 ~= 0
+			or key < 1
+			or key > #rawValues then
+			error(label .. " must be a dense array", 3)
+		end
+		entryCount = entryCount + 1
+	end
+	if entryCount ~= #rawValues then
+		error(label .. " must be a dense array", 3)
+	end
+	for index, value in ipairs(rawValues) do
+		requireNonEmptyString(value, ("%s[%d]"):format(label, index))
+		local token = normalizedToken(value)
+		if not token or token == "" then
+			error(("%s[%d] must contain letters or numbers"):format(label, index), 3)
+		end
+		if seen[token] and not allowEquivalentTokens then
+			error(("%s repeats %q"):format(label, value), 3)
+		end
+		seen[token] = true
+		result[index] = value
 	end
 	return result
 end
 
-local SOURCE = {
-	Aswang = "https://demonology.fandom.com/wiki/Aswang",
-	Banshee = "https://demonology.fandom.com/wiki/Banshee",
-	Demon = "https://demonology.fandom.com/wiki/Demon",
-	Dullahan = "https://demonology.fandom.com/wiki/Dullahan",
-	Dybbuk = "https://demonology.fandom.com/wiki/Dybbuk",
-	Entity = "https://demonology.fandom.com/wiki/Entity",
-	Ghoul = "https://demonology.fandom.com/wiki/Ghoul",
-	Keres = "https://demonology.fandom.com/wiki/Keres",
-	Leviathan = "https://demonology.fandom.com/wiki/Leviathan",
-	Nightmare = "https://demonology.fandom.com/wiki/Nightmare",
-	Oni = "https://demonology.fandom.com/wiki/Oni",
-	Phantom = "https://demonology.fandom.com/wiki/Phantom",
-	Ravager = "https://demonology.fandom.com/wiki/Ravager",
-	Revenant = "https://demonology.fandom.com/wiki/Revenant",
-	Shadow = "https://demonology.fandom.com/wiki/Shadow",
-	Siren = "https://demonology.fandom.com/wiki/Siren",
-	Skinwalker = "https://demonology.fandom.com/wiki/Skinwalker",
-	Specter = "https://demonology.fandom.com/wiki/Specter",
-	Spirit = "https://demonology.fandom.com/wiki/Spirit",
-	Wisp = "https://demonology.fandom.com/wiki/The_Wisp",
-	Umbra = "https://demonology.fandom.com/wiki/Umbra",
-	Vesper = "https://demonology.fandom.com/wiki/Vesper",
-	Vex = "https://demonology.fandom.com/wiki/Vex",
-	Wendigo = "https://demonology.fandom.com/wiki/Wendigo",
-	Wraith = "https://demonology.fandom.com/wiki/Wraith",
-}
-
-local function perks(prettySure, maybe, idk)
-	-- These are deliberately the only keys in every Perks table.
-	return {
-		["Pretty Sure"] = prettySure or {},
-		["Maybe"] = maybe or {},
-		["Idk"] = idk or {},
-	}
+local function normalizeNote(rawNote, definition, tierName, noteIndex)
+	if type(rawNote) ~= "table" then
+		error(("%s Perks[%q][%d] must be a table"):format(
+			definition.Name,
+			tierName,
+			noteIndex
+		), 3)
+	end
+	local result = shallowCopy(rawNote)
+	result.Text = requireNonEmptyString(
+		rawNote.Text,
+		("%s Perks[%q][%d].Text"):format(definition.Name, tierName, noteIndex)
+	)
+	local source = rawNote.Source
+		or rawNote.SourceUrl
+		or rawNote.SourceURL
+		or definition.Source
+		or definition.SourceUrl
+		or definition.SourceURL
+	requireNonEmptyString(
+		source,
+		("%s Perks[%q][%d].Source"):format(
+			definition.Name,
+			tierName,
+			noteIndex
+		)
+	)
+	result.Source = source
+	result.SourceUrl = source
+	result.SourceURL = source
+	result.Status = rawNote.Status or definition.SourceStatus or "wiki-documented"
+	result.Mimickable = rawNote.Mimickable == true
+	result.Kind = rawNote.Kind or "Trait"
+	return result
 end
 
-local function profile(name, evidence, sourceStatus, profilePerks, aliases, falseEvidence)
-	local evidenceCopy = copyArray(evidence)
-	local evidenceSet = {}
+local function normalizePerks(rawPerks, definition)
+	if type(rawPerks) ~= "table" then
+		error(definition.Name .. ".Perks must be a table", 3)
+	end
+	local result = {}
+	for _, tierName in ipairs(PERK_TIERS) do
+		local rawNotes = rawPerks[tierName]
+		if type(rawNotes) ~= "table" then
+			error(("%s.Perks[%q] must be a table"):format(
+				definition.Name,
+				tierName
+			), 3)
+		end
+		local notes = {}
+		for noteIndex, rawNote in ipairs(rawNotes) do
+			notes[noteIndex] = normalizeNote(
+				rawNote,
+				definition,
+				tierName,
+				noteIndex
+			)
+		end
+		result[tierName] = notes
+	end
+	return result
+end
+
+local function normalizeEvidenceList(rawEvidence, definitionName, fieldName, expectedCount)
+	if type(rawEvidence) ~= "table" then
+		error(("%s.%s must be an array"):format(definitionName, fieldName), 3)
+	end
+	if expectedCount and #rawEvidence ~= expectedCount then
+		error(("%s.%s must contain exactly %d evidence keys"):format(
+			definitionName,
+			fieldName,
+			expectedCount
+		), 3)
+	end
+	local result = {}
+	local seen = {}
+	for index, rawKey in ipairs(rawEvidence) do
+		local evidenceKey = normalizeEvidence(rawKey)
+		if not evidenceKey then
+			error(("%s.%s[%d] is not a recognized evidence key"):format(
+				definitionName,
+				fieldName,
+				index
+			), 3)
+		end
+		if seen[evidenceKey] then
+			error(("%s.%s repeats evidence %s"):format(
+				definitionName,
+				fieldName,
+				evidenceKey
+			), 3)
+		end
+		seen[evidenceKey] = true
+		result[index] = evidenceKey
+	end
+	return result, seen
+end
+
+local function normalizeDefinition(rawDefinition, index)
+	if type(rawDefinition) ~= "table" then
+		error(("ghost definition %d must be a table"):format(index), 3)
+	end
+	local name = requireNonEmptyString(
+		rawDefinition.Name,
+		("ghost definition %d Name"):format(index)
+	)
+	local evidence, evidenceSet = normalizeEvidenceList(
+		rawDefinition.Evidence,
+		name,
+		"Evidence",
+		3
+	)
+	local falseEvidence, falseEvidenceSet = normalizeEvidenceList(
+		rawDefinition.FalseEvidence or {},
+		name,
+		"FalseEvidence"
+	)
+	for evidenceKey in pairs(falseEvidenceSet) do
+		if evidenceSet[evidenceKey] then
+			error(("%s lists %s as both real and false evidence"):format(
+				name,
+				evidenceKey
+			), 3)
+		end
+	end
+	local source = rawDefinition.Source
+		or rawDefinition.SourceUrl
+		or rawDefinition.SourceURL
+	requireNonEmptyString(source, name .. ".Source")
 	local evidenceDisplay = {}
-	for index, evidenceKey in ipairs(evidenceCopy) do
-		evidenceSet[evidenceKey] = true
-		evidenceDisplay[index] = EVIDENCE[evidenceKey].DisplayName
+	for evidenceIndex, evidenceKey in ipairs(evidence) do
+		evidenceDisplay[evidenceIndex] = EVIDENCE[evidenceKey].DisplayName
 	end
-	local falseEvidenceCopy = copyArray(falseEvidence)
-	local falseEvidenceSet = {}
-	for _, evidenceKey in ipairs(falseEvidenceCopy) do
-		falseEvidenceSet[evidenceKey] = true
-	end
-	return {
-		Name = name,
-		DisplayName = name == "Wisp" and "The Wisp" or name,
-		Aliases = copyArray(aliases),
-		Evidence = evidenceCopy,
-		EvidenceSet = evidenceSet,
-		EvidenceDisplay = evidenceDisplay,
-		DisplayEvidence = evidenceDisplay,
-		FalseEvidence = falseEvidenceCopy,
-		FalseEvidenceSet = falseEvidenceSet,
-		Perks = profilePerks,
-		Source = SOURCE[name],
-		SourceUrl = SOURCE[name],
-		SourceURL = SOURCE[name],
-		SourceStatus = sourceStatus or "wiki-documented",
-	}
+	local profile = shallowCopy(rawDefinition)
+	profile.Name = name
+	profile.DisplayName = requireNonEmptyString(
+		rawDefinition.DisplayName or (name == "Wisp" and "The Wisp" or name),
+		name .. ".DisplayName"
+	)
+	profile.Aliases = normalizeStringArray(
+		rawDefinition.Aliases,
+		name .. ".Aliases",
+		true
+	)
+	profile.Evidence = evidence
+	profile.EvidenceSet = evidenceSet
+	profile.EvidenceDisplay = evidenceDisplay
+	profile.DisplayEvidence = evidenceDisplay
+	profile.FalseEvidence = falseEvidence
+	profile.FalseEvidenceSet = falseEvidenceSet
+	profile.Perks = normalizePerks(rawDefinition.Perks, rawDefinition)
+	profile.Source = source
+	profile.SourceUrl = source
+	profile.SourceURL = source
+	profile.SourceStatus = rawDefinition.SourceStatus or "wiki-documented"
+	profile.ObservationKeys = normalizeStringArray(
+		rawDefinition.ObservationKeys,
+		name .. ".ObservationKeys"
+	)
+	profile.Definition = rawDefinition
+	return profile
 end
 
-local Profiles = {
-	profile("Aswang", {"EMFLevel5", "GhostWriting", "Wither"}, "wiki-documented", perks({
-		note("During one hunt, direct salt contact is followed by repeated lower WalkSpeed samples and then recovery toward the pre-contact speed.", SOURCE.Aswang, "wiki-documented", false, "Trait", "The contact and temporary same-hunt slowdown are the core pattern; disturbance corroborates the contact but is not required for the speed comparison."),
-	}, {
-		note("A hunting ghost touched salt and showed a repeated speed dip, but recovery has not been sampled yet.", SOURCE.Aswang, "wiki-documented", false, "Trait", "Keep sampling through the temporary slowdown window before upgrading confidence."),
-		note("Across controlled hunt-state comparisons, WalkSpeed rises by about 20% after each unique hunter kill.", SOURCE.Aswang, "wiki-documented", false, "Trait", "Compare stable speeds before and after the kill rather than relying on one estimate."),
-	}, {
-		note("Disturbed salt by itself or a slowdown after contact outside a hunt is not diagnostic for Aswang.", SOURCE.Aswang, "wiki-documented", false, "Caveat"),
-	})),
-	profile("Banshee", {"FreezingTemperatures", "GhostOrb", "Handprints"}, "wiki-documented", perks({
-		note("A distinct, subtitle-supported wail occurred at the start of a hunt after Skinwalker was ruled out.", SOURCE.Banshee, "wiki-documented", true, "Ability", "Skinwalker may mimic the wail."),
-	}, {
-		note("Glass, windows, bulbs, or cups break unusually often.", SOURCE.Banshee, "wiki-documented", false, "Trait"),
-	}, {
-		note("One glass break is weak evidence: any ghost can break glass and a Banshee may break none.", SOURCE.Banshee, "wiki-documented", false, "Caveat"),
-	})),
-	profile("Demon", {"EMFLevel5", "FreezingTemperatures", "Handprints"}, "wiki-documented", perks({
-		note("A Cross visibly floats or spins while burning; Crosses also work from a larger range.", SOURCE.Demon, "wiki-documented", false, "Weakness"),
-	}, {
-		note("It hunts consistently as soon as the 85% average-energy threshold and hunt cooldown permit.", SOURCE.Demon, "wiki-documented", true, "Ability"),
-	}, {
-		note("Frequent hunts alone overlap with Revenant behavior and difficulty modifiers.", SOURCE.Demon, "wiki-documented", true, "Caveat"),
-	})),
-	profile("Dullahan", {"FreezingTemperatures", "LaserProjector", "Wither"}, "wiki-documented", perks({
-		note("A clear Photo Camera image shows it without a head.", SOURCE.Dullahan, "wiki-documented", false, "Weakness"),
-		note("During a hunt, WalkSpeed rises in several short intervals; line of sight is not required and intervening decreases do not invalidate the pattern.", SOURCE.Dullahan, "wiki-documented", false, "Trait"),
-	}, {
-		note("At least three upward WalkSpeed steps appear across five roughly 0.1-second hunting samples.", SOURCE.Dullahan, "wiki-documented", false, "Trait"),
-	}, {
-		note("A fast ghost or a naturally partial-head model can be mistaken for this tell.", SOURCE.Dullahan, "wiki-documented", false, "Caveat"),
-	})),
-	profile("Dybbuk", {"FreezingTemperatures", "Handprints", "Wither"}, "wiki-documented", perks({
-		note("The first Music Box play visibly stuns it for about three seconds.", SOURCE.Dybbuk, "wiki-documented", false, "Weakness", "The Music Box is not guaranteed to spawn and is absent on Nightmare difficulty."),
-	}, {
-		note("A corpse was directly observed being thrown.", SOURCE.Dybbuk, "wiki-documented", true, "Ability"),
-	}, {
-		note("A corpse was merely found displaced; ordinary physics can move bodies.", SOURCE.Dybbuk, "wiki-documented", true, "Caveat"),
-	})),
-	profile("Entity", {"Handprints", "LaserProjector", "SpiritBox"}, "wiki-documented", perks({
-		note("After Skinwalker is excluded, a witnessed teleport or an object teleport with same-colored smoke strongly identifies Entity.", SOURCE.Entity, "wiki-documented", true, "Ability"),
-	}, {
-		note("Equipment changed rooms, or salt placement implies an impossible path without teleporting.", SOURCE.Entity, "wiki-documented", true, "Ability"),
-	}, {
-		note("Frequent roaming or a missed salt line does not establish teleportation.", SOURCE.Entity, "wiki-documented", true, "Caveat"),
-	})),
-	profile("Ghoul", {"FreezingTemperatures", "GhostOrb", "SpiritBox"}, "wiki-documented", perks({
-		note("Nearby electronics and Video Camera remain enabled and do not static during a hunt.", SOURCE.Ghoul, "wiki-documented", false, "Weakness", "The EMF Reader can still malfunction because it is not switched off."),
-	}, {
-		note("Repeated Spirit Box use or talking appears to trigger a hunt below the normal energy threshold.", SOURCE.Ghoul, "wiki-documented", false, "Trait"),
-	}, {
-		note("Electronics looked normal without confirming the hunting ghost was nearby.", SOURCE.Ghoul, "wiki-documented", false, "Caveat"),
-	})),
-	profile("Keres", {"Handprints", "SpiritBox", "Wither"}, "wiki-documented", perks({
-		note("A controlled hunt targets the lowest-energy hunter while ignoring higher-energy hunters; solo it ignores a hunter at or above 90% energy.", SOURCE.Keres, "wiki-documented", false, "Trait"),
-		note("Movement speed drops about 10% after each unique hunter kill.", SOURCE.Keres, "wiki-documented", false, "Weakness"),
-	}, {
-		note("It appears to prioritize the party member with the least energy.", SOURCE.Keres, "wiki-documented", false, "Trait"),
-	}, {
-		note("A feminine model or Spirit Box voice only narrows the ghost to Keres or Siren.", SOURCE.Keres, "wiki-documented", false, "Model"),
-	})),
-	profile("Leviathan", {"GhostOrb", "GhostWriting", "Handprints"}, "wiki-stub", perks({
-		note("A room's light switch shut the lights off while the ghost was not hunting, with no player, automation, or fuse-box outage responsible.", SOURCE.Leviathan, "wiki-stub", true, "Ability"),
-	}, {
-		note("Nearby equipment produced a clean rapid flicker outside a hunt; by itself this can overlap with Skinwalker mimicry.", SOURCE.Leviathan, "wiki-stub", true, "Ability"),
-	}, {
-		note("A broken fuse box or general power outage is explicitly not the Leviathan tell.", SOURCE.Leviathan, "wiki-stub", true, "Caveat"),
-	})),
-	profile("Nightmare", {"EMFLevel5", "GhostOrb", "SpiritBox"}, "wiki-documented", perks({
-		note("After Skinwalker is excluded, corroboration proves an auditory cue had no matching real interaction.", SOURCE.Nightmare, "wiki-documented", true, "Ability"),
-	}, {
-		note("It hunts more often while its current room is dark.", SOURCE.Nightmare, "wiki-documented", false, "Trait"),
-	}, {
-		note("An unexplained noise or general activity in darkness is not enough by itself.", SOURCE.Nightmare, "wiki-documented", true, "Caveat"),
-	})),
-	profile("Oni", {"FreezingTemperatures", "LaserProjector", "SpiritBox"}, "wiki-documented", perks({
-		note("Visible hunting WalkSpeed resolves to base 13.5 after removing the map bonus and one valid 50%, 75%, 100%, 125%, 150%, or 200% difficulty multiplier; ordinary ghosts resolve to base 11.", SOURCE.Oni, "wiki-documented", false, "Trait"),
-	}, {
-		note("Rapid or high-pitched footsteps accompany unusually frequent visible manifestations.", SOURCE.Oni, "wiki-documented", false, "Trait"),
-	}, {
-		note("One fast hunt or one manifestation is a risky relative-speed/activity tell.", SOURCE.Oni, "wiki-documented", false, "Caveat"),
-	})),
-	profile("Phantom", {"EMFLevel5", "GhostOrb", "Handprints"}, "wiki-documented", perks({
-		note("Within the same hunt, settled Transparency=1 WalkSpeed is about 13.5/11 times the settled Transparency=0 WalkSpeed.", SOURCE.Phantom, "wiki-documented", true, "Trait", "Transparency is binary: 0 is visible and 1 is invisible. Retain Skinwalker as an equal possibility in Mimicry mode."),
-	}, {
-		note("One settled visible/invisible speed pair shows the invisible phase clearly faster than the visible phase.", SOURCE.Phantom, "wiki-documented", true, "Trait"),
-	}, {
-		note("Ignore the first replication sample after Transparency changes; compare settled samples from both binary phases.", SOURCE.Phantom, "wiki-documented", true, "Caveat"),
-	})),
-	profile("Ravager", {"EMFLevel5", "GhostWriting", "SpiritBox"}, "wiki-recent-stub", perks({
-		note("A vortex pulls nearby objects into a tornado during a hunt.", SOURCE.Ravager, "wiki-recent-stub", false, "Trait", "The guide reports roughly a one-in-three activation chance."),
-		note("A ghost event produces EMF Level 5 even in a zero-evidence custom run.", SOURCE.Ravager, "wiki-recent-stub", false, "Weakness"),
-	}, {
-		note("Multiple objects are thrown simultaneously or cause a chain reaction.", SOURCE.Ravager, "wiki-recent-stub", true, "Ability"),
-	}, {
-		note("Frequent single-object throws overlap with Specter and ordinary activity.", SOURCE.Ravager, "wiki-recent-stub", true, "Caveat"),
-	})),
-	profile("Revenant", {"EMFLevel5", "FreezingTemperatures", "GhostWriting"}, "wiki-documented", perks({
-		note("The hunt ends immediately after it kills a hunter.", SOURCE.Revenant, "wiki-documented", false, "Weakness", "This is clearest outside Easy and Medium difficulty."),
-	}, {
-		note("The cooldown between hunts is short but less mechanically consistent than a Demon.", SOURCE.Revenant, "wiki-documented", false, "Trait"),
-	}, {
-		note("Frequent hunts alone overlap with Demon behavior and difficulty settings.", SOURCE.Revenant, "wiki-documented", false, "Caveat"),
-	})),
-	profile("Shadow", {"EMFLevel5", "GhostWriting", "LaserProjector"}, "wiki-documented", perks({}, {
-		note("A confirmed ghost room changes temperature only by small decimal steps and stays unusually warm.", SOURCE.Shadow, "wiki-documented", false, "Trait"),
-		note("A controlled light-on versus light-off comparison shows reduced activity in the lit room.", SOURCE.Shadow, "wiki-documented", false, "Weakness"),
-	}, {
-		note("A quiet ghost or a room that is difficult to locate is only absence-based evidence.", SOURCE.Shadow, "wiki-documented", false, "Caveat"),
-	})),
-	profile("Siren", {"EMFLevel5", "SpiritBox", "Wither"}, "wiki-documented", perks({
-		note("A hunter is clearly slowed while inside the Siren's line of sight; this trait is not listed as Skinwalker-mimickable.", SOURCE.Siren, "wiki-documented", false, "Trait"),
-		note("The Spirit Box returns - HUMMING - after Skinwalker has been excluded.", SOURCE.Siren, "wiki-documented", true, "Ability"),
-	}, {
-		note("The Spirit Box returns - HUMMING -, which can also be a mimicking Skinwalker.", SOURCE.Siren, "wiki-documented", true, "Ability"),
-	}, {
-		note("A feminine Spirit Box response only narrows the ghost to Siren or Keres.", SOURCE.Siren, "wiki-documented", false, "Trait"),
-		note("A feminine model only narrows the ghost to Siren or Keres.", SOURCE.Siren, "wiki-documented", false, "Model"),
-	})),
-	profile("Skinwalker", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "wiki-disputed", perks({
-		note("Four evidence observations resolve to its three real evidences plus a fake Ghost Orb.", SOURCE.Skinwalker, "wiki-disputed", false, "Trait"),
-		note("A Ghost Orb appears in a custom run with all real evidence disabled.", SOURCE.Skinwalker, "wiki-disputed", false, "Trait"),
-		note("It copies Wisp fire-walking but crosses Holy Oil without catching fire.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),
-		note("Multiple mutually inconsistent ghost abilities are observed in one job.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),
-	}, {
-		note("A single ability looks copied, or an Orb accompanies only part of the Skinwalker evidence set.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),
-	}, {
-		note("Frequent roaming or a Ghost Orb alone in normal evidence mode is weak evidence.", SOURCE.Skinwalker, "wiki-disputed", false, "Caveat"),
-	}), nil, {"GhostOrb"}),
-	profile("Specter", {"EMFLevel5", "FreezingTemperatures", "LaserProjector"}, "wiki-documented", perks({
-		note("Repeated position or salt tracking establishes that it never leaves the favorite room except to hunt.", SOURCE.Specter, "wiki-documented", false, "Trait"),
-	}, {
-		note("It remains fixed to its favorite room while frequently throwing one object at a time.", SOURCE.Specter, "wiki-documented", false, "Trait"),
-	}, {
-		note("Frequent throwing alone overlaps with Ravager and ordinary ghost activity.", SOURCE.Specter, "wiki-documented", false, "Caveat"),
-	})),
-	profile("Spirit", {"GhostWriting", "Handprints", "SpiritBox"}, "wiki-documented", perks({
-		note("After Skinwalker is excluded, a candle, lantern, Summoning Circle, or Holy Oil flame changes blue and remains blue after relighting.", SOURCE.Spirit, "wiki-documented", true, "Ability"),
-	}, {
-		note("One blue flame was observed while Skinwalker remains possible.", SOURCE.Spirit, "wiki-documented", true, "Ability"),
-	}, {
-		note("Low or mostly harmless activity is not an identifying trait by itself.", SOURCE.Spirit, "wiki-documented", true, "Caveat"),
-	})),
-	profile("Umbra", {"GhostOrb", "Handprints", "LaserProjector"}, "wiki-documented", perks({
-		note("After Skinwalker is excluded, hunt footsteps are completely silent and movement slows in lit rooms.", SOURCE.Umbra, "wiki-documented", true, "Ability"),
-	}, {
-		note("Either silent hunt footsteps or a controlled lit-room slowdown was observed.", SOURCE.Umbra, "wiki-documented", true, "Trait"),
-	}, {
-		note("Footsteps were merely difficult to hear over other sounds.", SOURCE.Umbra, "wiki-documented", true, "Caveat"),
-	})),
-	profile("Vesper", {"GhostWriting", "Handprints", "Wither"}, "wiki-recent-stub", perks({
-		note("A controlled silent/still test is followed by a sound that immediately causes tracking through a wall.", SOURCE.Vesper, "wiki-recent-stub", false, "Trait"),
-	}, {
-		note("It repeatedly tracks noisy equipment or hunters through walls.", SOURCE.Vesper, "wiki-recent-stub", false, "Trait"),
-	}, {
-		note("It simply failed to path toward a stationary hunter; this test is easy to misread.", SOURCE.Vesper, "wiki-recent-stub", false, "Caveat"),
-	})),
-	profile("Vex", {"FreezingTemperatures", "GhostOrb", "Wither"}, "wiki-documented", perks({
-		note("It passes through a wall and repeatedly remains absent from LIDAR while its location is independently known.", SOURCE.Vex, "wiki-documented", true, "Trait", "Skinwalker may copy wall-walking but is not documented to copy LIDAR invisibility."),
-	}, {
-		note("It visibly walks through a wall, indicating Vex or a mimicking Skinwalker.", SOURCE.Vex, "wiki-documented", true, "Ability"),
-	}, {
-		note("Cutting a corner or missing from one scan without confirmed range is weak evidence.", SOURCE.Vex, "wiki-documented", true, "Caveat"),
-	})),
-	profile("Wendigo", {"GhostOrb", "GhostWriting", "LaserProjector"}, "wiki-documented", perks({
-		note("Controlled energy changes correlate with hunt speed, and it refuses to begin a hunt near a lit candle or lantern.", SOURCE.Wendigo, "wiki-documented", false, "Trait"),
-	}, {
-		note("It becomes very fast at low average energy or repeatedly avoids starting near lit flames.", SOURCE.Wendigo, "wiki-documented", false, "Trait"),
-	}, {
-		note("One fast hunt or a hunt starting away from fire is not distinctive.", SOURCE.Wendigo, "wiki-documented", false, "Caveat"),
-	})),
-	profile("Wisp", {"GhostOrb", "LaserProjector", "Wither"}, "wiki-documented", perks({
-		note("It crosses ignited Holy Oil and visibly catches fire; a mimicking Skinwalker does not ignite.", SOURCE.Wisp, "wiki-documented", false, "Ability"),
-	}, {
-		note("It lights an unlit candle or walks through a line of fire, both of which Skinwalker may mimic.", SOURCE.Wisp, "wiki-documented", true, "Ability"),
-	}, {
-		note("Hunts only seemed to start in the favorite room; that room can change on higher difficulty.", SOURCE.Wisp, "wiki-documented", false, "Trait"),
-	}), {"The Wisp", "Will-o-the-Wisp", "Will o the Wisp"}),
-	profile("Wraith", {"EMFLevel5", "LaserProjector", "SpiritBox"}, "wiki-documented", perks({
-		note("It is directly observed touching or crossing a salt line without disturbing it, whether hunting or not.", SOURCE.Wraith, "wiki-documented", false, "Weakness"),
-		note("Measured passive energy drain is roughly 0.2-0.4% per second faster than normal.", SOURCE.Wraith, "wiki-documented", false, "Trait"),
-	}, {
-		note("The party's energy falls unusually quickly across a sustained sample.", SOURCE.Wraith, "wiki-documented", false, "Trait"),
-	}, {
-		note("Untouched salt is not useful unless the ghost was known to cross it.", SOURCE.Wraith, "wiki-documented", false, "Caveat"),
-	})),
-}
+if #rawDefinitions ~= REQUIRED_GHOST_COUNT then
+	error(("ghost engine requires exactly %d definitions; received %d"):format(
+		REQUIRED_GHOST_COUNT,
+		#rawDefinitions
+	), 2)
+end
+local definitionEntryCount = 0
+for key in pairs(rawDefinitions) do
+	if type(key) ~= "number"
+		or key % 1 ~= 0
+		or key < 1
+		or key > #rawDefinitions then
+		error("ghost definitions must be a dense ordered array", 2)
+	end
+	definitionEntryCount = definitionEntryCount + 1
+end
+if definitionEntryCount ~= #rawDefinitions then
+	error("ghost definitions must be a dense ordered array", 2)
+end
+
+local Profiles = {}
+local PerkConfidence = {}
+local PerkTTL = {}
+local seenNames = {}
+local seenEvidenceCombinations = {}
+for index, rawDefinition in ipairs(rawDefinitions) do
+	local ghostProfile = normalizeDefinition(rawDefinition, index)
+	local nameToken = normalizedToken(ghostProfile.Name)
+	if seenNames[nameToken] then
+		error(("duplicate ghost definition name %q"):format(ghostProfile.Name), 2)
+	end
+	seenNames[nameToken] = true
+
+	local signatureParts = copyArray(ghostProfile.Evidence)
+	table.sort(signatureParts)
+	local evidenceSignature = table.concat(signatureParts, "\0")
+	local existingEvidenceOwner = seenEvidenceCombinations[evidenceSignature]
+	if existingEvidenceOwner then
+		error(("%s and %s define the same real evidence set"):format(
+			existingEvidenceOwner,
+			ghostProfile.Name
+		), 2)
+	end
+	seenEvidenceCombinations[evidenceSignature] = ghostProfile.Name
+
+	local confidence = rawDefinition.Confidence
+	if confidence ~= nil then
+		if type(confidence) ~= "number"
+			or confidence ~= confidence
+			or confidence < 0
+			or confidence > 100 then
+			error(ghostProfile.Name .. ".Confidence must be a number from 0 to 100", 2)
+		end
+		PerkConfidence[ghostProfile.Name] = confidence
+	end
+	local ttl = rawDefinition.TTL
+	if ttl ~= nil then
+		if type(ttl) ~= "number" or ttl ~= ttl or ttl <= 0 then
+			error(ghostProfile.Name .. ".TTL must be a positive number", 2)
+		end
+		PerkTTL[ghostProfile.Name] = ttl
+	end
+	Profiles[index] = ghostProfile
+end
 
 local Order = {}
 local ByName = {}
 local lookupByToken = {}
 local orderIndex = {}
+local function registerLookupName(ghostProfile, value, label)
+	local token = normalizedToken(value)
+	if not token or token == "" then
+		error(("%s %s must contain letters or numbers"):format(
+			ghostProfile.Name,
+			label
+		), 2)
+	end
+	local existing = lookupByToken[token]
+	if existing and existing ~= ghostProfile then
+		error(("%s %s %q collides with ghost %s"):format(
+			ghostProfile.Name,
+			label,
+			tostring(value),
+			existing.Name
+		), 2)
+	end
+	lookupByToken[token] = ghostProfile
+end
 for index, ghostProfile in ipairs(Profiles) do
 	ghostProfile.Index = index
 	Order[index] = ghostProfile.Name
 	ByName[ghostProfile.Name] = ghostProfile
-	lookupByToken[normalizedToken(ghostProfile.Name)] = ghostProfile
-	lookupByToken[normalizedToken(ghostProfile.DisplayName)] = ghostProfile
+	registerLookupName(ghostProfile, ghostProfile.Name, "Name")
+	registerLookupName(ghostProfile, ghostProfile.DisplayName, "DisplayName")
 	orderIndex[ghostProfile.Name] = index
 	for _, alias in ipairs(ghostProfile.Aliases) do
-		lookupByToken[normalizedToken(alias)] = ghostProfile
+		registerLookupName(ghostProfile, alias, "alias")
 	end
 end
-
--- Exact compatibility tables copied from the original monolith. Missing keys
--- intentionally remain missing because recordPerkDetection used their absence
--- to ignore unsupported automatic detections.
-local PerkConfidence = {
-	Aswang = 95,
-	Banshee = 60,
-	Demon = 99,
-	Dullahan = 99,
-	Dybbuk = 60,
-	Entity = 95,
-	Skinwalker = 65,
-	Keres = 95,
-	Leviathan = 95,
-	Oni = 97,
-	Phantom = 99,
-	Ravager = 95,
-	Revenant = 35,
-	Siren = 95,
-	Specter = 35,
-	Spirit = 99,
-	Umbra = 95,
-	Vex = 95,
-	Wendigo = 98,
-	Wisp = 35,
-	Wraith = 95,
-}
-
-local PerkTTL = {
-	Banshee = 30,
-	Dullahan = 25,
-	Dybbuk = 120,
-	Entity = 30,
-	Skinwalker = 120,
-	Leviathan = 30,
-	Oni = 25,
-	Phantom = 30,
-	Ravager = 6,
-	Siren = 25,
-	Specter = 120,
-	Umbra = 60,
-	Vex = 2,
-	Wendigo = 20,
-	Wisp = 120,
-	Wraith = 120,
-}
 
 local TIER_NAMES = {
 	[0] = "Idk",
@@ -802,6 +783,16 @@ local function selectHighestConfidenceGuess(options)
 	return tied[index]
 end
 
+local function selectTimeoutGuess(options)
+	options = shallowCopy(options or {})
+	-- Skinwalker only keeps its full timeout weight once Orb has actually been
+	-- observed.  Keeping this policy in the ghost package prevents automation
+	-- callers from embedding ghost-specific weighting rules.
+	options.SkinwalkerHalfWeight = options.HasOrbEvidence ~= true
+	options.HasOrbEvidence = nil
+	return selectHighestConfidenceGuess(options)
+end
+
 local function rankDetections(detections, evidence, ruleOuts, options)
 	options = options or {}
 	local candidateOptions = shallowCopy(options)
@@ -1094,6 +1085,8 @@ GhostModule.SupportsEvidence = supportsEvidence
 GhostModule.FilterCandidates = filterCandidates
 GhostModule.RankDetections = rankDetections
 GhostModule.SelectHighestConfidenceGuess = selectHighestConfidenceGuess
+GhostModule.SelectTimeoutGuess = selectTimeoutGuess
 GhostModule.NewTracker = newTracker
 
 return GhostModule
+end
