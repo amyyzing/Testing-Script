@@ -223,8 +223,24 @@ else
 end
 
 local LOBBY_MACRO_DELAY = 0.75
+local LOBBY_DATA_LOAD_GRACE = 10
+
+local function waitForLobbyDataLoad()
+	-- game:IsLoaded() only confirms that the place replicated. The game's
+	-- server-side player profile can still be loading, and sending
+	-- LoadingFinished/AttemptStart during that window can trigger the
+	-- "data couldn't load" kick. Keep this grace separate from the requested
+	-- 0.75-second spacing between macro remotes.
+	local deadline = os.clock() + LOBBY_DATA_LOAD_GRACE
+	while os.clock() < deadline do
+		assertCurrent()
+		task.wait(math.min(0.1, math.max(0, deadline - os.clock())))
+	end
+	assertCurrent()
+end
 
 local function runLobbyStartMacro()
+	waitForLobbyDataLoad()
 	local events = Services.ReplicatedStorage:FindFirstChild("Events")
 	if not events then
 		error("ReplicatedStorage.Events was not found for the lobby macro", 0)
