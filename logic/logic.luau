@@ -97,6 +97,9 @@ local doRoundState = {
 	autoSpiritBoxLease = false,
 	questionsActive = false,
 	usedDoorNames = {},
+	completedDoorTools = {},
+	doorToolPlacements = {},
+	doorToolMaximums = {},
 	roomItems = {},
 	itemPower = setmetatable({}, {__mode = "k"}),
 	outsideSince = setmetatable({}, {__mode = "k"}),
@@ -5736,6 +5739,15 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 	local preferredPositions = options.PreferredPositions or {}
 	local targetPosition = options.TargetPosition
 	local maximumTargetDistance = tonumber(options.MaximumTargetDistance)
+	local maximumPreferredDistance = tonumber(options.MaximumPreferredDistance)
+	local candidateValidator = options.CandidateValidator
+	local function candidatePassesCustomValidation(position)
+		if type(candidateValidator) ~= "function" then
+			return true
+		end
+		local ok, allowed = pcall(candidateValidator, position)
+		return ok and allowed == true
+	end
 
 	local overlapParams = OverlapParams.new()
 	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -6052,6 +6064,13 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 				)
 			end
 		end
+		if maximumPreferredDistance
+			and candidate.PreferredDistance > maximumPreferredDistance then
+			return false
+		end
+		if not candidatePassesCustomValidation(candidate.Position) then
+			return false
+		end
 		if not safelyInsideXZ(
 			candidate.Position,
 			candidate.BoundingPart
@@ -6222,6 +6241,14 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 			end
 
 			queueSample(0, 0)
+			for _, preferred in ipairs(preferredPositions) do
+				local localPreferred =
+					boundingPart.CFrame:PointToObjectSpace(preferred)
+				if math.abs(localPreferred.X) <= usableX * 0.5 + 0.05
+					and math.abs(localPreferred.Z) <= usableZ * 0.5 + 0.05 then
+					queueSample(localPreferred.X, localPreferred.Z)
+				end
+			end
 			for xIndex = 1, xCount do
 				local xRatio = (xIndex - 0.5) / xCount - 0.5
 				local localX = xRatio * usableX
@@ -6446,8 +6473,13 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 	end)
 
 	local lookTarget = options.LookAtPosition
+	local fixedLook = options.LookDirection and Vector3.new(
+		options.LookDirection.X,
+		0,
+		options.LookDirection.Z
+	) or nil
 	local firstCandidate = candidates[1]
-	local look = lookTarget and Vector3.new(
+	local look = fixedLook and fixedLook or (lookTarget and Vector3.new(
 		lookTarget.X - firstCandidate.Position.X,
 		0,
 		lookTarget.Z - firstCandidate.Position.Z
@@ -6455,7 +6487,7 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 		root.CFrame.LookVector.X,
 		0,
 		root.CFrame.LookVector.Z
-	)
+	))
 	if look.Magnitude < 0.05 then
 		look = Vector3.new(
 			firstCandidate.BoundingPart.CFrame.LookVector.X,
@@ -6523,7 +6555,9 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 		local expectedRisk = candidate.Risk
 		local expectedSupportHits = candidate.SupportHits
 		local destinationLook = look
-		if lookTarget then
+		if fixedLook and fixedLook.Magnitude >= 0.05 then
+			destinationLook = fixedLook.Unit
+		elseif lookTarget then
 			local targeted = Vector3.new(
 				lookTarget.X - candidate.Position.X,
 				0,
@@ -6558,6 +6592,9 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 			root.Position.Y - standingOffset,
 			root.Position.Z
 		)
+		if not candidatePassesCustomValidation(root.Position) then
+			return false
+		end
 		local footprintInspection = inspectFootprint(
 			settledFloorPosition
 		)
