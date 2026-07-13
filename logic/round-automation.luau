@@ -2844,9 +2844,6 @@ local function requestRoundReturnToLobby(generation)
 		return false, "RequestReturnToLobby RemoteEvent was not found"
 	end
 	while doRoundOperationActive(generation) do
-		if roundIsHunting() then
-			waitForRoundHuntEnd(generation)
-		end
 		if not returnRoundToBase(generation) then
 			return false, "Do-Round cancelled before the Base Camp return"
 		end
@@ -2856,9 +2853,9 @@ local function requestRoundReturnToLobby(generation)
 		end
 		setDoRoundStatus("Returning to lobby")
 		doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
-		-- A hunt transition or displacement during the safety delay invalidates
-		-- this attempt. Wait it out and re-establish Base Camp before retrying.
-		if roundIsHunting() or not playerIsInsideRoundBaseCamp() then
+		-- Displacement during the safety delay invalidates this attempt. Hunt
+		-- state is deliberately irrelevant once identification is confident.
+		if not playerIsInsideRoundBaseCamp() then
 			continue
 		end
 		local fired = pcall(remote.FireServer, remote)
@@ -3042,19 +3039,6 @@ local function runDoRound(generation)
 				doRoundState.itemsDirty = true
 				doRoundState.nextMaintenanceAt = 0
 			end
-			if roundIsHunting() then
-				doRoundState.questionsActive = false
-				waitForRoundHuntEnd(generation)
-				if favouriteRoom then
-					teleportToRoomBoundingBoxCenter(
-						favouriteRoom,
-						roundTeleportOptions(generation)
-					)
-				end
-				doRoundState.questionsActive = true
-				continue
-			end
-
 			local guess = perkTrackerState.currentGhostGuess
 			local score = perkTrackerState.currentGhostGuessScore or 0
 			local certain = perkTrackerState.currentGhostGuessCertain == true
@@ -3071,6 +3055,18 @@ local function runDoRound(generation)
 					return
 				end
 				setDoRoundStatus("Selecting ghost guess")
+			end
+			if roundIsHunting() then
+				doRoundState.questionsActive = false
+				waitForRoundHuntEnd(generation)
+				if favouriteRoom then
+					teleportToRoomBoundingBoxCenter(
+						favouriteRoom,
+						roundTeleportOptions(generation)
+					)
+				end
+				doRoundState.questionsActive = true
+				continue
 			end
 
 			if doRoundState.startedAt

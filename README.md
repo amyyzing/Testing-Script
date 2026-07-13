@@ -63,9 +63,10 @@ distance reference.
 The rest of the d906 flow remains recognizable: prepare configured room items,
 open an exit, ask Spirit Box questions from the favourite room, escape active
 hunts, and maintain displaced or stably-disabled equipment. A Pretty Sure/Certain
-single-ghost identification is selected immediately; automation waits out any hunt,
-teleports to and verifies Base Camp, then fires `RequestReturnToLobby`. Otherwise,
-the timer chooses among the highest-confidence remaining ghosts after three minutes.
+single-ghost identification is selected immediately regardless of hunt state;
+automation teleports to and verifies Base Camp, then fires `RequestReturnToLobby`
+without waiting for the hunt to end. Otherwise, the timer chooses among the
+highest-confidence remaining ghosts after three minutes.
 
 Modules are plain remote chunks: each returns a table or factory, and the bootstrap injects dependencies explicitly. The ghost catalog never deletes its source records; candidate lists are derived so a reset or evidence-mode change can restore ruled-out ghosts.
 
