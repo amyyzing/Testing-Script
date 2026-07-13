@@ -121,6 +121,105 @@ function session:Destroy(keepLoader)
 	end
 end
 
+local LOBBY_MACRO_DELAY = 0.5
+local LOBBY_DIFFICULTY_SETTINGS = {
+	NewActionInterval = 4,
+	GhostWalkSpeedMultiplier = 6,
+	CursedPossessionAmount = 1,
+	EvidenceProbabilityTimeIncrease = 4,
+	GhostType = 1,
+	PercentageOfDoorsOpen = 5,
+	EMFChanceModifier = 4,
+	FuseBoxOnByDefault = 2,
+	AggressionInterval = 4,
+	FlashlightsBroken = 1,
+	HuntDuration = 3,
+	HandprintDuration = 1,
+	DisableHunts = 1,
+	Weather = 4,
+	KillIncreaseAmount = 6,
+	EvidenceGiven = 4,
+	EnergyMonitorBroken = 2,
+	GhostLowerTemperatureRange = 4,
+	KillsEndHunt = 2,
+	StartingEnergy = 1,
+	HuntInteractionMultiplier = 4,
+	MinimumHuntCooldown = 1,
+	GhostCanChangeFavoriteRoom = 1,
+	MaxStamina = 1,
+	HuntGracePeriod = 2,
+	SetUpPhaseLength = 4,
+	HuntProbabilityCoefficient = 7,
+	HuntEnergyThreshold = 5,
+	EnergyDecayRate = 8,
+	EnergyDrinkRestoration = 1,
+	DefaultWalkSpeed = 1,
+	SpiritBoxChanceModifier = 4,
+}
+
+local function runLobbyStartMacro()
+	local events = Services.ReplicatedStorage:FindFirstChild("Events")
+	if not events then
+		error("ReplicatedStorage.Events was not found for the lobby macro", 0)
+	end
+	local function requireRemote(name)
+		local remote = events:FindFirstChild(name)
+		if not remote or not remote:IsA("RemoteEvent") then
+			error(name .. " RemoteEvent was not found for the lobby macro", 0)
+		end
+		return remote
+	end
+
+	-- Resolve everything before dispatch so a missing endpoint cannot leave the
+	-- lobby only partially configured.
+	local updateJobSite = requireRemote("UpdateJobSite")
+	local updateDifficulty = requireRemote("UpdateAllCustomDifficultySettings")
+	local applyPreset = requireRemote("ApplyEquipmentPreset")
+	local attemptStart = requireRemote("AttemptStart")
+	local fireSignal = environment.firesignal
+	if type(fireSignal) ~= "function" then
+		error("firesignal is unavailable for the lobby macro", 0)
+	end
+
+	local function waitForDispatch()
+		assertCurrent()
+		task.wait(LOBBY_MACRO_DELAY)
+		assertCurrent()
+	end
+
+	waitForDispatch()
+	fireSignal(updateJobSite.OnClientEvent, "School")
+
+	waitForDispatch()
+	fireSignal(
+		updateDifficulty.OnClientEvent,
+		LOBBY_DIFFICULTY_SETTINGS,
+		2.47
+	)
+
+	waitForDispatch()
+	applyPreset:FireServer("green")
+
+	waitForDispatch()
+	attemptStart:FireServer()
+end
+
+-- Discardable loader probe: take exactly one snapshot and create no listener.
+-- A missing Workspace.Ghost means this execution is in the lobby setup path,
+-- so run the ordered macro and do not construct the in-round interface.
+local loaderGhost = workspace:FindFirstChild("Ghost")
+local shouldLoadRoundGui = loaderGhost ~= nil and loaderGhost:IsA("Model")
+loaderGhost = nil
+if not shouldLoadRoundGui then
+	session.Mode = "LobbyMacro"
+	local started, startFailure = xpcall(runLobbyStartMacro, debug.traceback)
+	if not started then
+		session:Destroy()
+		error(startFailure, 0)
+	end
+	return session
+end
+
 local function fetchRemoteSource(path)
 	if sourceCache[path] then
 		return sourceCache[path]
