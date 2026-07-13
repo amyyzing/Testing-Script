@@ -175,6 +175,7 @@ local function runLobbyStartMacro()
 	local updateJobSite = requireRemote("UpdateJobSite")
 	local updateDifficulty = requireRemote("UpdateAllCustomDifficultySettings")
 	local applyPreset = requireRemote("ApplyEquipmentPreset")
+	local changeStatus = requireRemote("ChangeStatus")
 	local attemptStart = requireRemote("AttemptStart")
 	local fireSignal = environment.firesignal
 	if type(fireSignal) ~= "function" then
@@ -199,6 +200,9 @@ local function runLobbyStartMacro()
 
 	waitForDispatch()
 	applyPreset:FireServer("green")
+
+	waitForDispatch()
+	changeStatus:FireServer()
 
 	waitForDispatch()
 	attemptStart:FireServer()
