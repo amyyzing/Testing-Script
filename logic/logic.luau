@@ -101,6 +101,9 @@ local doRoundState = {
 	startedAt = nil,
 	lastElapsed = 0,
 	phase = "Off",
+	lastRenderedPhase = nil,
+	lastRenderedSecond = nil,
+	lastRenderedEnabled = nil,
 	autoSpiritBoxLease = false,
 	questionsActive = false,
 	usedDoorNames = {},
@@ -216,6 +219,8 @@ local perkTrackerState = {
 	huntStartedAt = nil,
 	umbraRootSoundChecked = false,
 	brokenGlassInitialized = false,
+	brokenGlassFolder = nil,
+	brokenGlassConnection = nil,
 	brokenGlassSeen = {},
 	brokenGlassEvents = {},
 	sirenSlowEvents = {},
@@ -235,6 +240,7 @@ local perkTrackerState = {
 	leviathanLastFlickerAt = -math.huge,
 	leviathanLastLightOffAt = -math.huge,
 	leviathanLightScanAccumulator = 0,
+	leviathanLastHunting = nil,
 	leviathanTagTrackerInitialized = false,
 	suppressItemDisableUntil = 0,
 	suppressLeviathanLightsUntil = 0,
@@ -242,6 +248,13 @@ local perkTrackerState = {
 	ravagerMotionEvents = {},
 	ravagerScanAccumulator = 0,
 	ravagerGhost = nil,
+	ravagerOverlapMap = nil,
+	ravagerOverlapParams = nil,
+	ravagerOverlapFolders = {},
+	ravagerOverlapFolderSet = setmetatable({}, {__mode = "k"}),
+	ravagerOverlapRefreshAt = 0,
+	ravagerPartRoots = setmetatable({}, {__mode = "k"}),
+	ravagerRepresentatives = setmetatable({}, {__mode = "k"}),
 	ravagerLastGhostPosition = nil,
 	ravagerLastGhostSampleAt = nil,
 	ravagerDetectedThisHunt = false,
@@ -250,12 +263,16 @@ local perkTrackerState = {
 	saltTrackedLines = setmetatable({}, {__mode = "k"}),
 	saltPendingTouches = {},
 	saltOverlapAccumulator = 0,
+	saltOverlapGhost = nil,
+	saltOverlapParams = nil,
 	wraithRuledOut = false,
 	holyOilFolder = nil,
 	holyOilTrackerInitialized = false,
 	holyOilTrackedModels = setmetatable({}, {__mode = "k"}),
 	holyOilColorStates = setmetatable({}, {__mode = "k"}),
 	holyOilBurningSince = setmetatable({}, {__mode = "k"}),
+	holyOilWallStates = setmetatable({}, {__mode = "k"}),
+	holyOilScanAccumulator = 0,
 	evaluateHolyOilAtHuntStart = function() end,
 	flashButton = function() end,
 	itemEspChildConnection = nil,
@@ -270,6 +287,7 @@ local perkTrackerState = {
 	objectTeleportTrackerInitialized = false,
 	objectTeleportObjects = setmetatable({}, {__mode = "k"}),
 	objectTeleportAccumulator = 0,
+	objectTeleportMutationActive = false,
 	pendingObjectTeleports = {},
 	recentSmokeEffects = {},
 	teleportTrackingStartedAt = 0,
@@ -294,6 +312,7 @@ local perkTrackerState = {
 	currentGhostGuessScore = 0,
 	currentGhostGuessCertain = false,
 	syncJournal = function() end,
+	baseCampTeleportBusy = false,
 	orbObserved = false,
 	skinwalkerOrbQualified = false,
 	deepEvidenceWorkspaceBound = false,
@@ -1709,12 +1728,18 @@ perkTrackerState.recordLeviathanToggle = function(object, previous, current)
 	end
 end
 perkTrackerState.updateLeviathanLightTracker = function(ghost, hunting, deltaTime, now)
+	local huntingChanged = perkTrackerState.leviathanLastHunting ~= nil
+		and perkTrackerState.leviathanLastHunting ~= hunting
+	perkTrackerState.leviathanLastHunting = hunting
 	perkTrackerState.leviathanLightScanAccumulator =
 		perkTrackerState.leviathanLightScanAccumulator + deltaTime
-	if perkTrackerState.leviathanLightScanAccumulator < 0.2 then
+	local scanInterval = hunting and 1 or 0.2
+	if not huntingChanged
+		and perkTrackerState.leviathanLightScanAccumulator < scanInterval then
 		return
 	end
-	perkTrackerState.leviathanLightScanAccumulator = 0
+	perkTrackerState.leviathanLightScanAccumulator =
+		perkTrackerState.leviathanLightScanAccumulator % scanInterval
 	local map = workspace:FindFirstChild("Map")
 	local rooms = map and map:FindFirstChild("Rooms")
 	if not ghost or not rooms then
@@ -1728,6 +1753,7 @@ perkTrackerState.updateLeviathanLightTracker = function(ghost, hunting, deltaTim
 			if previous == true
 				and current == false
 				and not hunting
+				and not huntingChanged
 				and room:GetAttribute("LightsBroken") ~= true
 				and now >= perkTrackerState.suppressLeviathanLightsUntil then
 				local lightSwitch = room:FindFirstChild("LightSwitch", true)
@@ -2047,6 +2073,15 @@ local function setDoRoundStatus(phase)
 		and math.max(0, os.clock() - doRoundState.startedAt)
 		or doRoundState.lastElapsed
 		or 0
+	local elapsedSecond = math.floor(elapsed)
+	if doRoundState.lastRenderedPhase == doRoundState.phase
+		and doRoundState.lastRenderedSecond == elapsedSecond
+		and doRoundState.lastRenderedEnabled == doRoundState.enabled then
+		return
+	end
+	doRoundState.lastRenderedPhase = doRoundState.phase
+	doRoundState.lastRenderedSecond = elapsedSecond
+	doRoundState.lastRenderedEnabled = doRoundState.enabled
 	if presenter and presenter.SetDoRoundState then
 		presenter:SetDoRoundState(
 			doRoundState.enabled,
@@ -2153,11 +2188,16 @@ perkTrackerState.resetEvidenceState = function()
 	perkTrackerState.leviathanLastFlickerAt = -math.huge
 	perkTrackerState.leviathanLastLightOffAt = -math.huge
 	perkTrackerState.leviathanLightScanAccumulator = 0
+	perkTrackerState.leviathanLastHunting = nil
 	perkTrackerState.suppressItemDisableUntil = 0
 	perkTrackerState.suppressLeviathanLightsUntil = 0
 	perkTrackerState.saltPendingTouches = {}
 	perkTrackerState.saltOverlapAccumulator = 0
+	perkTrackerState.saltOverlapGhost = nil
+	perkTrackerState.saltOverlapParams = nil
 	perkTrackerState.wraithRuledOut = false
+	perkTrackerState.holyOilWallStates = setmetatable({}, {__mode = "k"})
+	perkTrackerState.holyOilScanAccumulator = 0
 	perkTrackerState.ruledOutGhosts = {}
 	clearAllPerkDetections()
 	refreshPerkLogs()
@@ -2169,6 +2209,7 @@ perkTrackerState.resetEvidenceState = function()
 	perkTrackerState.pendingObjectTeleports = {}
 	perkTrackerState.recentSmokeEffects = {}
 	perkTrackerState.objectTeleportAccumulator = 0
+	perkTrackerState.objectTeleportMutationActive = false
 	lastDeepEvidenceScan = -math.huge
 	if presenter and presenter.ResetEvidence then
 		presenter:ResetEvidence()
@@ -2925,7 +2966,12 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 	perkTrackerState.killSpeedProcessedPlayers = setmetatable({}, {__mode = "k"})
 	perkTrackerState.huntStartedAt = nil
 	perkTrackerState.umbraRootSoundChecked = false
+	if perkTrackerState.brokenGlassConnection then
+		perkTrackerState.brokenGlassConnection:Disconnect()
+		perkTrackerState.brokenGlassConnection = nil
+	end
 	perkTrackerState.brokenGlassInitialized = false
+	perkTrackerState.brokenGlassFolder = nil
 	perkTrackerState.brokenGlassSeen = {}
 	perkTrackerState.brokenGlassEvents = {}
 	perkTrackerState.sirenSlowEvents = {}
@@ -2946,22 +2992,35 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 	perkTrackerState.leviathanLastFlickerAt = -math.huge
 	perkTrackerState.leviathanLastLightOffAt = -math.huge
 	perkTrackerState.leviathanLightScanAccumulator = 0
+	perkTrackerState.leviathanLastHunting = nil
 	perkTrackerState.suppressLeviathanLightsUntil = 0
 	perkTrackerState.ravagerTrackedObjects =
 		setmetatable({}, {__mode = "k"})
 	perkTrackerState.ravagerMotionEvents = {}
 	perkTrackerState.ravagerScanAccumulator = 0
 	perkTrackerState.ravagerGhost = ghost
+	perkTrackerState.ravagerOverlapMap = nil
+	perkTrackerState.ravagerOverlapParams = nil
+	perkTrackerState.ravagerOverlapFolders = {}
+	perkTrackerState.ravagerOverlapFolderSet = setmetatable({}, {__mode = "k"})
+	perkTrackerState.ravagerOverlapRefreshAt = 0
+	perkTrackerState.ravagerPartRoots = setmetatable({}, {__mode = "k"})
+	perkTrackerState.ravagerRepresentatives = setmetatable({}, {__mode = "k"})
 	perkTrackerState.ravagerLastGhostPosition = nil
 	perkTrackerState.ravagerLastGhostSampleAt = nil
 	perkTrackerState.ravagerDetectedThisHunt = false
 	perkTrackerState.saltPendingTouches = {}
 	perkTrackerState.saltOverlapAccumulator = 0
+	perkTrackerState.saltOverlapGhost = nil
+	perkTrackerState.saltOverlapParams = nil
 	perkTrackerState.wraithRuledOut = false
 	perkTrackerState.holyOilColorStates =
 		setmetatable({}, {__mode = "k"})
 	perkTrackerState.holyOilBurningSince =
 		setmetatable({}, {__mode = "k"})
+	perkTrackerState.holyOilWallStates =
+		setmetatable({}, {__mode = "k"})
+	perkTrackerState.holyOilScanAccumulator = 0
 	perkTrackerState.orbObserved = false
 	perkTrackerState.deepEvidenceInitialScanDone = false
 	if not preserveFindings then
@@ -2970,6 +3029,7 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 	perkTrackerState.lidarVisibleObserved = false
 	perkTrackerState.objectTeleportObjects = setmetatable({}, {__mode = "k"})
 	perkTrackerState.objectTeleportAccumulator = 0
+	perkTrackerState.objectTeleportMutationActive = false
 	perkTrackerState.pendingObjectTeleports = {}
 	perkTrackerState.recentSmokeEffects = {}
 	perkTrackerState.teleportTrackingStartedAt = os.clock()
@@ -3128,9 +3188,10 @@ local function ghostHasLineOfSightToCharacter(ghost, character)
 	local result = workspace:Raycast(ghostPart.Position, direction, losRaycastParams)
 	return result == nil or result.Instance:IsDescendantOf(character)
 end
-local function ghostHasLineOfSightToAnyAlivePlayer(ghost)
+local function ghostHasLineOfSightToAnyAlivePlayer(ghost, excludedPlayer)
 	for _, targetPlayer in ipairs(Services.Players:GetPlayers()) do
-		if targetPlayer:GetAttribute("Dead") ~= true
+		if targetPlayer ~= excludedPlayer
+			and targetPlayer:GetAttribute("Dead") ~= true
 			and ghostHasLineOfSightToCharacter(ghost, targetPlayer.Character) then
 			return true, targetPlayer.Name
 		end
@@ -3638,25 +3699,44 @@ end
 local function scanBansheeGlassBurst(now)
 	local brokenGlassFolder = workspace:FindFirstChild("BrokenGlass")
 	if not brokenGlassFolder then
+		if perkTrackerState.brokenGlassConnection then
+			perkTrackerState.brokenGlassConnection:Disconnect()
+			perkTrackerState.brokenGlassConnection = nil
+		end
+		perkTrackerState.brokenGlassFolder = nil
+		perkTrackerState.brokenGlassInitialized = false
+		perkTrackerState.brokenGlassSeen = {}
 		return false
 	end
-	local current = {}
-	for _, object in ipairs(brokenGlassFolder:GetDescendants()) do
-		if object:IsA("Model") and object.Name == "BrokenGlass" then
-			current[object] = true
+	if perkTrackerState.brokenGlassFolder ~= brokenGlassFolder then
+		if perkTrackerState.brokenGlassConnection then
+			perkTrackerState.brokenGlassConnection:Disconnect()
 		end
+		perkTrackerState.brokenGlassFolder = brokenGlassFolder
+		perkTrackerState.brokenGlassInitialized = false
+		perkTrackerState.brokenGlassConnection = nil
+		perkTrackerState.brokenGlassSeen = {}
+		perkTrackerState.brokenGlassEvents = {}
 	end
 	if not perkTrackerState.brokenGlassInitialized then
 		perkTrackerState.brokenGlassInitialized = true
-		perkTrackerState.brokenGlassSeen = current
-		return false
-	end
-	for object in pairs(current) do
-		if not perkTrackerState.brokenGlassSeen[object] then
-			table.insert(perkTrackerState.brokenGlassEvents, now)
+		for _, object in ipairs(brokenGlassFolder:GetDescendants()) do
+			if object:IsA("Model") and object.Name == "BrokenGlass" then
+				perkTrackerState.brokenGlassSeen[object] = true
+			end
 		end
+		perkTrackerState.brokenGlassConnection = connect(
+			brokenGlassFolder.DescendantAdded,
+			function(object)
+				if object:IsA("Model")
+					and object.Name == "BrokenGlass"
+					and not perkTrackerState.brokenGlassSeen[object] then
+					perkTrackerState.brokenGlassSeen[object] = true
+					table.insert(perkTrackerState.brokenGlassEvents, os.clock())
+				end
+			end
+		)
 	end
-	perkTrackerState.brokenGlassSeen = current
 	local cutoff = now - 2.5
 	while perkTrackerState.brokenGlassEvents[1]
 		and perkTrackerState.brokenGlassEvents[1] < cutoff do
@@ -4889,6 +4969,9 @@ perkTrackerState.ensureCrossDemonTracker = function()
 	end
 	if state.crossItemsFolder ~= items then
 		state.crossItemsFolder = items
+		for _, child in ipairs(items:GetChildren()) do
+			state.bindCrossModel(child)
+		end
 		connect(items.ChildAdded, function(child)
 			task.defer(function()
 				if not closed and child.Parent == items then
@@ -4896,9 +4979,6 @@ perkTrackerState.ensureCrossDemonTracker = function()
 				end
 			end)
 		end)
-	end
-	for _, child in ipairs(items:GetChildren()) do
-		state.bindCrossModel(child)
 	end
 end
 perkTrackerState.updateCrossDemonTracker = function(now)
@@ -5260,10 +5340,16 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 	if perkTrackerState.saltOverlapAccumulator >= 0.2 then
 		perkTrackerState.saltOverlapAccumulator = 0
 		local ghostPosition = ghost:GetPivot().Position
-		local overlapParams = OverlapParams.new()
-		overlapParams.FilterType = Enum.RaycastFilterType.Include
-		overlapParams.FilterDescendantsInstances = {ghost}
-		overlapParams.MaxParts = 1
+		if perkTrackerState.saltOverlapGhost ~= ghost
+			or not perkTrackerState.saltOverlapParams then
+			local overlapParams = OverlapParams.new()
+			overlapParams.FilterType = Enum.RaycastFilterType.Include
+			overlapParams.FilterDescendantsInstances = {ghost}
+			overlapParams.MaxParts = 1
+			perkTrackerState.saltOverlapGhost = ghost
+			perkTrackerState.saltOverlapParams = overlapParams
+		end
+		local overlapParams = perkTrackerState.saltOverlapParams
 		for saltModel in pairs(perkTrackerState.saltTrackedLines) do
 			if saltModel.Parent
 				and saltModel.Name == "SaltLine"
@@ -5538,16 +5624,26 @@ perkTrackerState.evaluateHolyOilWallStates = function(ghost)
 			local wall = perkTrackerState.getHolyOilWall(model)
 			if wall then
 				sawEligibleWall = true
-				emitGhostObservation({
-					Type = "HolyOilCollision",
-					ModelId = model,
-					Hunting = true,
-					Burning = true,
-					Qualified = true,
-					CanCollide = wall.CanCollide,
-					Source = "HolyOil.GhostWall",
-				})
-				if wall.CanCollide == false then
+				local canCollide = wall.CanCollide
+				local previous = perkTrackerState.holyOilWallStates[model]
+				if not previous
+					or previous.Wall ~= wall
+					or previous.CanCollide ~= canCollide then
+					perkTrackerState.holyOilWallStates[model] = {
+						Wall = wall,
+						CanCollide = canCollide,
+					}
+					emitGhostObservation({
+						Type = "HolyOilCollision",
+						ModelId = model,
+						Hunting = true,
+						Burning = true,
+						Qualified = true,
+						CanCollide = canCollide,
+						Source = "HolyOil.GhostWall",
+					})
+				end
+				if canCollide == false then
 					sawNonCollidable = true
 				end
 			end
@@ -5649,6 +5745,7 @@ perkTrackerState.bindHolyOilModel = function(model)
 
 	local function updateBurnState()
 		perkTrackerState.holyOilColorStates[model] = nil
+		perkTrackerState.holyOilWallStates[model] = nil
 		local ghost = getGhostModel()
 		if model:GetAttribute("Burning") == true then
 			perkTrackerState.holyOilBurningSince[model] =
@@ -5721,6 +5818,8 @@ perkTrackerState.ensureHolyOilTracker = function()
 			setmetatable({}, {__mode = "k"})
 		perkTrackerState.holyOilBurningSince =
 			setmetatable({}, {__mode = "k"})
+		perkTrackerState.holyOilWallStates =
+			setmetatable({}, {__mode = "k"})
 	end
 
 	if not folder or perkTrackerState.holyOilTrackerInitialized then
@@ -5761,14 +5860,26 @@ perkTrackerState.evaluateHolyOilAtHuntStart = function(ghost)
 end
 
 perkTrackerState.updateHolyOilTracker = function(
-	_deltaTime,
+	deltaTime,
 	ghost,
 	_now
 )
 	perkTrackerState.ensureHolyOilTracker()
 	if not ghost or ghost:GetAttribute("Hunting") ~= true then
+		if next(perkTrackerState.holyOilWallStates) then
+			perkTrackerState.holyOilWallStates =
+				setmetatable({}, {__mode = "k"})
+		end
+		perkTrackerState.holyOilScanAccumulator = 0
 		return
 	end
+	perkTrackerState.holyOilScanAccumulator =
+		perkTrackerState.holyOilScanAccumulator + deltaTime
+	if perkTrackerState.holyOilScanAccumulator < 0.5 then
+		return
+	end
+	perkTrackerState.holyOilScanAccumulator =
+		perkTrackerState.holyOilScanAccumulator % 0.5
 	local folder = perkTrackerState.holyOilFolder
 	if not folder then
 		return
@@ -5852,6 +5963,12 @@ perkTrackerState.updateObjectTeleportTracker = function(deltaTime, now)
 		or now < (perkTrackerState.automationMutationUntil or 0) then
 		perkTrackerState.pendingObjectTeleports = {}
 		perkTrackerState.recentSmokeEffects = {}
+		perkTrackerState.objectTeleportMutationActive = true
+		perkTrackerState.objectTeleportAccumulator = 0
+		return
+	end
+	if perkTrackerState.objectTeleportMutationActive then
+		perkTrackerState.objectTeleportMutationActive = false
 		for object, previous in pairs(perkTrackerState.objectTeleportObjects) do
 			if object.Parent
 				and (object.Parent.Name == "Items"
@@ -6028,7 +6145,20 @@ local function resetRavagerMotionState(ghost)
 	perkTrackerState.ravagerDetectedThisHunt = false
 end
 local function ravagerRootPosition(rootObject)
-	local representative
+	local representative = perkTrackerState.ravagerRepresentatives[rootObject]
+	if representative
+		and (not representative.Parent
+			or (representative ~= rootObject
+				and not representative:IsDescendantOf(rootObject))
+			or representative.Anchored
+			or representative.Transparency >= 1) then
+		representative = nil
+		perkTrackerState.ravagerRepresentatives[rootObject] = nil
+	end
+	if representative then
+		return representative.Position,
+			representative.AssemblyRootPart or representative
+	end
 	if rootObject:IsA("BasePart") then
 		if not rootObject.Anchored and rootObject.Transparency < 1 then
 			representative = rootObject
@@ -6053,6 +6183,7 @@ local function ravagerRootPosition(rootObject)
 	if not representative then
 		return nil, nil
 	end
+	perkTrackerState.ravagerRepresentatives[rootObject] = representative
 	return representative.Position, representative.AssemblyRootPart or representative
 end
 local function resetRavagerCandidate(tracked)
@@ -6103,25 +6234,79 @@ perkTrackerState.updateRavagerTracker = function(deltaTime, ghost, now)
 		return
 	end
 
-	local folders = {}
-	local seenFolders = setmetatable({}, {__mode = "k"})
 	local map = workspace:FindFirstChild("Map")
-	for _, container in ipairs({workspace, map}) do
-		if container then
-			for _, folderName in ipairs({"Items", "Interactable", "Interactables"}) do
-				local folder = container:FindFirstChild(folderName)
-				if folder and not seenFolders[folder] then
-					seenFolders[folder] = true
-					table.insert(folders, folder)
-				end
+	local refreshFolders = state.ravagerOverlapParams == nil
+		or state.ravagerOverlapMap ~= map
+		or now >= (state.ravagerOverlapRefreshAt or 0)
+	if not refreshFolders then
+		for _, folder in ipairs(state.ravagerOverlapFolders) do
+			if not folder.Parent then
+				refreshFolders = true
+				break
 			end
 		end
 	end
+	if refreshFolders then
+		local folders = {}
+		local folderSet = setmetatable({}, {__mode = "k"})
+		for _, container in ipairs({workspace, map}) do
+			if container then
+				for _, folderName in ipairs({"Items", "Interactable", "Interactables"}) do
+					local folder = container:FindFirstChild(folderName)
+					if folder and not folderSet[folder] then
+						folderSet[folder] = true
+						table.insert(folders, folder)
+					end
+				end
+			end
+		end
+		local overlapParams = OverlapParams.new()
+		overlapParams.FilterType = Enum.RaycastFilterType.Include
+		overlapParams.FilterDescendantsInstances = folders
+		overlapParams.MaxParts = 0
+		state.ravagerOverlapMap = map
+		state.ravagerOverlapParams = overlapParams
+		state.ravagerOverlapFolders = folders
+		state.ravagerOverlapFolderSet = folderSet
+		state.ravagerOverlapRefreshAt = now + 2
+	end
 
+	local nearbyRoots = setmetatable({}, {__mode = "k"})
+	if #state.ravagerOverlapFolders > 0 then
+		local nearbyParts = workspace:GetPartBoundsInRadius(
+			ghostPosition,
+			45,
+			state.ravagerOverlapParams
+		)
+		for _, part in ipairs(nearbyParts) do
+			local rootObject = state.ravagerPartRoots[part]
+			if not rootObject
+				or not rootObject.Parent
+				or not state.ravagerOverlapFolderSet[rootObject.Parent]
+				or (part ~= rootObject
+					and not part:IsDescendantOf(rootObject)) then
+				rootObject = part
+				while rootObject.Parent
+					and not state.ravagerOverlapFolderSet[rootObject.Parent] do
+					rootObject = rootObject.Parent
+				end
+				if rootObject.Parent
+					and state.ravagerOverlapFolderSet[rootObject.Parent] then
+					state.ravagerPartRoots[part] = rootObject
+				else
+					rootObject = nil
+				end
+			end
+			if rootObject
+				and rootObject.Parent
+				and state.ravagerOverlapFolderSet[rootObject.Parent] then
+				nearbyRoots[rootObject] = true
+			end
+		end
+	end
 	local seenRoots = setmetatable({}, {__mode = "k"})
 	local qualified = {}
-	for _, folder in ipairs(folders) do
-		for _, rootObject in ipairs(folder:GetChildren()) do
+	for rootObject in pairs(nearbyRoots) do
 			local position, assembly = ravagerRootPosition(rootObject)
 			if position and assembly then
 				seenRoots[rootObject] = true
@@ -6253,7 +6438,6 @@ perkTrackerState.updateRavagerTracker = function(deltaTime, ghost, now)
 					end
 				end
 			end
-		end
 	end
 	for rootObject in pairs(state.ravagerTrackedObjects) do
 		if not seenRoots[rootObject] or not rootObject.Parent then
@@ -6321,17 +6505,18 @@ perkTrackerState.updateRavagerTracker = function(deltaTime, ghost, now)
 end
 
 local function updateObservablePerkTrackers(deltaTime)
-	local ghost = getGhostModel()
-	perkTrackerState.updateRavagerTracker(deltaTime, ghost, os.clock())
 	perkTrackerState.sampleAccumulator = perkTrackerState.sampleAccumulator + deltaTime
 	perkTrackerState.slowScanAccumulator = perkTrackerState.slowScanAccumulator + deltaTime
 	perkTrackerState.analysisAccumulator = perkTrackerState.analysisAccumulator + deltaTime
 	if perkTrackerState.sampleAccumulator < 0.1 then
 		return
 	end
+	local sampleElapsed = perkTrackerState.sampleAccumulator
 	perkTrackerState.sampleAccumulator =
 		perkTrackerState.sampleAccumulator % 0.1
 	local now = os.clock()
+	local ghost = getGhostModel()
+	perkTrackerState.updateRavagerTracker(sampleElapsed, ghost, now)
 	local currentMap = workspace:FindFirstChild("Map")
 	if not ghost and perkTrackerState.ghost then
 		perkTrackerState.ghostMissingSince =
@@ -6520,19 +6705,27 @@ local function updateObservablePerkTrackers(deltaTime)
 		return
 	end
 	local character = player.Character
-	local localLineOfSight = hunting and ghostHasLineOfSightToCharacter(ghost, character) or false
-	local lineOfSight, lineOfSightTarget = false, nil
+	local localLineOfSight = hunting
+		and ghostHasLineOfSightToCharacter(ghost, character)
+		or false
+	local lineOfSight = localLineOfSight
+	local lineOfSightTarget = localLineOfSight and player.Name or nil
 	if hunting then
-		lineOfSight, lineOfSightTarget =
-			ghostHasLineOfSightToAnyAlivePlayer(ghost)
+		if not lineOfSight then
+			lineOfSight, lineOfSightTarget =
+				ghostHasLineOfSightToAnyAlivePlayer(ghost, player)
+		end
 		if localLineOfSight then
 			perkTrackerState.sirenLosExposure =
 				perkTrackerState.sirenLosExposure + elapsed
 		end
 	end
-	local energy = getAverageTeamEnergy()
+	local energy = localLineOfSight and getAverageTeamEnergy() or nil
 	local invisible = getGhostTransparencyState(ghost)
-	local roomLit, roomName = getGhostRoomLightingState(ghost)
+	local roomLit, roomName
+	if lineOfSight then
+		roomLit, roomName = getGhostRoomLightingState(ghost)
+	end
 	local lightingKey = lightingContextKey(roomName, roomLit)
 	if invisible ~= nil then
 		if perkTrackerState.lastTransparencyState == nil then
@@ -7775,42 +7968,69 @@ local function teleportToBaseCamp(options)
 		return false, "Base Camp room was not found"
 	end
 	options = table.clone(options or {})
-	if type(options.PreferredPositions) ~= "table"
-		or #options.PreferredPositions == 0 then
-		local preferredPosition
-		local doors = workspace:FindFirstChild("Doors")
-		if doors then
-			for _, object in ipairs(doors:GetDescendants()) do
-				local normalized = string.lower(object.Name):gsub("[^%w]", "")
-				local doorType = string.lower(tostring(
-					object:GetAttribute("DoorType")
-						or object:GetAttribute("Type")
-						or ""
-				)):gsub("[^%w]", "")
-				if string.find(normalized, "exitdoor", 1, true)
-					or object:GetAttribute("IsExitDoor") == true
-					or object:GetAttribute("ExitDoor") == true
-					or doorType == "exit"
-					or doorType == "exitdoor" then
-					preferredPosition = getInstanceWorldPosition(object)
-					if preferredPosition then
-						break
+	local function alreadyInsideBaseCamp()
+		local character = player.Character
+		return character ~= nil and instanceIsInsideRoom(character, room)
+	end
+	if alreadyInsideBaseCamp() then
+		return true, nil
+	end
+	while perkTrackerState.baseCampTeleportBusy do
+		if closed
+			or (type(options.IsActive) == "function"
+				and options.IsActive() ~= true) then
+			return false, "teleport was cancelled"
+		end
+		Services.RunService.Heartbeat:Wait()
+	end
+	if alreadyInsideBaseCamp() then
+		return true, nil
+	end
+
+	perkTrackerState.baseCampTeleportBusy = true
+	local succeeded, teleported, reason = pcall(function()
+		if type(options.PreferredPositions) ~= "table"
+			or #options.PreferredPositions == 0 then
+			local preferredPosition
+			local doors = workspace:FindFirstChild("Doors")
+			if doors then
+				for _, object in ipairs(doors:GetDescendants()) do
+					local normalized = string.lower(object.Name):gsub("[^%w]", "")
+					local doorType = string.lower(tostring(
+						object:GetAttribute("DoorType")
+							or object:GetAttribute("Type")
+							or ""
+					)):gsub("[^%w]", "")
+					if string.find(normalized, "exitdoor", 1, true)
+						or object:GetAttribute("IsExitDoor") == true
+						or object:GetAttribute("ExitDoor") == true
+						or doorType == "exit"
+						or doorType == "exitdoor" then
+						preferredPosition = getInstanceWorldPosition(object)
+						if preferredPosition then
+							break
+						end
 					end
 				end
 			end
+			if not preferredPosition then
+				local truck = room:FindFirstChild("Truck", true)
+					or workspace:FindFirstChild("Truck", true)
+				preferredPosition = getInstanceWorldPosition(truck)
+			end
+			if preferredPosition then
+				-- Candidate safety still wins; this only chooses the safest Base Camp
+				-- bound/point nearest the exit, with Truck as the requested fallback.
+				options.PreferredPositions = {preferredPosition}
+			end
 		end
-		if not preferredPosition then
-			local truck = room:FindFirstChild("Truck", true)
-				or workspace:FindFirstChild("Truck", true)
-			preferredPosition = getInstanceWorldPosition(truck)
-		end
-		if preferredPosition then
-			-- Candidate safety still wins; this only chooses the safest Base Camp
-			-- bound/point nearest the exit, with Truck as the requested fallback.
-			options.PreferredPositions = {preferredPosition}
-		end
+		return teleportToRoomBoundingBoxCenter(room, options)
+	end)
+	perkTrackerState.baseCampTeleportBusy = false
+	if not succeeded then
+		return false, tostring(teleported):match("^[^\n]+")
 	end
-	return teleportToRoomBoundingBoxCenter(room, options)
+	return teleported, reason
 end
 local function teleportToFavouriteRoom(options)
 	local ghost = getGhostModel()
@@ -9213,6 +9433,15 @@ local function scanDeepEvidence()
 			end
 		end
 	end
+	local descendantSnapshots = setmetatable({}, {__mode = "k"})
+	local function descendantsOf(container)
+		local descendants = descendantSnapshots[container]
+		if not descendants then
+			descendants = container:GetDescendants()
+			descendantSnapshots[container] = descendants
+		end
+		return descendants
+	end
 
 	if highestEMF < 5 then
 		local checkedReaders =
@@ -9224,9 +9453,7 @@ local function scanDeepEvidence()
 			player.Character,
 		}) do
 			if container then
-				for _, candidate in ipairs(
-					container:GetDescendants()
-				) do
+				for _, candidate in ipairs(descendantsOf(container)) do
 					if candidate:IsA("Model")
 						and not checkedReaders[candidate]
 						and candidate:GetAttribute("ItemName")
@@ -9268,7 +9495,7 @@ local function scanDeepEvidence()
 
 	local items = workspace:FindFirstChild("Items")
 	if items and not evidenceFound.Wither then
-		for _, object in ipairs(items:GetDescendants()) do
+		for _, object in ipairs(descendantsOf(items)) do
 			if object:IsA("BasePart")
 				and object.Name == "Flower_Petals"
 				and object.Color.R <= 0.03
@@ -9293,7 +9520,10 @@ local function scanDeepEvidence()
 			local modelName = string.lower(model.Name)
 			local identifiedBook =
 				itemName == "spirit book"
-				or modelName == "spirit book"
+					or modelName == "spirit book"
+			if not identifiedBook then
+				return false
+			end
 			local canvas = model:FindFirstChild("Canvas", true)
 			local surfaceGui =
 				canvas and canvas:FindFirstChild("SurfaceGui")
@@ -9305,9 +9535,6 @@ local function scanDeepEvidence()
 				and imageLabel:IsA("ImageLabel")
 				and imageLabel.Image ~= "" then
 				return true
-			end
-			if not identifiedBook then
-				return false
 			end
 			for _, descendant in ipairs(model:GetDescendants()) do
 				if descendant:IsA("Decal")
@@ -9329,9 +9556,7 @@ local function scanDeepEvidence()
 			player.Character,
 		}) do
 			if container then
-				for _, descendant in ipairs(
-					container:GetDescendants()
-				) do
+				for _, descendant in ipairs(descendantsOf(container)) do
 					if descendant:IsA("Model")
 						and not checked[descendant] then
 						checked[descendant] = true
@@ -9569,7 +9794,6 @@ local function updateEvidence()
 	end
 	setEvidence("Print", evidenceFound.Print)
 	bindSpiritBoxRemoteListeners()
-	updateSpiritBoxLabel()
 	setEvidence("Inscription", evidenceFound.Inscription)
 	setEvidence("Wither", evidenceFound.Wither)
 	local inLaser = ghost and ghost:GetAttribute("InLaser") == true or false
@@ -10099,10 +10323,14 @@ function Controller:Start()
 			applyForcedWalkSpeed()
 		end
 		updateAccumulator = updateAccumulator + deltaTime
-		if updateAccumulator < 0.5 then
+		local waitingAtCamp = doRoundState.enabled
+			and (doRoundState.phase == "Hunt escape"
+				or doRoundState.phase == "Waiting for hunt")
+		local evidenceUpdateInterval = waitingAtCamp and 1 or 0.5
+		if updateAccumulator < evidenceUpdateInterval then
 			return
 		end
-		updateAccumulator = 0
+		updateAccumulator = updateAccumulator % evidenceUpdateInterval
 		updateEvidence()
 		escapeCurrentHunt()
 		if doRoundState.enabled then
