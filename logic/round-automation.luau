@@ -8,11 +8,15 @@ return function(dependencies: any)
 	local getInstanceWorldPosition: any = assert(dependencies.GetInstanceWorldPosition, "round-automation requires GetInstanceWorldPosition")
 	local getRoomBoundingParts: any = assert(dependencies.GetRoomBoundingParts, "round-automation requires GetRoomBoundingParts")
 	local pointIsInsidePart: any = assert(dependencies.PointIsInsidePart, "round-automation requires PointIsInsidePart")
+	local distanceFromPositionToInstance: any = assert(dependencies.DistanceFromPositionToInstance, "round-automation requires DistanceFromPositionToInstance")
+	local characterIsFullyInsideRoom: any = assert(dependencies.CharacterIsFullyInsideRoom, "round-automation requires CharacterIsFullyInsideRoom")
+	local worldItemIsFullyInsideRoom: any = assert(dependencies.WorldItemIsFullyInsideRoom, "round-automation requires WorldItemIsFullyInsideRoom")
+	local findExitDoorDescriptors: any = assert(dependencies.FindExitDoorDescriptors, "round-automation requires FindExitDoorDescriptors")
+	local instanceBelongsToExitDoor: any = assert(dependencies.InstanceBelongsToExitDoor, "round-automation requires InstanceBelongsToExitDoor")
 	local teleportToRoomBoundingBoxCenter: any = assert(dependencies.TeleportToRoom, "round-automation requires TeleportToRoom")
 	local teleportToBaseCamp: any = assert(dependencies.TeleportToBaseCamp, "round-automation requires TeleportToBaseCamp")
 	local teleportToFavouriteRoom: any = assert(dependencies.TeleportToFavouriteRoom, "round-automation requires TeleportToFavouriteRoom")
 	local placeItemsInFavouriteRoom: any = assert(dependencies.PlaceItemsInFavouriteRoom, "round-automation requires PlaceItemsInFavouriteRoom")
-	local instanceIsInsideRoom: any = assert(dependencies.InstanceIsInsideRoom, "round-automation requires InstanceIsInsideRoom")
 	local doRoundState: any = assert(dependencies.State, "round-automation requires State")
 	local perkTrackerState: any = assert(dependencies.PerkTrackerState, "round-automation requires PerkTrackerState")
 	local roomItemPlacementState: any = assert(dependencies.RoomItemPlacementState, "round-automation requires RoomItemPlacementState")
@@ -43,9 +47,10 @@ local POWERED_ROOM_ITEMS = {
 	["emf reader"] = true,
 }
 local ROUND_HELD_ITEMS = {"Salt Canister", "Holy Oil"}
-local ROUND_DOOR_MAX_PLAYER_DISTANCE = 3
-local ROUND_DOOR_STAND_DISTANCE = 2.9
-local ROUND_PLACEMENT_MAX_PLAYER_DISTANCE = 3
+local ROUND_DOOR_MAX_PLAYER_DISTANCE = 2
+local ROUND_DOOR_STAND_DISTANCE = 1.9
+local ROUND_PLACEMENT_MAX_PLAYER_DISTANCE = 2
+local ROUND_PICKUP_MAX_DISTANCE = 8
 local ROUND_CHARACTER_FACING_DOT = 0.995
 local ROUND_CAMERA_FACING_DOT = 0.995
 local ROUND_WIDE_AXIS_DOT_MAX = 0.05
@@ -266,11 +271,11 @@ local function roundDoorGeometry(target)
 	end
 	local maximumDistance = ROUND_DOOR_STAND_DISTANCE
 	local minimumDistance = math.min(
-		math.max(thickness * 0.5 + 2.1, 2.2),
+		math.max(thickness * 0.5 + 1.1, 1.25),
 		maximumDistance
 	)
 	local standDistance = math.clamp(
-		thickness * 0.5 + 2.85,
+		thickness * 0.5 + 1.55,
 		minimumDistance,
 		maximumDistance
 	)
@@ -362,7 +367,12 @@ local function roomForRoundTarget(target, preferredPositions)
 	return bestRoom
 end
 
-local function teleportNearRoundTarget(target, preferredPosition, generation)
+local function teleportNearRoundTarget(
+	target,
+	preferredPosition,
+	generation,
+	maximumTargetDistance
+)
 	local positions, center = roundApproachPositions(target)
 	if not center then
 		return false, "target has no world position"
@@ -375,7 +385,7 @@ local function teleportNearRoundTarget(target, preferredPosition, generation)
 	return teleportToRoomBoundingBoxCenter(room, {
 		PreferredPositions = preferred,
 		TargetPosition = center,
-		MaximumTargetDistance = 9.25,
+		MaximumTargetDistance = maximumTargetDistance or 9.25,
 		LookAtPosition = center,
 		RequireStrict = true,
 		IsActive = function()
@@ -1155,12 +1165,14 @@ end
 		DroppedRoomItems = DROPPED_ROOM_ITEMS,
 		PoweredRoomItems = POWERED_ROOM_ITEMS,
 		HeldItems = ROUND_HELD_ITEMS,
+		PickupMaxDistance = ROUND_PICKUP_MAX_DISTANCE,
 		NormalizeItemName = normalizeRoundItemName,
 		ItemName = roundItemName,
 		FindHotbarSlot = findRoundHotbarSlot,
 		GetEquippedItem = getRoundEquippedItem,
 		EquipItem = equipRoundItem,
 		ApproachPositions = roundApproachPositions,
+		TargetCFrame = roundTargetCFrame,
 		ResolveDoorReference = roundDoorReference,
 		DoorGeometry = roundDoorGeometry,
 		DoorApproaches = roundDoorApproaches,
@@ -1183,12 +1195,14 @@ local setDoRoundEnabled = (function()
 	local DROPPED_ROOM_ITEMS = roundUtilities.DroppedRoomItems
 	local POWERED_ROOM_ITEMS = roundUtilities.PoweredRoomItems
 	local ROUND_HELD_ITEMS = roundUtilities.HeldItems
+	local ROUND_PICKUP_MAX_DISTANCE = roundUtilities.PickupMaxDistance
 	local normalizeRoundItemName = roundUtilities.NormalizeItemName
 	local roundItemName = roundUtilities.ItemName
 	local findRoundHotbarSlot = roundUtilities.FindHotbarSlot
 	local getRoundEquippedItem = roundUtilities.GetEquippedItem
 	local equipRoundItem = roundUtilities.EquipItem
 	local roundApproachPositions = roundUtilities.ApproachPositions
+	local roundTargetCFrame = roundUtilities.TargetCFrame
 	local roundDoorReference = roundUtilities.ResolveDoorReference
 	local roundDoorGeometry = roundUtilities.DoorGeometry
 	local roundDoorApproaches = roundUtilities.DoorApproaches
@@ -1226,23 +1240,18 @@ local setDoRoundEnabled = (function()
 	end
 
 local eligibleRoundDoors: any = function(includeExit)
+	if includeExit then
+		return findExitDoorDescriptors()
+	end
 	local folder = workspace:FindFirstChild("Doors")
 	local doors: any = {}
 	if not folder then
 		return doors
 	end
-	local candidates: any
-	if includeExit then
-		candidates = folder:GetDescendants()
-	else
-		candidates = folder:GetChildren()
-	end
-	for _, model in ipairs(candidates) do
-		if model:IsA("Model") then
-			local isExit = string.lower(tostring(model.Name)) == "exitdoor"
-			if isExit == includeExit then
-				table.insert(doors, model)
-			end
+	for _, model in ipairs(folder:GetChildren()) do
+		if model:IsA("Model")
+			and not instanceBelongsToExitDoor(model) then
+			table.insert(doors, model)
 		end
 	end
 	return shuffleRoundList(doors)
@@ -1319,7 +1328,8 @@ local function placeRoundToolsAtDoors(generation)
 			local key = string.lower(tostring(doorModel.Name))
 			if not rejectedDoors[doorModel]
 				and ((toolKey == "salt canister"
-					and not doRoundState.usedSaltDoorModels[doorModel])
+					and not doRoundState.usedSaltDoorModels[doorModel]
+					and not doRoundState.usedDoorNames[key])
 					or (toolKey ~= "salt canister"
 						and not doRoundState.usedDoorNames[key])) then
 				return doorModel, key
@@ -1449,8 +1459,6 @@ local function placeRoundToolsAtDoors(generation)
 					generation
 				)
 				if teleported and facePlayerTowardRoundDoor(door) then
-					doRoundState.usedDoorNames[selectedKey] = true
-					doRoundState.lastDoorName = selectedKey
 					doRoundWait(generation, 0.1)
 					placed, placementReason, dispatched, observedUses =
 						fireRoundPlaceable(toolName, door, generation)
@@ -1466,11 +1474,14 @@ local function placeRoundToolsAtDoors(generation)
 					doRoundState.completedDoorTools[toolKey] = true
 				end
 			end
-			if toolKey == "salt canister" and (placed or dispatched) then
-				doRoundState.usedSaltDoorModels[selectedDoor] = true
-			end
-			if toolKey == "holy oil" and (placed or dispatched) then
-				doRoundState.completedDoorTools[toolKey] = true
+			if placed then
+				doRoundState.usedDoorNames[selectedKey] = true
+				doRoundState.lastDoorName = selectedKey
+				if toolKey == "salt canister" then
+					doRoundState.usedSaltDoorModels[selectedDoor] = true
+				elseif toolKey == "holy oil" then
+					doRoundState.completedDoorTools[toolKey] = true
+				end
 			end
 			if placed then
 				passAttemptedPlacement = true
@@ -1521,17 +1532,33 @@ local function openRoundExitDoor(generation)
 	end
 	local exitDoors = eligibleRoundDoors(true)
 	if #exitDoors == 0 then
-		return false, "Workspace.Doors.ExitDoor was not found"
+		return false, "no ExitDoor marker or actionable Door container was found"
 	end
-	for _, exitModel in ipairs(exitDoors) do
-		if exitModel:GetAttribute("DoorClosed") == false then
+	local function closedState(descriptor)
+		for _, owner in ipairs({
+			descriptor.StateOwner,
+			descriptor.DoorContainer,
+			descriptor.Entry,
+		}) do
+			if owner then
+				local value = owner:GetAttribute("DoorClosed")
+				if typeof(value) == "boolean" then
+					return value
+				end
+			end
+		end
+		return nil
+	end
+	for _, descriptor in ipairs(exitDoors) do
+		if closedState(descriptor) == false then
 			return true
 		end
-		local doorContainer = exitModel:FindFirstChild("Door")
+		local doorContainer = descriptor.DoorContainer
 		local doorReference = doorContainer
 			and (roundDoorReference(doorContainer) or doorContainer)
 		if doorContainer and doorReference then
 			local approaches, center = roundDoorApproaches(doorReference)
+			local dispatchAttempted = false
 			for _, approach in ipairs(shuffleRoundList(approaches)) do
 				if not roundActionIsSafe(generation) then
 					return false, roundUnsafeReason(generation)
@@ -1549,22 +1576,46 @@ local function openRoundExitDoor(generation)
 						teleportToBaseCamp(roundTeleportOptions(generation))
 						return false, roundUnsafeReason(generation)
 					end
-					if exitModel:GetAttribute("DoorClosed") == false then
+					if closedState(descriptor) == false then
 						return true
 					end
+					local beforeFrame = roundTargetCFrame(doorReference)
 					beginAutomationMutation(1.5)
+					dispatchAttempted = true
 					local fired = pcall(
 						remote.FireServer,
 						remote,
 						doorContainer
 					)
 					if fired then
-						doRoundWait(generation, 0.45)
-						if exitModel:GetAttribute("DoorClosed") == false then
-							return true
-						end
+						local confirmationDeadline = os.clock() + 1.5
+						repeat
+							if not roundActionIsSafe(generation) then
+								teleportToBaseCamp(roundTeleportOptions(generation))
+								return false, roundUnsafeReason(generation)
+							end
+							local afterState = closedState(descriptor)
+							local afterFrame = roundTargetCFrame(doorReference)
+							local frameChanged = beforeFrame and afterFrame
+								and ((afterFrame.Position - beforeFrame.Position).Magnitude > 0.05
+									or afterFrame.LookVector:Dot(beforeFrame.LookVector) < 0.999)
+							if afterState == false or frameChanged then
+								return true
+							end
+							if os.clock() >= confirmationDeadline then
+								break
+							end
+							doRoundWait(
+								generation,
+								math.min(0.05, confirmationDeadline - os.clock())
+							)
+						until false
 					end
+					break
 				end
+			end
+			if dispatchAttempted and closedState(descriptor) == false then
+				return true
 			end
 		end
 	end
@@ -1584,7 +1635,7 @@ local function captureRoundRoomItems(room)
 			for _, model in ipairs(items:GetChildren()) do
 				if normalizeRoundItemName(roundItemName(model)) == normalized then
 					fallback = fallback or model
-					if instanceIsInsideRoom(model, room) then
+					if worldItemIsFullyInsideRoom(model, room) then
 						doRoundState.roomItems[normalized] = model
 						fallback = nil
 						break
@@ -1624,6 +1675,59 @@ local function countRoundInventorySlots()
 	return count
 end
 
+local function snapshotRoundWorldItems(itemName)
+	local snapshot = setmetatable({}, {__mode = "k"})
+	local items = workspace:FindFirstChild("Items")
+	if not items then
+		return snapshot
+	end
+	local normalized = normalizeRoundItemName(itemName)
+	for _, candidate in ipairs(items:GetChildren()) do
+		if normalizeRoundItemName(roundItemName(candidate)) == normalized then
+			snapshot[candidate] = true
+		end
+	end
+	return snapshot
+end
+
+local function confirmRoundItemDropInRoom(
+	originalModel,
+	itemName,
+	room,
+	beforeWorldItems,
+	generation
+)
+	local normalized = normalizeRoundItemName(itemName)
+	local replacement
+	local deadline = os.clock() + 1.25
+	repeat
+		local items = workspace:FindFirstChild("Items")
+		if items then
+			for _, candidate in ipairs(items:GetChildren()) do
+				if normalizeRoundItemName(roundItemName(candidate)) == normalized
+					and (candidate == originalModel
+						or not beforeWorldItems[candidate]) then
+					replacement = replacement or candidate
+					if worldItemIsFullyInsideRoom(candidate, room) then
+						doRoundState.roomItems[normalized] = candidate
+						return true, candidate
+					end
+				end
+			end
+		end
+		if os.clock() >= deadline then
+			break
+		end
+		doRoundWait(generation, math.min(0.05, deadline - os.clock()))
+	until false
+	if replacement then
+		-- Preserve the server-created replacement even when it landed outside so
+		-- the next maintenance pass moves the real instance instead of a stale one.
+		doRoundState.roomItems[normalized] = replacement
+	end
+	return false, replacement
+end
+
 local function restoreRoundItemToRoom(model, room, generation)
 	if not model or not model.Parent or not room then
 		return false
@@ -1652,6 +1756,10 @@ local function restoreRoundItemToRoom(model, room, generation)
 		if not teleported or not roundActionIsSafe(generation) then
 			return false
 		end
+		if not characterIsFullyInsideRoom(player.Character, room) then
+			return false
+		end
+		local beforeWorldItems = snapshotRoundWorldItems(itemName)
 		beginAutomationMutation(3)
 		pcall(equip.FireServer, equip, "InvSlot" .. tostring(heldSlot))
 		doRoundWait(generation, 0.15)
@@ -1659,11 +1767,14 @@ local function restoreRoundItemToRoom(model, room, generation)
 			return false
 		end
 		pcall(drop.FireServer, drop, "InvSlot" .. tostring(heldSlot))
-		doRoundWait(generation, 0.35)
 		beginAutomationMutation(3)
-		return itemsFolder ~= nil
-			and model:IsDescendantOf(itemsFolder)
-			and instanceIsInsideRoom(model, room)
+		return confirmRoundItemDropInRoom(
+			model,
+			itemName,
+			room,
+			beforeWorldItems,
+			generation
+		)
 	end
 	if countRoundInventorySlots() >= 3 then
 		return false
@@ -1674,7 +1785,12 @@ local function restoreRoundItemToRoom(model, room, generation)
 		if not roundActionIsSafe(generation) then
 			return false
 		end
-		movedNear = teleportNearRoundTarget(model, approach, generation)
+		movedNear = teleportNearRoundTarget(
+			model,
+			approach,
+			generation,
+			ROUND_PICKUP_MAX_DISTANCE - 0.25
+		)
 		if movedNear then
 			break
 		end
@@ -1684,6 +1800,13 @@ local function restoreRoundItemToRoom(model, room, generation)
 	end
 	if not roundActionIsSafe(generation) then
 		teleportToBaseCamp(roundTeleportOptions(generation))
+		return false
+	end
+	local pickupRoot = player.Character
+		and player.Character:FindFirstChild("HumanoidRootPart")
+	if not pickupRoot
+		or distanceFromPositionToInstance(pickupRoot.Position, model)
+			> ROUND_PICKUP_MAX_DISTANCE then
 		return false
 	end
 	beginAutomationMutation(4)
@@ -1714,15 +1837,24 @@ local function restoreRoundItemToRoom(model, room, generation)
 	if not teleported or not roundActionIsSafe(generation) then
 		return false
 	end
+	if not characterIsFullyInsideRoom(player.Character, room) then
+		return false
+	end
+	local beforeWorldItems = snapshotRoundWorldItems(itemName)
 	pcall(equip.FireServer, equip, "InvSlot" .. tostring(slotNumber))
 	doRoundWait(generation, 0.15)
 	if not roundActionIsSafe(generation) then
 		return false
 	end
 	pcall(drop.FireServer, drop, "InvSlot" .. tostring(slotNumber))
-	doRoundWait(generation, 0.35)
 	beginAutomationMutation(3)
-	return instanceIsInsideRoom(model, room)
+	return confirmRoundItemDropInRoom(
+		model,
+		itemName,
+		room,
+		beforeWorldItems,
+		generation
+	)
 end
 
 local function maintainRoundRoomItems(room, generation)
@@ -1735,21 +1867,54 @@ local function maintainRoundRoomItems(room, generation)
 			local itemsFolder = workspace:FindFirstChild("Items")
 			local worldItem = itemsFolder
 				and model:IsDescendantOf(itemsFolder)
-			if not worldItem or not instanceIsInsideRoom(model, room) then
+			if not worldItem or not worldItemIsFullyInsideRoom(model, room) then
 				doRoundState.outsideSince[model] =
 					doRoundState.outsideSince[model] or now
-				if now - doRoundState.outsideSince[model] >= 1.5 then
+				if now - doRoundState.outsideSince[model] >= 1.5
+					and now >= (doRoundState.nextRestoreAt[model] or 0) then
 					setDoRoundStatus("Maintaining room items")
-					if restoreRoundItemToRoom(model, room, generation) then
+					local restored, trackedModel = restoreRoundItemToRoom(
+						model,
+						room,
+						generation
+					)
+					local activeModel = trackedModel
+						or doRoundState.roomItems[normalized]
+						or model
+					if restored then
 						doRoundState.outsideSince[model] = nil
+						doRoundState.restoreAttempts[model] = nil
+						doRoundState.nextRestoreAt[model] = nil
+						if activeModel ~= model then
+							doRoundState.outsideSince[activeModel] = nil
+							doRoundState.restoreAttempts[activeModel] = nil
+							doRoundState.nextRestoreAt[activeModel] = nil
+						end
+					else
+						local attempts = math.max(
+							doRoundState.restoreAttempts[model] or 0,
+							doRoundState.restoreAttempts[activeModel] or 0
+						) + 1
+						if activeModel ~= model then
+							doRoundState.outsideSince[activeModel] =
+								doRoundState.outsideSince[model] or now
+							doRoundState.outsideSince[model] = nil
+							doRoundState.restoreAttempts[model] = nil
+							doRoundState.nextRestoreAt[model] = nil
+						end
+						doRoundState.restoreAttempts[activeModel] = attempts
+						doRoundState.nextRestoreAt[activeModel] = os.clock()
+							+ math.min(12, 1.5 * 2 ^ math.min(attempts - 1, 3))
 					end
 					return
 				end
 			else
 				doRoundState.outsideSince[model] = nil
+				doRoundState.restoreAttempts[model] = nil
+				doRoundState.nextRestoreAt[model] = nil
 			end
 			if worldItem and POWERED_ROOM_ITEMS[normalized]
-				and instanceIsInsideRoom(model, room) then
+				and worldItemIsFullyInsideRoom(model, room) then
 				local enabledObject = roundItemEnabledObject(model)
 				if enabledObject then
 					local enabled = enabledObject:GetAttribute("Enabled") == true
@@ -2151,7 +2316,7 @@ local function runDoRound(generation)
 			local character = player.Character
 			doRoundState.questionsActive = true
 			if favouriteRoom and character
-				and not instanceIsInsideRoom(character, favouriteRoom) then
+				and not characterIsFullyInsideRoom(character, favouriteRoom) then
 				setDoRoundStatus("Returning to ghost room")
 				teleportToRoomBoundingBoxCenter(
 					favouriteRoom,
@@ -2207,6 +2372,8 @@ setEnabled = function(enabled, finalPhase)
 		doRoundState.roomItems = {}
 		doRoundState.itemPower = setmetatable({}, {__mode = "k"})
 		doRoundState.outsideSince = setmetatable({}, {__mode = "k"})
+		doRoundState.restoreAttempts = setmetatable({}, {__mode = "k"})
+		doRoundState.nextRestoreAt = setmetatable({}, {__mode = "k"})
 		doRoundState.autoSpiritBoxLease = true
 		doRoundState.questionsActive = false
 		refreshAutoSpiritBoxEnabled()

@@ -105,6 +105,8 @@ local doRoundState = {
 	roomItems = {},
 	itemPower = setmetatable({}, {__mode = "k"}),
 	outsideSince = setmetatable({}, {__mode = "k"}),
+	restoreAttempts = setmetatable({}, {__mode = "k"}),
+	nextRestoreAt = setmetatable({}, {__mode = "k"}),
 	maintenanceAccumulator = 0,
 	lastFavouriteRoom = nil,
 	roundMap = nil,
@@ -167,6 +169,8 @@ local perkTrackerState = {
 	phantomContradictoryCyclesThisHunt = 0,
 	phantomMimicrySkinwalkerClue = false,
 	phantomMimicryPreviousSkinwalkerDetection = nil,
+	oniPatternHunts = 0,
+	oniPatternRecordedThisHunt = false,
 	vexLastValue = nil,
 	updateVexState = function() end,
 	wendigoSnapshots = {},
@@ -180,17 +184,14 @@ local perkTrackerState = {
 	wispRoomNegativeRecordedThisHunt = false,
 	nonHuntWalkSpeedSamples = {},
 	transparencyAttributeConnection = nil,
-	specterInitialized = false,
-	specterInFavourite = false,
-	specterEntryAt = nil,
-	specterSawMovement = false,
-	specterStationaryCandidateAt = nil,
-	specterIdleSince = nil,
-	specterStationaryArmed = false,
 	specterSuccessCount = 0,
 	specterTrackedFavouriteName = nil,
 	specterRoomChangePause = false,
 	specterRoomChangeSettleSince = nil,
+	specterResidenceSince = nil,
+	specterResidenceArmed = false,
+	specterOutsideSince = nil,
+	specterOutsideSamples = 0,
 	previousDead = {},
 	pendingKill = nil,
 	keresKillDecreaseCount = 0,
@@ -215,6 +216,7 @@ local perkTrackerState = {
 	dybbukMaybeReady = false,
 	leviathanToggleEvents = {},
 	leviathanLightStates = setmetatable({}, {__mode = "k"}),
+	leviathanSwitchStates = setmetatable({}, {__mode = "k"}),
 	leviathanLastFlickerAt = -math.huge,
 	leviathanLastLightOffAt = -math.huge,
 	leviathanLightScanAccumulator = 0,
@@ -291,6 +293,17 @@ local perkTrackerState = {
 	refreshIdentification = function() end,
 	automationMutationUntil = 0,
 }
+-- Keep spatial and automation helpers behind one explicitly dynamic table.  This
+-- prevents Luau from having to infer them as part of the already-large tracker
+-- state record while still avoiding a separate register for every helper.
+local automationHelpers: any = {}
+automationHelpers.leviathanRoomLightOffEdges = setmetatable({}, {__mode = "k"})
+automationHelpers.leviathanRoomSwitchOffEdges = setmetatable({}, {__mode = "k"})
+automationHelpers.leviathanPendingLightOffEvents = {}
+automationHelpers.specterDepartureArmed = false
+automationHelpers.specterAwaitingPostHuntReturn = false
+automationHelpers.specterPostHuntGraceUntil = 0
+automationHelpers.specterReturnSeenSince = nil
 local evidenceFound = {
 	Print = false,
 	SpiritBox = false,
@@ -318,12 +331,14 @@ local function refreshPerkLogs()
 	local positives = {}
 	local negatives = {}
 	for ghostName, detection in pairs(perkDetections) do
-		table.insert(positives, {
-			Ghost = ghostName,
-			Reason = detection.Reason,
-			Confidence = detection.Confidence,
-			At = detection.DetectedAt,
-		})
+		if not perkTrackerState.ruledOutGhosts[ghostName] then
+			table.insert(positives, {
+				Ghost = ghostName,
+				Reason = detection.Reason,
+				Confidence = detection.Confidence,
+				At = detection.DetectedAt,
+			})
+		end
 	end
 	for ghostName, ruledOut in pairs(perkTrackerState.ruledOutGhosts) do
 		table.insert(negatives, {
@@ -351,6 +366,13 @@ local function setGhostIdentificationLabel(ghostName, score, certain)
 end
 local function recordPerkDetection(ghostName, reason, confidence)
 	if not PERK_CONFIDENCE[ghostName] then
+		return
+	end
+	if perkTrackerState.ruledOutGhosts[ghostName] then
+		if perkDetections[ghostName] then
+			perkDetections[ghostName] = nil
+			refreshPerkLogs()
+		end
 		return
 	end
 	local now = os.clock()
@@ -421,6 +443,7 @@ perkTrackerState.ruleOutGhost = function(ghostName, reason, confidence)
 	end
 	local existing = perkTrackerState.ruledOutGhosts[ghostName]
 	if existing and existing.Confidence >= confidence then
+		clearPerkDetection(ghostName)
 		return false
 	end
 	perkTrackerState.ruledOutGhosts[ghostName] = {
@@ -1370,6 +1393,23 @@ local function leviathanWorldPosition(instance)
 	local part = instance:FindFirstChildWhichIsA("BasePart", true)
 	return part and part.Position or nil
 end
+automationHelpers.leviathanNearestAlivePlayerDistance = function(target)
+	local targetPosition = leviathanWorldPosition(target)
+	if not targetPosition then
+		return math.huge
+	end
+	local nearest = math.huge
+	for _, targetPlayer in ipairs(Services.Players:GetPlayers()) do
+		if targetPlayer:GetAttribute("Dead") ~= true then
+			local root = targetPlayer.Character
+				and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+			if root then
+				nearest = math.min(nearest, (root.Position - targetPosition).Magnitude)
+			end
+		end
+	end
+	return nearest
+end
 local function leviathanGhostLikelyCause(ghost, target, maxDistance)
 	if not ghost or not ghost:IsA("Model") then
 		return false
@@ -1383,19 +1423,7 @@ local function leviathanGhostLikelyCause(ghost, target, maxDistance)
 	if ghostDistance > (maxDistance or 45) then
 		return false
 	end
-	local nearestPlayerDistance = math.huge
-	for _, targetPlayer in ipairs(Services.Players:GetPlayers()) do
-		if targetPlayer:GetAttribute("Dead") ~= true then
-			local root = targetPlayer.Character
-				and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-			if root then
-				nearestPlayerDistance = math.min(
-					nearestPlayerDistance,
-					(root.Position - targetPosition).Magnitude
-				)
-			end
-		end
-	end
+	local nearestPlayerDistance = automationHelpers.leviathanNearestAlivePlayerDistance(target)
 	return nearestPlayerDistance > 12 or ghostDistance + 3 < nearestPlayerDistance
 end
 perkTrackerState.recordLeviathanClue = function(kind, reason, now)
@@ -1407,6 +1435,27 @@ perkTrackerState.recordLeviathanClue = function(kind, reason, now)
 	end
 	local corroborated = now - perkTrackerState.leviathanLastFlickerAt <= 12
 		and now - perkTrackerState.leviathanLastLightOffAt <= 12
+	if kind == "LightOff" then
+		recordPerkDetection(
+			"Leviathan",
+			reason
+				.. "; an out-of-hunt room-light shutoff was directly observed",
+			99
+		)
+		local leviathanDetection = perkDetections.Leviathan
+		if leviathanDetection then
+			leviathanDetection.Persistent = true
+			leviathanDetection.ExpiresAt = nil
+		end
+		local skinwalkerDetection = perkDetections.Skinwalker
+		if skinwalkerDetection
+			and skinwalkerDetection.Reason
+				== "Skinwalker may mimic one Leviathan light or equipment ability" then
+			clearPerkDetection("Skinwalker")
+		end
+		updateGhostIdentification(nil)
+		return
+	end
 	local skinwalkerPossible = ghostSupportsConfirmedEvidence(
 		"Skinwalker",
 		getConfirmedEvidence()
@@ -1533,26 +1582,106 @@ perkTrackerState.updateLeviathanLightTracker = function(ghost, hunting, deltaTim
 	if not ghost or not rooms then
 		return
 	end
+	local fuseBox = map:FindFirstChild("FuseBox", true)
+	local edgeAllowed = not hunting
+		and now >= perkTrackerState.suppressLeviathanLightsUntil
 	for _, room in ipairs(rooms:GetChildren()) do
 		local current = room:GetAttribute("LightsOn")
+		local lightSwitch = room:FindFirstChild("LightSwitch", true)
+		local currentSwitchState = lightSwitch
+			and lightSwitch:GetAttribute("State")
+		local previousSwitchState = lightSwitch
+			and perkTrackerState.leviathanSwitchStates[lightSwitch]
+		if lightSwitch and typeof(currentSwitchState) == "boolean" then
+			perkTrackerState.leviathanSwitchStates[lightSwitch] = currentSwitchState
+			if previousSwitchState == true and currentSwitchState == false then
+				automationHelpers.leviathanRoomSwitchOffEdges[room] = {
+					Time = now,
+					Allowed = edgeAllowed,
+					Switch = lightSwitch,
+				}
+			end
+		end
 		if typeof(current) == "boolean" then
 			local previous = perkTrackerState.leviathanLightStates[room]
 			perkTrackerState.leviathanLightStates[room] = current
-			if previous == true
-				and current == false
-				and not hunting
-				and room:GetAttribute("LightsBroken") ~= true
-				and now >= perkTrackerState.suppressLeviathanLightsUntil then
-				local lightSwitch = room:FindFirstChild("LightSwitch", true)
-				if lightSwitch and leviathanGhostLikelyCause(ghost, lightSwitch, 45) then
-					perkTrackerState.recordLeviathanClue(
-						"LightOff",
-						"room " .. tostring(room.Name) .. " switched its lights off outside a hunt",
-						now
-					)
-				end
+			if previous == true and current == false
+				and room:GetAttribute("LightsBroken") ~= true then
+				automationHelpers.leviathanRoomLightOffEdges[room] = {
+					Time = now,
+					Allowed = edgeAllowed,
+				}
 			end
 		end
+
+		local lightEdge: any = automationHelpers.leviathanRoomLightOffEdges[room]
+		local switchEdge: any = automationHelpers.leviathanRoomSwitchOffEdges[room]
+		if lightEdge and switchEdge
+			and math.abs(lightEdge.Time - switchEdge.Time) <= 0.6 then
+			local switch = switchEdge.Switch or lightSwitch
+			table.insert(automationHelpers.leviathanPendingLightOffEvents, {
+				Room = room,
+				Switch = switch,
+				Time = math.max(lightEdge.Time, switchEdge.Time),
+				Eligible = lightEdge.Allowed
+					and switchEdge.Allowed
+					and fuseBox ~= nil
+					and fuseBox:GetAttribute("Enabled") == true
+					and switch ~= nil
+					and automationHelpers.leviathanNearestAlivePlayerDistance(switch) > 12
+					and leviathanGhostLikelyCause(ghost, switch, 45),
+			})
+			automationHelpers.leviathanRoomLightOffEdges[room] = nil
+			automationHelpers.leviathanRoomSwitchOffEdges[room] = nil
+		else
+			if lightEdge and now - lightEdge.Time > 0.6 then
+				automationHelpers.leviathanRoomLightOffEdges[room] = nil
+			end
+			if switchEdge and now - switchEdge.Time > 0.6 then
+				automationHelpers.leviathanRoomSwitchOffEdges[room] = nil
+			end
+		end
+	end
+
+	local pendingEvents: any = automationHelpers.leviathanPendingLightOffEvents
+	if #pendingEvents == 0 then
+		return
+	end
+	local oldestTime = math.huge
+	for _, event in ipairs(pendingEvents) do
+		oldestTime = math.min(oldestTime, event.Time)
+	end
+	if now - oldestTime < 0.6 then
+		return
+	end
+	local batch = {}
+	local remaining = {}
+	for _, event in ipairs(pendingEvents) do
+		if event.Time <= oldestTime + 0.6 then
+			table.insert(batch, event)
+		else
+			table.insert(remaining, event)
+		end
+	end
+	automationHelpers.leviathanPendingLightOffEvents = remaining
+	if #batch ~= 1
+		or not fuseBox
+		or fuseBox:GetAttribute("Enabled") ~= true then
+		return
+	end
+	local transition = batch[1]
+	local room = transition.Room
+	local lightSwitch = transition.Switch
+	if transition.Eligible
+		and room.Parent == rooms
+		and room:GetAttribute("LightsBroken") ~= true
+		and lightSwitch
+		and lightSwitch.Parent then
+		perkTrackerState.recordLeviathanClue(
+			"LightOff",
+			"room " .. tostring(room.Name) .. " switched its lights off outside a hunt",
+			now
+		)
 	end
 end
 local function bindGhoulRuleOutItem(object)
@@ -1932,6 +2061,10 @@ resetEvidenceState = function()
 	perkTrackerState.dybbukMaybeReady = false
 	perkTrackerState.leviathanToggleEvents = {}
 	perkTrackerState.leviathanLightStates = setmetatable({}, {__mode = "k"})
+	perkTrackerState.leviathanSwitchStates = setmetatable({}, {__mode = "k"})
+	automationHelpers.leviathanRoomLightOffEdges = setmetatable({}, {__mode = "k"})
+	automationHelpers.leviathanRoomSwitchOffEdges = setmetatable({}, {__mode = "k"})
+	automationHelpers.leviathanPendingLightOffEvents = {}
 	perkTrackerState.leviathanLastFlickerAt = -math.huge
 	perkTrackerState.leviathanLastLightOffAt = -math.huge
 	perkTrackerState.leviathanLightScanAccumulator = 0
@@ -2596,6 +2729,8 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 		perkTrackerState.phantomMimicrySkinwalkerClue = false
 		perkTrackerState.phantomMimicryPreviousSkinwalkerDetection = nil
 		perkTrackerState.phantomPatternRecordedThisHunt = false
+		perkTrackerState.oniPatternHunts = 0
+		perkTrackerState.oniPatternRecordedThisHunt = false
 	end
 	perkTrackerState.phantomQualifiedCyclesThisHunt = 0
 	perkTrackerState.phantomMatchedCyclesThisHunt = 0
@@ -2610,17 +2745,18 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 	perkTrackerState.wispRoomMismatchSamples = 0
 	perkTrackerState.wispRoomNegativeRecordedThisHunt = false
 	perkTrackerState.nonHuntWalkSpeedSamples = {}
-	perkTrackerState.specterInitialized = false
-	perkTrackerState.specterInFavourite = false
-	perkTrackerState.specterEntryAt = nil
-	perkTrackerState.specterSawMovement = false
-	perkTrackerState.specterStationaryCandidateAt = nil
-	perkTrackerState.specterIdleSince = nil
-	perkTrackerState.specterStationaryArmed = false
 	perkTrackerState.specterSuccessCount = 0
 	perkTrackerState.specterTrackedFavouriteName = nil
 	perkTrackerState.specterRoomChangePause = false
 	perkTrackerState.specterRoomChangeSettleSince = nil
+	perkTrackerState.specterResidenceSince = nil
+	perkTrackerState.specterResidenceArmed = false
+	automationHelpers.specterDepartureArmed = false
+	automationHelpers.specterAwaitingPostHuntReturn = false
+	automationHelpers.specterPostHuntGraceUntil = 0
+	automationHelpers.specterReturnSeenSince = nil
+	perkTrackerState.specterOutsideSince = nil
+	perkTrackerState.specterOutsideSamples = 0
 	if ghost then
 		perkTrackerState.huntingAttributeConnection = connect(
 			ghost:GetAttributeChangedSignal("Hunting"),
@@ -2706,6 +2842,10 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 	perkTrackerState.dybbukMaybeReady = false
 	perkTrackerState.leviathanToggleEvents = {}
 	perkTrackerState.leviathanLightStates = setmetatable({}, {__mode = "k"})
+	perkTrackerState.leviathanSwitchStates = setmetatable({}, {__mode = "k"})
+	automationHelpers.leviathanRoomLightOffEdges = setmetatable({}, {__mode = "k"})
+	automationHelpers.leviathanRoomSwitchOffEdges = setmetatable({}, {__mode = "k"})
+	automationHelpers.leviathanPendingLightOffEvents = {}
 	perkTrackerState.leviathanLastFlickerAt = -math.huge
 	perkTrackerState.leviathanLastLightOffAt = -math.huge
 	perkTrackerState.leviathanLightScanAccumulator = 0
@@ -2911,6 +3051,40 @@ local function getInstanceWorldPosition(instance)
 	local part = instance:FindFirstChildWhichIsA("BasePart", true)
 	return part and part.Position or nil
 end
+automationHelpers.distanceFromPositionToInstance = function(position, instance)
+	if not position or not instance then
+		return math.huge
+	end
+	local closestDistance = math.huge
+	local function inspectPart(part)
+		local localPoint = part.CFrame:PointToObjectSpace(position)
+		local half = part.Size * 0.5
+		local closestLocal = Vector3.new(
+			math.clamp(localPoint.X, -half.X, half.X),
+			math.clamp(localPoint.Y, -half.Y, half.Y),
+			math.clamp(localPoint.Z, -half.Z, half.Z)
+		)
+		local closestWorld = part.CFrame:PointToWorldSpace(closestLocal)
+		closestDistance = math.min(
+			closestDistance,
+			(position - closestWorld).Magnitude
+		)
+	end
+	if instance:IsA("BasePart") then
+		inspectPart(instance)
+	else
+		for _, descendant in ipairs(instance:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				inspectPart(descendant)
+			end
+		end
+	end
+	if closestDistance < math.huge then
+		return closestDistance
+	end
+	local fallback = getInstanceWorldPosition(instance)
+	return fallback and (position - fallback).Magnitude or math.huge
+end
 local roomBoundingPartsCache = setmetatable({}, {__mode = "k"})
 local function getRoomBoundingParts(room)
 	if not room then
@@ -2979,6 +3153,98 @@ local function getRoomBoundingParts(room)
 		roomBoundingPartsCache[room] = nil
 	end
 	return parts
+end
+automationHelpers.partBelongsToHeldCharacterItem = function(part, character)
+	local current = part
+	while current and current ~= character do
+		if current:IsA("Accessory") then
+			return true
+		end
+		if current:IsA("Model")
+			and current:GetAttribute("ItemName") ~= nil then
+			return true
+		end
+		if current:IsA("Model") and current.Parent == character then
+			for _, descendant in ipairs(current:GetDescendants()) do
+				if descendant:GetAttribute("ItemName") ~= nil then
+					return true
+				end
+			end
+		end
+		current = current.Parent
+	end
+	return false
+end
+automationHelpers.instanceFullyInsideBoundingPartsXZ = function(
+	instance,
+	boundingParts,
+	excludeHeldCharacterItems
+)
+	if not instance or not boundingParts or #boundingParts == 0 then
+		return false
+	end
+	local checkedParts = 0
+	local function pointInsideBounds(point)
+		for _, bounds in ipairs(boundingParts) do
+			if bounds and bounds:IsA("BasePart") then
+				local localPoint = bounds.CFrame:PointToObjectSpace(point)
+				local half = bounds.Size * 0.5
+				if math.abs(localPoint.X) <= half.X + 0.03
+					and math.abs(localPoint.Z) <= half.Z + 0.03 then
+					return true
+				end
+			end
+		end
+		return false
+	end
+	local function inspectPart(part)
+		if excludeHeldCharacterItems
+			and automationHelpers.partBelongsToHeldCharacterItem(part, instance) then
+			return true
+		end
+		checkedParts = checkedParts + 1
+		local half = part.Size * 0.5
+		for _, x in ipairs({-half.X, half.X}) do
+			for _, y in ipairs({-half.Y, half.Y}) do
+				for _, z in ipairs({-half.Z, half.Z}) do
+					if not pointInsideBounds(
+						part.CFrame:PointToWorldSpace(Vector3.new(x, y, z))
+					) then
+						return false
+					end
+				end
+			end
+		end
+		return true
+	end
+	if instance:IsA("BasePart") then
+		return inspectPart(instance) and checkedParts > 0
+	end
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		if descendant:IsA("BasePart") and not inspectPart(descendant) then
+			return false
+		end
+	end
+	return checkedParts > 0
+end
+automationHelpers.characterIsFullyInsideRoom = function(character, room)
+	return automationHelpers.instanceFullyInsideBoundingPartsXZ(
+		character,
+		getRoomBoundingParts(room),
+		true
+	)
+end
+automationHelpers.worldItemIsFullyInsideRoom = function(item, room)
+	local position = getInstanceWorldPosition(item)
+	if not position then
+		return false
+	end
+	for _, bounds in ipairs(getRoomBoundingParts(room)) do
+		if pointIsInsidePart(bounds, position) then
+			return true
+		end
+	end
+	return false
 end
 local function instanceIsInsideRoom(instance, room)
 	local position = getInstanceWorldPosition(instance)
@@ -3049,22 +3315,7 @@ local function getMapSizeSpeedFactor()
 	end
 	return 1
 end
-local function _nearestAllowedGhostSpeedMultiplier(observedScale)
-	if typeof(observedScale) ~= "number" or observedScale <= 0 then
-		return nil, math.huge
-	end
-	local bestMultiplier = nil
-	local bestError = math.huge
-	for step = 0, 6 do
-		local multiplier = 0.5 + step * 0.165
-		local errorAmount = math.abs(observedScale - multiplier)
-		if errorAmount < bestError then
-			bestError = errorAmount
-			bestMultiplier = multiplier
-		end
-	end
-	return bestMultiplier, bestError
-end
+automationHelpers.ghostSpeedMultipliers = {0.5, 0.75, 1, 1.25, 1.5, 2}
 local function closestConfiguredBaseSpeed(rawWalkSpeed, baseSpeed)
 	if typeof(rawWalkSpeed) ~= "number" or rawWalkSpeed <= 0 then
 		return nil, math.huge, nil
@@ -3073,8 +3324,7 @@ local function closestConfiguredBaseSpeed(rawWalkSpeed, baseSpeed)
 	local bestExpected = nil
 	local bestError = math.huge
 	local bestMultiplier = nil
-	for step = 0, 6 do
-		local multiplier = 0.5 + step * 0.25
+	for _, multiplier in ipairs(automationHelpers.ghostSpeedMultipliers) do
 		local expected = baseSpeed * mapFactor * multiplier
 		local errorAmount = math.abs(rawWalkSpeed - expected)
 		if errorAmount < bestError then
@@ -3084,16 +3334,6 @@ local function closestConfiguredBaseSpeed(rawWalkSpeed, baseSpeed)
 		end
 	end
 	return bestExpected, bestError, bestMultiplier
-end
-local function recentNonHuntWalkSpeed(now)
-	local values = valuesFromSamples(
-		perkTrackerState.nonHuntWalkSpeedSamples,
-		"GhostWalkSpeed",
-		function(sample)
-			return sample.Time >= now - 20
-		end
-	)
-	return median(values), #values
 end
 local function _samplesByLightingContext(samples, predicate)
 	local groups = {}
@@ -3425,23 +3665,28 @@ local function handleHuntTransition(ghost, hunting, now)
 	end
 	if hunting and not previous then
 		perkTrackerState.evaluateHolyOilAtHuntStart(ghost)
-		if perkTrackerState.specterStationaryArmed
+		if perkTrackerState.specterResidenceArmed
 			and not perkTrackerState.specterRoomChangePause then
 			perkTrackerState.specterSuccessCount =
 				perkTrackerState.specterSuccessCount + 1
 			local successCount = perkTrackerState.specterSuccessCount
 			recordPerkDetection(
 				"Specter",
-				"ghost remained stationary in its favourite room from the five-second arm point until hunt start ("
+				"ghost remained continuously inside its favourite room for at least five seconds until hunt start ("
 					.. tostring(successCount)
 					.. " time"
 					.. (successCount == 1 and ")" or "s)"),
 				successCount >= 2 and 65 or 35
 			)
 		end
-		perkTrackerState.specterStationaryArmed = false
-		perkTrackerState.specterStationaryCandidateAt = nil
-		perkTrackerState.specterIdleSince = nil
+		perkTrackerState.specterResidenceArmed = false
+		perkTrackerState.specterResidenceSince = nil
+		automationHelpers.specterDepartureArmed = false
+		automationHelpers.specterAwaitingPostHuntReturn = false
+		automationHelpers.specterPostHuntGraceUntil = 0
+		automationHelpers.specterReturnSeenSince = nil
+		perkTrackerState.specterOutsideSince = nil
+		perkTrackerState.specterOutsideSamples = 0
 		perkTrackerState.specterRoomChangePause = false
 		perkTrackerState.specterRoomChangeSettleSince = nil
 		perkTrackerState.huntStartedAt = now
@@ -3464,7 +3709,19 @@ local function handleHuntTransition(ghost, hunting, now)
 		perkTrackerState.phantomQualifiedCyclesThisHunt = 0
 		perkTrackerState.phantomMatchedCyclesThisHunt = 0
 		perkTrackerState.phantomContradictoryCyclesThisHunt = 0
+		perkTrackerState.oniPatternRecordedThisHunt = false
 	elseif not hunting and previous then
+		-- Hunting is the one legitimate reason for a Specter to leave its
+		-- favourite room.  Wait for a stable return before arming departure
+		-- negatives again so the tail end of its hunt path is never judged.
+		perkTrackerState.specterResidenceArmed = false
+		perkTrackerState.specterResidenceSince = nil
+		automationHelpers.specterDepartureArmed = false
+		automationHelpers.specterAwaitingPostHuntReturn = true
+		automationHelpers.specterPostHuntGraceUntil = now + 1.5
+		automationHelpers.specterReturnSeenSince = nil
+		perkTrackerState.specterOutsideSince = nil
+		perkTrackerState.specterOutsideSamples = 0
 		analyzePhantom(now, true)
 		perkTrackerState.huntStartedAt = nil
 		if perkTrackerState.dullahanPatternDetected
@@ -3523,7 +3780,7 @@ local function capturePendingWendigoTransition(ghost, now)
 				table.insert(snapshots, {
 					Time = now,
 					TransitionAt = pending.TransitionAt,
-					Sanity = math.clamp(pending.Sanity, 0, 100),
+					Sanity = math.clamp(tonumber(pending.Sanity) or 0, 0, 100),
 					Speed = walkSpeed,
 					Hunting = pending.Hunting,
 				})
@@ -3897,7 +4154,7 @@ end
 perkTrackerState.analyzeSpecter = function(
 	ghost,
 	hunting,
-	measuredSpeed,
+	_measuredSpeed,
 	now
 )
 	local state = perkTrackerState
@@ -3909,8 +4166,14 @@ perkTrackerState.analyzeSpecter = function(
 		ghost:GetAttribute("FavoriteRoom")
 	if not favouriteName
 		or tostring(favouriteName) == "" then
-		state.specterStationaryCandidateAt = nil
-		state.specterStationaryArmed = false
+		state.specterResidenceSince = nil
+		state.specterResidenceArmed = false
+		automationHelpers.specterDepartureArmed = false
+		automationHelpers.specterAwaitingPostHuntReturn = false
+		automationHelpers.specterPostHuntGraceUntil = 0
+		automationHelpers.specterReturnSeenSince = nil
+		state.specterOutsideSince = nil
+		state.specterOutsideSamples = 0
 		return
 	end
 
@@ -3918,23 +4181,11 @@ perkTrackerState.analyzeSpecter = function(
 	local favouriteRoom =
 		findFavouriteRoom(roomsFolder, favouriteName)
 	local currentRoom = ghost:GetAttribute("CurrentRoom")
-	local inFavourite =
-		sameRoomName(currentRoom, favouriteName)
+	local inFavourite = sameRoomName(currentRoom, favouriteName)
 		or (
 			favouriteRoom
 			and instanceIsInsideRoom(ghost, favouriteRoom)
 		)
-
-	local recentSpeeds = valuesFromSamples(
-		state.motionSamples,
-		"Speed",
-		function(sample)
-			return not sample.Hunting
-				and sample.Time >= now - 0.8
-		end
-	)
-	local settledSpeed = median(recentSpeeds) or measuredSpeed
-	local stationary = settledSpeed <= 0.22
 
 	if not state.specterTrackedFavouriteName then
 		state.specterTrackedFavouriteName = favouriteName
@@ -3942,23 +4193,30 @@ perkTrackerState.analyzeSpecter = function(
 		state.specterTrackedFavouriteName,
 		favouriteName
 	) then
-		-- Favourite-room changes legitimately make the ghost travel. Pause the
-		-- session until it settles for two seconds in the new favourite room.
+		-- A favourite-room change legitimately makes the ghost travel. Do not
+		-- judge confinement until it has occupied the new room for two seconds.
 		state.specterTrackedFavouriteName = favouriteName
 		state.specterRoomChangePause = true
 		state.specterRoomChangeSettleSince = nil
-		state.specterStationaryCandidateAt = nil
-		state.specterStationaryArmed = false
+		state.specterResidenceSince = nil
+		state.specterResidenceArmed = false
+		automationHelpers.specterDepartureArmed = false
+		automationHelpers.specterAwaitingPostHuntReturn = false
+		automationHelpers.specterPostHuntGraceUntil = 0
+		automationHelpers.specterReturnSeenSince = nil
+		state.specterOutsideSince = nil
+		state.specterOutsideSamples = 0
 	end
 
 	if state.specterRoomChangePause then
-		if inFavourite and stationary then
+		if inFavourite then
 			if not state.specterRoomChangeSettleSince then
 				state.specterRoomChangeSettleSince = now
 			elseif now - state.specterRoomChangeSettleSince >= 2 then
 				state.specterRoomChangePause = false
 				state.specterRoomChangeSettleSince = nil
-				state.specterStationaryCandidateAt = now
+				state.specterResidenceSince = now
+				automationHelpers.specterDepartureArmed = true
 			end
 		else
 			state.specterRoomChangeSettleSince = nil
@@ -3966,27 +4224,62 @@ perkTrackerState.analyzeSpecter = function(
 		return
 	end
 
-	if not inFavourite or not stationary then
-		if state.specterStationaryArmed then
+	if automationHelpers.specterAwaitingPostHuntReturn then
+		state.specterResidenceSince = nil
+		state.specterResidenceArmed = false
+		automationHelpers.specterDepartureArmed = false
+		state.specterOutsideSince = nil
+		state.specterOutsideSamples = 0
+		if not inFavourite then
+			automationHelpers.specterReturnSeenSince = nil
+			return
+		end
+		automationHelpers.specterReturnSeenSince =
+			automationHelpers.specterReturnSeenSince or now
+		if now < automationHelpers.specterPostHuntGraceUntil
+			or now - automationHelpers.specterReturnSeenSince < 0.5 then
+			return
+		end
+		automationHelpers.specterAwaitingPostHuntReturn = false
+		automationHelpers.specterPostHuntGraceUntil = 0
+		state.specterResidenceSince = automationHelpers.specterReturnSeenSince
+		automationHelpers.specterReturnSeenSince = nil
+		automationHelpers.specterDepartureArmed = true
+	end
+
+	if not inFavourite then
+		state.specterResidenceSince = nil
+		state.specterResidenceArmed = false
+		if not automationHelpers.specterDepartureArmed then
+			state.specterOutsideSince = nil
+			state.specterOutsideSamples = 0
+			return
+		end
+		state.specterOutsideSince = state.specterOutsideSince or now
+		state.specterOutsideSamples = state.specterOutsideSamples + 1
+		if state.specterOutsideSamples >= 4
+			and now - state.specterOutsideSince >= 0.5 then
 			perkTrackerState.ruleOutGhost(
 				"Specter",
-				"after standing still for five seconds in an unchanged favourite room, the roaming ghost moved before hunting",
+				"the non-hunting ghost remained outside its unchanged favourite room across multiple verified samples",
 				95
 			)
 		end
-		state.specterStationaryCandidateAt = nil
-		state.specterIdleSince = nil
-		state.specterStationaryArmed = false
 		return
 	end
 
-	if not state.specterStationaryCandidateAt then
-		state.specterStationaryCandidateAt = now
-		return
-	end
-
-	if now - state.specterStationaryCandidateAt >= 5 then
-		state.specterStationaryArmed = true
+	state.specterOutsideSince = nil
+	state.specterOutsideSamples = 0
+	if not state.specterResidenceSince then
+		state.specterResidenceSince = now
+	else
+		local residenceAge = now - state.specterResidenceSince
+		if residenceAge >= 0.5 then
+			automationHelpers.specterDepartureArmed = true
+		end
+		if residenceAge >= 5 then
+			state.specterResidenceArmed = true
+		end
 	end
 end
 local function analyzeDullahan(now)
@@ -4070,6 +4363,7 @@ local function analyzeDullahan(now)
 	state.dybbukMaybeReady = false
 	perkTrackerState.clearGhostRuleOut("Dullahan")
 	clearPerkDetection("Dybbuk")
+	clearPerkDetection("Oni")
 	recordPerkDetection(
 		"Dullahan",
 		"Ghost WalkSpeed increased in at least three short intervals across five hunting samples; decreases were ignored",
@@ -4111,8 +4405,9 @@ local function analyzeWendigo()
 		return
 	end
 
-	local roundedSanity =
-		math.floor(math.clamp(latest.Sanity, 0, 100) + 0.5)
+	local roundedSanity = math.floor(
+		math.clamp(tonumber(latest.Sanity) or 0, 0, 100) + 0.5
+	)
 	local requiredSnapshots = 3
 	if roundedSanity <= 0 then
 		requiredSnapshots = 1
@@ -4124,15 +4419,6 @@ local function analyzeWendigo()
 		return
 	end
 
-	local legalMultipliers = {
-		0.5,
-		0.75,
-		1,
-		1.25,
-		1.5,
-		1.75,
-		2,
-	}
 	local mapFactor = getMapSizeSpeedFactor()
 	local matchedMultiplier
 	local invalidReason
@@ -4147,7 +4433,7 @@ local function analyzeWendigo()
 		local nearest
 		local nearestError = math.huge
 
-		for _, multiplier in ipairs(legalMultipliers) do
+		for _, multiplier in ipairs(automationHelpers.ghostSpeedMultipliers) do
 			local errorAmount =
 				math.abs(inferred - multiplier)
 			if errorAmount < nearestError then
@@ -4188,6 +4474,7 @@ local function analyzeWendigo()
 
 	if matchedMultiplier then
 		perkTrackerState.clearGhostRuleOut("Wendigo")
+		clearPerkDetection("Oni")
 		recordPerkDetection(
 			"Wendigo",
 			tostring(requiredSnapshots)
@@ -4204,19 +4491,9 @@ local function analyzeWendigo()
 	end
 end
 local function analyzeOni(now)
-	local nonHuntSpeed, nonHuntCount =
-		recentNonHuntWalkSpeed(now)
-	if not nonHuntSpeed or nonHuntCount < 2 then
-		return
-	end
-	local _, ordinaryError, customMultiplier =
-		closestConfiguredBaseSpeed(nonHuntSpeed, 11)
-	local baselineTolerance =
-		math.max(0.16, nonHuntSpeed * 0.025)
-	if not customMultiplier
-		or ordinaryError > baselineTolerance then
-		return
-	end
+	local rivalSpeedPattern = perkDetections.Wendigo
+		or perkDetections.Dullahan
+		or perkTrackerState.dullahanPatternDetected
 	local huntVisibleSpeeds = valuesFromSamples(
 		perkTrackerState.motionSamples,
 		"GhostWalkSpeed",
@@ -4234,36 +4511,71 @@ local function analyzeOni(now)
 		return
 	end
 	local mapFactor = getMapSizeSpeedFactor()
-	local expectedOni =
-		13.5 * mapFactor * customMultiplier
-	local expectedNormal =
-		11 * mapFactor * customMultiplier
-	local oniError = math.abs(huntMedian - expectedOni)
-	local normalError = math.abs(huntMedian - expectedNormal)
-	local oniTolerance =
-		math.max(0.2, expectedOni * 0.028)
+	local mapNormalizedSpeed = huntMedian / math.max(mapFactor, 0.001)
+	local function closestBaseMode(baseSpeed)
+		local bestMultiplier
+		local bestBase
+		local bestError = math.huge
+		for _, multiplier in ipairs(automationHelpers.ghostSpeedMultipliers) do
+			local inferredBase = mapNormalizedSpeed / multiplier
+			local errorAmount = math.abs(inferredBase - baseSpeed)
+			if errorAmount < bestError then
+				bestError = errorAmount
+				bestMultiplier = multiplier
+				bestBase = inferredBase
+			end
+		end
+		return bestError, bestMultiplier, bestBase
+	end
+	local oniError, oniMultiplier, oniBase = closestBaseMode(13.5)
+	local normalError, normalMultiplier, normalBase = closestBaseMode(11)
 	local stable =
 		standardDeviation(huntVisibleSpeeds)
-		<= math.max(0.16, expectedOni * 0.022)
-	if stable
-		and oniError <= oniTolerance
-		and normalError - oniError
-			>= math.max(0.12, expectedOni * 0.008) then
+		<= math.max(0.16, huntMedian * 0.022)
+	if not rivalSpeedPattern
+		and stable
+		and oniError <= 0.34
+		and normalError - oniError >= 0.15 then
 		perkTrackerState.clearGhostRuleOut("Oni")
+		if not perkTrackerState.oniPatternRecordedThisHunt then
+			perkTrackerState.oniPatternRecordedThisHunt = true
+			perkTrackerState.oniPatternHunts =
+				perkTrackerState.oniPatternHunts + 1
+		end
+		local confidence = perkTrackerState.oniPatternHunts >= 2
+			and 99
+			or 95
 		recordPerkDetection(
 			"Oni",
-			"visible hunting WalkSpeed quickly matched the scaled 13.5 Oni mode after a scaled 11 non-hunt baseline",
-			99
+			"visible hunting WalkSpeed "
+				.. string.format("%.2f", huntMedian)
+				.. " normalized to base "
+				.. string.format("%.2f", oniBase)
+				.. " at the valid "
+				.. tostring(math.floor(oniMultiplier * 100 + 0.5))
+				.. "% setting, matching Oni's 13.5 hunt mode across "
+				.. tostring(perkTrackerState.oniPatternHunts)
+				.. " qualified hunt"
+				.. (perkTrackerState.oniPatternHunts == 1 and "" or "s"),
+			confidence
 		)
 		updateGhostIdentification(perkTrackerState.ghost)
 	elseif #huntVisibleSpeeds >= 4
 		and stable
-		and normalError <= math.max(0.18, expectedNormal * 0.025)
+		and normalError <= 0.28
 		and oniError - normalError >= 0.15 then
+		perkTrackerState.oniPatternHunts = 0
+		perkTrackerState.oniPatternRecordedThisHunt = false
 		clearPerkDetection("Oni")
 		perkTrackerState.ruleOutGhost(
 			"Oni",
-			"visible hunting WalkSpeed stayed at the scaled normal 11 mode",
+			"visible hunting WalkSpeed "
+				.. string.format("%.2f", huntMedian)
+				.. " normalized to base "
+				.. string.format("%.2f", normalBase)
+				.. " at the valid "
+				.. tostring(math.floor(normalMultiplier * 100 + 0.5))
+				.. "% setting, matching the normal 11 hunt mode rather than Oni's 13.5",
 			95
 		)
 	end
@@ -4705,7 +5017,8 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 	end
 	local humanoid = ghost:FindFirstChildOfClass("Humanoid")
 	local currentSpeed = humanoid and humanoid.WalkSpeed or nil
-	for saltModel, observation in pairs(perkTrackerState.saltPendingTouches) do
+	local pendingSaltTouches: any = perkTrackerState.saltPendingTouches
+	for saltModel: any, observation: any in pairs(pendingSaltTouches) do
 		local age = now - observation.StartedAt
 		if observation.Disturbed then
 			perkTrackerState.wraithRuledOut = true
@@ -5938,7 +6251,162 @@ local function findBaseCampRoom()
 		or roomsFolder:FindFirstChild("BaseCamp")
 		or findFavouriteRoom(roomsFolder, "Base Camp")
 end
-local function teleportToRoomBoundingBoxCenter(room, options)
+automationHelpers.normalizedDoorToken = function(value)
+	return string.lower(tostring(value or "")):gsub("[^%w]", "")
+end
+automationHelpers.isExitDoorMarker = function(instance)
+	local token = instance
+		and automationHelpers.normalizedDoorToken(instance.Name)
+		or ""
+	local suffix = string.sub(token, 9)
+	return token == "exitdoor"
+		or (string.sub(token, 1, 8) == "exitdoor"
+			and (
+				tonumber(suffix) ~= nil
+				or suffix == "left"
+				or suffix == "right"
+				or suffix == "leftopen"
+				or suffix == "rightopen"
+				or suffix == "leftclosed"
+				or suffix == "rightclosed"
+				or suffix == "front"
+				or suffix == "back"
+				or suffix == "double"
+				or suffix == "sliding"
+				or suffix == "main"
+				or suffix == "a"
+				or suffix == "b"
+				or suffix == "open"
+				or suffix == "closed"
+			))
+end
+automationHelpers.instanceBelongsToExitDoor = function(instance)
+	local doors = workspace:FindFirstChild("Doors")
+	local current = instance
+	while current and current ~= doors and current ~= workspace do
+		if automationHelpers.isExitDoorMarker(current) then
+			return true
+		end
+		current = current.Parent
+	end
+	if instance then
+		for _, descendant in ipairs(instance:GetDescendants()) do
+			if automationHelpers.isExitDoorMarker(descendant) then
+				return true
+			end
+		end
+	end
+	return false
+end
+automationHelpers.findExitDoorDescriptors = function(): any
+	local doors: any = workspace:FindFirstChild("Doors")
+	local descriptors: any = {}
+	if not doors then
+		return descriptors
+	end
+	local markers: any = {}
+	for _, descendant in ipairs(doors:GetDescendants()) do
+		if automationHelpers.isExitDoorMarker(descendant) then
+			local ancestor = descendant.Parent
+			local nestedMarker = false
+			while ancestor and ancestor ~= doors do
+				if automationHelpers.isExitDoorMarker(ancestor) then
+					nestedMarker = true
+					break
+				end
+				ancestor = ancestor.Parent
+			end
+			if not nestedMarker then
+				table.insert(markers, descendant)
+			end
+		end
+	end
+	local seenContainers: any = setmetatable({}, {__mode = "k"})
+	local function stateOwnerFor(container: any, marker: any): any
+		local current: any = container
+		while current and current ~= doors.Parent do
+			if current:GetAttribute("DoorClosed") ~= nil then
+				return current
+			end
+			if current == doors then
+				break
+			end
+			current = current.Parent
+		end
+		if marker:GetAttribute("DoorClosed") ~= nil then
+			return marker
+		end
+		return container
+	end
+	local function addDescriptor(marker: any, container: any)
+		if not container or seenContainers[container] then
+			return
+		end
+		seenContainers[container] = true
+		local physicalReference: any = container:IsA("BasePart")
+			and container
+			or container:FindFirstChild("DoorUnion", true)
+			or container:FindFirstChildWhichIsA("BasePart", true)
+		local position: any = physicalReference
+			and physicalReference:IsA("BasePart")
+			and physicalReference.Position
+			or nil
+		if not position and container:IsA("Model") then
+			local ok, frame: any = pcall(container.GetBoundingBox, container)
+			if ok then
+				position = frame.Position
+			end
+		end
+		table.insert(descriptors, {
+			Entry = marker,
+			DoorContainer = container,
+			StateOwner = stateOwnerFor(container, marker),
+			Position = position or getInstanceWorldPosition(container)
+				or getInstanceWorldPosition(marker),
+		})
+	end
+	for _, marker in ipairs(markers) do
+		local markerFoundDoor = false
+		for _, descendant in ipairs(marker:GetDescendants()) do
+			if automationHelpers.normalizedDoorToken(descendant.Name) == "door"
+				and (descendant:IsA("Model")
+					or descendant:IsA("Folder")
+					or descendant:IsA("BasePart")) then
+				local nestedBelowDoor = false
+				local ancestor = descendant.Parent
+				while ancestor and ancestor ~= marker do
+					if automationHelpers.normalizedDoorToken(ancestor.Name) == "door" then
+						nestedBelowDoor = true
+						break
+					end
+					ancestor = ancestor.Parent
+				end
+				if not nestedBelowDoor then
+					markerFoundDoor = true
+					addDescriptor(marker, descendant)
+				end
+			end
+		end
+		if not markerFoundDoor
+			and (marker:IsA("Model")
+				or marker:IsA("Folder")
+				or marker:IsA("BasePart"))
+			and marker:FindFirstChildWhichIsA("BasePart", true) then
+			addDescriptor(marker, marker)
+		end
+	end
+	table.sort(descriptors, function(first, second)
+		local firstName = first.Entry:GetFullName()
+		local secondName = second.Entry:GetFullName()
+		if firstName == secondName then
+			return first.DoorContainer:GetFullName()
+				< second.DoorContainer:GetFullName()
+		end
+		return firstName < secondName
+	end)
+	return descriptors
+end
+local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 	options = options or {}
 	local function teleportIsActive()
 		if type(options.IsActive) ~= "function" then
@@ -5947,10 +6415,10 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 		local ok, active = pcall(options.IsActive)
 		return ok and active == true
 	end
-	local character = player.Character
-	local root =
+	local character: any = player.Character
+	local root: any =
 		character and character:FindFirstChild("HumanoidRootPart")
-	local humanoid =
+	local humanoid: any =
 		character and character:FindFirstChildOfClass("Humanoid")
 
 	if not room or not character or not root or not humanoid
@@ -5958,7 +6426,7 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 		return false, "room or character unavailable"
 	end
 
-	local boundingParts = getRoomBoundingParts(room)
+	local boundingParts: any = options.BoundingParts or getRoomBoundingParts(room)
 	for _ = 1, 24 do
 		if #boundingParts > 0 then
 			break
@@ -5971,8 +6439,8 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 		return false, "no BoundingBox BasePart was found"
 	end
 
-	local boundingPartSet = setmetatable({}, {__mode = "k"})
-	local excludedInstances = {character}
+	local boundingPartSet: any = setmetatable({}, {__mode = "k"})
+	local excludedInstances: any = {character}
 
 	for _, boundingPart in ipairs(boundingParts) do
 		boundingPartSet[boundingPart] = true
@@ -5989,8 +6457,31 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 
 	local standingOffset =
 		humanoid.HipHeight + root.Size.Y * 0.5 + 0.12
-	local footprintHalfX = root.Size.X * 0.5 + 0.22
-	local footprintHalfZ = root.Size.Z * 0.5 + 0.22
+	local footprintHalfX = root.Size.X * 0.5
+	local footprintHalfZ = root.Size.Z * 0.5
+	for _, bodyPart in ipairs(character:GetDescendants()) do
+		if bodyPart:IsA("BasePart")
+			and not automationHelpers.partBelongsToHeldCharacterItem(
+				bodyPart,
+				character
+			) then
+			local half = bodyPart.Size * 0.5
+			for _, x in ipairs({-half.X, half.X}) do
+				for _, y in ipairs({-half.Y, half.Y}) do
+					for _, z in ipairs({-half.Z, half.Z}) do
+						local worldCorner = bodyPart.CFrame:PointToWorldSpace(
+							Vector3.new(x, y, z)
+						)
+						local rootLocal = root.CFrame:PointToObjectSpace(worldCorner)
+						footprintHalfX = math.max(footprintHalfX, math.abs(rootLocal.X))
+						footprintHalfZ = math.max(footprintHalfZ, math.abs(rootLocal.Z))
+					end
+				end
+			end
+		end
+	end
+	footprintHalfX = footprintHalfX + 0.22
+	footprintHalfZ = footprintHalfZ + 0.22
 	local avatarRadius =
 		math.max(footprintHalfX, footprintHalfZ) + 0.18
 	local horizontalInset =
@@ -6000,9 +6491,9 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 		5.1
 	)
 	local bodyProbeSize = Vector3.new(
-		math.max(root.Size.X + 0.72, 2.3),
+		math.max(footprintHalfX * 2 + 0.28, 2.3),
 		bodyHeight,
-		math.max(root.Size.Z + 0.72, 2.3)
+		math.max(footprintHalfZ * 2 + 0.28, 2.3)
 	)
 	local bodyGeometryProbe = nil
 	local preferredPositions = options.PreferredPositions or {}
@@ -6291,10 +6782,10 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 	end
 
 	local function calculateRisk(
-		bodyInspection,
-		footprintInspection,
-		clearance
-	)
+		bodyInspection: any,
+		footprintInspection: any,
+		clearance: number
+	): number
 		return bodyInspection.Penalty
 			+ bodyInspection.CoreBlockers * 10000
 			+ bodyInspection.BlockerCount * 500
@@ -6305,7 +6796,7 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 			+ math.max(0, 2.1 - clearance) * 120
 	end
 
-	local function assessCandidate(candidate)
+	local function assessCandidate(candidate: any): boolean
 		candidate.Position = candidate.FloorPosition
 			+ Vector3.new(0, standingOffset, 0)
 		if targetPosition and maximumTargetDistance then
@@ -6347,19 +6838,19 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 			return false
 		end
 
-		local footprintInspection = inspectFootprint(
+		local footprintInspection: any = inspectFootprint(
 			candidate.FloorPosition
 		)
 		if not footprintInspection.CenterSupported then
 			return false
 		end
 
-		local bodyInspection = inspectBodyArea(
+		local bodyInspection: any = inspectBodyArea(
 			candidate.Position,
 			candidate.FloorPosition.Y,
 			footprintInspection.SupportSet
 		)
-		local clearance = horizontalClearance(
+		local clearance: number = horizontalClearance(
 			candidate.Position,
 			candidate.FloorPosition.Y,
 			footprintInspection.SupportSet
@@ -6495,7 +6986,7 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 			)
 			local samplePoints = {}
 			local sampledColumns = {}
-			local function queueSample(localX, localZ)
+			local function queueSample(localX: number, localZ: number): any
 				local key = string.format("%.3f:%.3f", localX, localZ)
 				if sampledColumns[key] then
 					return
@@ -6800,7 +7291,7 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 
 	local strictTeleportAttempts = 0
 	local fallbackTeleportAttempts = 0
-	local function tryCandidate(candidate, requireStrict)
+	local function tryCandidate(candidate: any, requireStrict: boolean): boolean
 		if not teleportIsActive()
 			or not root.Parent
 			or not humanoid.Parent
@@ -6821,11 +7312,20 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 			end
 			fallbackTeleportAttempts = fallbackTeleportAttempts + 1
 		end
-		local expectedRisk = candidate.Risk
-		local expectedSupportHits = candidate.SupportHits
+		local expectedRisk: number = candidate.Risk
+		local expectedSupportHits: number = candidate.SupportHits
 		local destinationLook = look
 		if fixedLook and fixedLook.Magnitude >= 0.05 then
 			destinationLook = fixedLook.Unit
+		elseif options.FaceBoundingBoxCenter then
+			local targeted = Vector3.new(
+				candidate.BoundingPart.Position.X - candidate.Position.X,
+				0,
+				candidate.BoundingPart.Position.Z - candidate.Position.Z
+			)
+			if targeted.Magnitude >= 0.05 then
+				destinationLook = targeted.Unit
+			end
 		elseif lookTarget then
 			local targeted = Vector3.new(
 				lookTarget.X - candidate.Position.X,
@@ -6864,7 +7364,14 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 		if not candidatePassesCustomValidation(root.Position) then
 			return false
 		end
-		local footprintInspection = inspectFootprint(
+		if not automationHelpers.instanceFullyInsideBoundingPartsXZ(
+			character,
+			boundingParts,
+			true
+		) then
+			return false
+		end
+		local footprintInspection: any = inspectFootprint(
 			settledFloorPosition
 		)
 		if not footprintInspection.CenterSupported
@@ -6875,12 +7382,12 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 			return false
 		end
 
-		local bodyInspection = inspectBodyArea(
+		local bodyInspection: any = inspectBodyArea(
 			root.Position,
 			settledFloorPosition.Y,
 			footprintInspection.SupportSet
 		)
-		local clearance = horizontalClearance(
+		local clearance: number = horizontalClearance(
 			root.Position,
 			settledFloorPosition.Y,
 			footprintInspection.SupportSet
@@ -6895,7 +7402,7 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 			return settledStrict
 		end
 
-		local settledRisk = calculateRisk(
+		local settledRisk: number = calculateRisk(
 			bodyInspection,
 			footprintInspection,
 			clearance
@@ -6991,6 +7498,32 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 			root.AssemblyAngularVelocity = Vector3.zero
 		end
 	end
+	if not automationHelpers.instanceFullyInsideBoundingPartsXZ(
+		character,
+		boundingParts,
+		true
+	) then
+		if root.Parent and character.Parent then
+			root.Anchored = true
+			pcall(function()
+				character:PivotTo(originalPivot)
+			end)
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			root.Anchored = originalAnchored
+		end
+		if humanoid.Parent then
+			humanoid.PlatformStand = originalPlatformStand
+			humanoid.AutoRotate = originalAutoRotate
+			for state, enabled in pairs(disabledStates) do
+				pcall(function()
+					humanoid:SetStateEnabled(state, enabled)
+				end)
+			end
+		end
+		destroyBodyGeometryProbe()
+		return false, "full character drifted outside the room bounds"
+	end
 
 	task.delay(0.65, function()
 		if humanoid.Parent then
@@ -7006,12 +7539,132 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 	return true, nil
 end
 
-local function teleportToBaseCamp(options)
-	local room = findBaseCampRoom()
-	if not room then
-		return false, "Base Camp room was not found"
+local function teleportToBaseCamp(options: any): any
+	local room: any = findBaseCampRoom()
+	local map: any = workspace:FindFirstChild("Map")
+	local truck: any = room and room:FindFirstChild("Truck", true)
+	-- The room-bounds object and the physical Base Camp hierarchy are not
+	-- necessarily the same instance. Search every explicitly named Base Camp
+	-- container so an existing room can never mask the Truck fallback.
+	if not truck and map then
+		for _, candidate: any in ipairs(map:GetDescendants()) do
+			local candidateName = automationHelpers.normalizedDoorToken(candidate.Name)
+			if candidateName == "basecamp" then
+				truck = candidate:FindFirstChild("Truck", true)
+				if truck then
+					break
+				end
+			end
+		end
 	end
-	return teleportToRoomBoundingBoxCenter(room, options)
+	if not room and not truck then
+		return false, "Base Camp room and Truck were not found"
+	end
+	local boundingParts: any = table.clone(getRoomBoundingParts(room))
+	local exitPositions: any = {}
+	for _, descriptor: any in ipairs(automationHelpers.findExitDoorDescriptors()) do
+		if descriptor.Position then
+			table.insert(exitPositions, descriptor.Position)
+		end
+	end
+	local truckPosition: any = getInstanceWorldPosition(truck)
+	local function distanceToReferences(part: any): number
+		local references: any = #exitPositions > 0
+			and exitPositions
+			or (truckPosition and {truckPosition} or {})
+		local best: number = math.huge
+		for _, reference: any in ipairs(references) do
+			local offset: any = part.Position - reference
+			best = math.min(
+				best,
+				Vector2.new(offset.X, offset.Z).Magnitude
+			)
+		end
+		return best
+	end
+	table.sort(boundingParts, function(first: any, second: any)
+		local firstDistance = distanceToReferences(first)
+		local secondDistance = distanceToReferences(second)
+		if firstDistance == secondDistance then
+			return first:GetFullName() < second:GetFullName()
+		end
+		return firstDistance < secondDistance
+	end)
+	local lastReason
+	for _, boundingPart in ipairs(boundingParts) do
+		local attemptOptions = table.clone(options or {})
+		attemptOptions.TargetPosition = nil
+		attemptOptions.MaximumTargetDistance = nil
+		attemptOptions.MaximumPreferredDistance = nil
+		attemptOptions.CandidateValidator = nil
+		attemptOptions.LookAtPosition = nil
+		attemptOptions.LookDirection = nil
+		attemptOptions.PreferredPositions = nil
+		attemptOptions.BoundingParts = {boundingPart}
+		attemptOptions.FaceBoundingBoxCenter = true
+		local teleported, reason = teleportToRoomBoundingBoxCenter(
+			room,
+			attemptOptions
+		)
+		if teleported then
+			return true
+		end
+		lastReason = reason
+	end
+	if truck then
+		local truckFrame
+		local truckSize
+		if truck:IsA("BasePart") then
+			truckFrame = truck.CFrame
+			truckSize = truck.Size
+		elseif truck:IsA("Model") then
+			local ok, frame, size = pcall(truck.GetBoundingBox, truck)
+			if ok then
+				truckFrame = frame
+				truckSize = size
+			end
+		end
+		if truckFrame and truckSize then
+			local syntheticBounds = Instance.new("Part")
+			syntheticBounds.Name = "__DemonologyBaseCampTruckBounds"
+			syntheticBounds.Anchored = true
+			syntheticBounds.CanCollide = false
+			syntheticBounds.Transparency = 1
+			syntheticBounds.CFrame = truckFrame
+			syntheticBounds.Size = Vector3.new(
+				math.max(truckSize.X + 14, 18),
+				math.max(truckSize.Y + 10, 12),
+				math.max(truckSize.Z + 14, 18)
+			)
+			local halfX = truckSize.X * 0.5 + 4
+			local halfZ = truckSize.Z * 0.5 + 4
+			local attemptOptions = table.clone(options or {})
+			attemptOptions.TargetPosition = nil
+			attemptOptions.MaximumTargetDistance = nil
+			attemptOptions.MaximumPreferredDistance = nil
+			attemptOptions.CandidateValidator = nil
+			attemptOptions.LookAtPosition = nil
+			attemptOptions.LookDirection = nil
+			attemptOptions.BoundingParts = {syntheticBounds}
+			attemptOptions.PreferredPositions = {
+				truckFrame.Position + truckFrame.RightVector * halfX,
+				truckFrame.Position - truckFrame.RightVector * halfX,
+				truckFrame.Position + truckFrame.LookVector * halfZ,
+				truckFrame.Position - truckFrame.LookVector * halfZ,
+			}
+			attemptOptions.FaceBoundingBoxCenter = true
+			local teleported, reason = teleportToRoomBoundingBoxCenter(
+				room or truck,
+				attemptOptions
+			)
+			syntheticBounds:Destroy()
+			if teleported then
+				return true
+			end
+			lastReason = reason
+		end
+	end
+	return false, lastReason or "no safe Base Camp or Truck destination was found"
 end
 local function teleportToFavouriteRoom(options)
 	local ghost = getGhostModel()
@@ -7021,9 +7674,11 @@ local function teleportToFavouriteRoom(options)
 	if not room then
 		return false, "Favourite room was not found: " .. tostring(roomName)
 	end
-	return teleportToRoomBoundingBoxCenter(room, options)
+	local attemptOptions = table.clone(options or {})
+	attemptOptions.FaceBoundingBoxCenter = true
+	return teleportToRoomBoundingBoxCenter(room, attemptOptions)
 end
-local function placeItemsInFavouriteRoom(owner)
+local placeItemsInFavouriteRoom: any = function(owner: any)
 	if roomItemPlacementState.busy or closed then
 		return false, "room item setup is already running"
 	end
@@ -7038,8 +7693,8 @@ local function placeItemsInFavouriteRoom(owner)
 	placeRoomItemsButton.Text = COPY.Actions.PlacingRoomItems
 	placeRoomItemsButton.BackgroundColor3 = COLORS.accentDark
 	roomItemPlacementState.thread = task.spawn(function()
-		local failedItems = {}
-		local failureSet = {}
+		local failedItems: any = {}
+		local failureSet: any = {}
 		local function recordFailure(message)
 			if not failureSet[message] then
 				failureSet[message] = true
@@ -7069,6 +7724,15 @@ local function placeItemsInFavouriteRoom(owner)
 				)
 			until os.clock() >= deadline
 		end
+		local function currentFavouriteRoom()
+			local currentGhost = getGhostModel()
+			return findFavouriteRoom(
+				findRoomsFolder(),
+				currentGhost
+					and currentGhost:GetAttribute("FavoriteRoom")
+					or nil
+			)
+		end
 		local function waitForNoHunt(returnToFavouriteRoom)
 			local paused = false
 			while operationIsActive() do
@@ -7091,20 +7755,11 @@ local function placeItemsInFavouriteRoom(owner)
 			end
 			placeRoomItemsButton.Text = COPY.Actions.PlacingRoomItems
 			if returnToFavouriteRoom then
-				local currentGhost = getGhostModel()
-				local currentRooms = findRoomsFolder()
-				local currentFavourite = findFavouriteRoom(
-					currentRooms,
-					currentGhost
-						and currentGhost:GetAttribute(
-							"FavoriteRoom"
-						)
-						or nil
-				)
+				local currentFavourite = currentFavouriteRoom()
 				local character = player.Character
 				local alreadyInRoom = currentFavourite
 					and character
-					and instanceIsInsideRoom(
+					and automationHelpers.characterIsFullyInsideRoom(
 						character,
 						currentFavourite
 					)
@@ -7141,6 +7796,7 @@ local function placeItemsInFavouriteRoom(owner)
 		local requestItemPickup = getRemote("RequestItemPickup")
 		local requestItemDrop = getRemote("RequestItemDrop")
 		local toggleItemState = getRemote("ToggleItemState")
+		local PICKUP_MAX_DISTANCE = 8
 		local function fireRemote(remote, ...)
 			assertOperationActive()
 			local ok, err = pcall(remote.FireServer, remote, ...)
@@ -7277,8 +7933,8 @@ local function placeItemsInFavouriteRoom(owner)
 			end
 			return false
 		end
-		local function storedInventorySlot(itemName)
-			local storedItem = scanStoredInventory(itemName)
+		local function storedInventorySlot(itemName: any): any
+			local storedItem: any = scanStoredInventory(itemName)
 			if not storedItem then
 				return nil
 			end
@@ -7302,19 +7958,20 @@ local function placeItemsInFavouriteRoom(owner)
 					return slotNumber
 				end
 			end
-			local current = storedItem
+			local current: any = storedItem
 			while current
 				and current ~= player
 				and current ~= workspace do
-				for _, attributeName in ipairs({
+				local inventoryAttributeNames: any = {
 					"InvSlot",
 					"InventorySlot",
 					"Slot",
 					"SlotNumber",
-				}) do
-					local value =
+				}
+				for _, attributeName: any in ipairs(inventoryAttributeNames) do
+					local value: any =
 						current:GetAttribute(attributeName)
-					local number = tonumber(
+					local number: any = tonumber(
 						tostring(value or ""):match("%d+")
 					)
 					if number
@@ -7368,28 +8025,29 @@ local function placeItemsInFavouriteRoom(owner)
 			return findHotbarSlot(itemName)
 				or storedInventorySlot(itemName)
 		end
-		local function countInventoryItem(itemName)
-			local _, storedCount =
+		local function countInventoryItem(itemName: any): number
+			local _, storedCount: number =
 				scanStoredInventory(itemName)
 			return math.max(
-				countHotbarItem(itemName),
+				(countHotbarItem(itemName) :: any) or 0,
 				storedCount
 			)
 		end
 		local function inventoryHasItem(itemName)
 			return countInventoryItem(itemName) > 0
 		end
-		local function inventorySlotName(slotNumber)
+		local function inventorySlotName(slotNumber: any): any
 			local hotbarName = hotbarSlotName(slotNumber)
 			if hotbarName and hotbarName ~= "" then
 				return hotbarName
 			end
-			for _, container in ipairs({
+			local inventoryContainers: any = {
 				player:FindFirstChild("ToolsHolder"),
 				player.Character,
-			}) do
+			}
+			for _, container: any in ipairs(inventoryContainers) do
 				if container then
-					for _, child in ipairs(container:GetChildren()) do
+					for _, child: any in ipairs(container:GetChildren()) do
 						local name = storedItemName(child)
 						if name
 							and objectMatchesSlotValue(
@@ -7466,49 +8124,40 @@ local function placeItemsInFavouriteRoom(owner)
 			local character = player.Character
 			local root = character
 				and character:FindFirstChild("HumanoidRootPart")
-			local humanoid = character
-				and character:FindFirstChildOfClass("Humanoid")
 			if not model
 				or not model.Parent
 				or not character
-				or not root
-				or not humanoid then
+				or not root then
 				return false
 			end
-			local originalAnchored = root.Anchored
-			local originalAutoRotate = humanoid.AutoRotate
-			local originalPlatformStand = humanoid.PlatformStand
-			humanoid.Sit = false
-			humanoid.PlatformStand = false
-			humanoid.AutoRotate = false
-			root.Anchored = true
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-			local itemCFrame
-			if model:IsA("BasePart") then
-				itemCFrame = model.CFrame
-			else
-				local ok, pivot = pcall(function()
-					return model:GetPivot()
-				end)
-				itemCFrame = ok and pivot or nil
+			if automationHelpers.distanceFromPositionToInstance(root.Position, model)
+				<= PICKUP_MAX_DISTANCE then
+				return true
 			end
-			if not itemCFrame then
-				root.Anchored = originalAnchored
-				humanoid.PlatformStand = originalPlatformStand
-				humanoid.AutoRotate = originalAutoRotate
+			local itemPosition = getInstanceWorldPosition(model)
+			local room = _findRoomContainingInstance(model)
+				or findBaseCampRoom()
+			if not itemPosition or not room then
 				return false
 			end
-			character:PivotTo(
-				itemCFrame * CFrame.new(0, 3.5, 0)
-			)
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-			Services.RunService.Heartbeat:Wait()
-			root.Anchored = originalAnchored
-			humanoid.PlatformStand = originalPlatformStand
-			humanoid.AutoRotate = originalAutoRotate
-			return true
+			local preferredPositions = {
+				itemPosition + Vector3.new(4.5, 0, 0),
+				itemPosition + Vector3.new(-4.5, 0, 0),
+				itemPosition + Vector3.new(0, 0, 4.5),
+				itemPosition + Vector3.new(0, 0, -4.5),
+			}
+			local teleported = teleportToRoomBoundingBoxCenter(room, {
+				PreferredPositions = preferredPositions,
+				TargetPosition = itemPosition,
+				MaximumTargetDistance = 7.75,
+				LookAtPosition = itemPosition,
+				RequireStrict = true,
+				IsActive = operationIsActive,
+			})
+			return teleported
+				and root.Parent ~= nil
+				and automationHelpers.distanceFromPositionToInstance(root.Position, model)
+					<= PICKUP_MAX_DISTANCE
 		end
 		local function equipItem(slotNumber, returnToFavouriteRoom)
 			waitForNoHunt(returnToFavouriteRoom == true)
@@ -7531,10 +8180,11 @@ local function placeItemsInFavouriteRoom(owner)
 			return true
 		end
 		local function confirmedDrop(
-			slotNumber,
-			itemName,
-			returnToFavouriteRoom
-		)
+			slotNumber: any,
+			itemName: any,
+			returnToFavouriteRoom: any
+		): any
+			local requireRoomReturn = returnToFavouriteRoom == true
 			local beforeCount = countInventoryItem(itemName)
 			local beforeSlotValue =
 				inventorySlotValue(slotNumber)
@@ -7542,9 +8192,9 @@ local function placeItemsInFavouriteRoom(owner)
 				return true
 			end
 			for attempt = 1, 2 do
-				local currentSlot = findInventorySlot(itemName)
+				local currentSlot: any = findInventorySlot(itemName)
 				if not currentSlot then
-					return true
+					return not requireRoomReturn
 				end
 				slotNumber = currentSlot or slotNumber
 				if not equipItem(
@@ -7553,6 +8203,28 @@ local function placeItemsInFavouriteRoom(owner)
 				) then
 					guardedWait(0.15)
 					continue
+				end
+				local dropRoom: any
+				local existingWorldItems: any = setmetatable({}, {__mode = "k"})
+				if requireRoomReturn then
+					waitForNoHunt(true)
+					dropRoom = currentFavouriteRoom()
+					local character = player.Character
+					if not dropRoom or not character
+						or not automationHelpers.characterIsFullyInsideRoom(character, dropRoom) then
+						return false
+					end
+					local items = workspace:FindFirstChild("Items")
+					if items then
+						for _, worldItem in ipairs(items:GetChildren()) do
+							if sameItemName(
+								worldItem:GetAttribute("ItemName") or worldItem.Name,
+								itemName
+							) then
+								existingWorldItems[worldItem] = true
+							end
+						end
+					end
 				end
 				fireRemote(
 					requestItemDrop,
@@ -7565,20 +8237,44 @@ local function placeItemsInFavouriteRoom(owner)
 						or not inventoryHasItem(itemName)
 						or inventorySlotValue(slotNumber)
 							~= beforeSlotValue then
-						return true
+						if not requireRoomReturn then
+							return true
+						end
+						local items = workspace:FindFirstChild("Items")
+						local worldDeadline = os.clock() + 0.8
+						repeat
+							assertOperationActive()
+							if items then
+								for _, worldItem in ipairs(items:GetChildren()) do
+									if not existingWorldItems[worldItem]
+										and sameItemName(
+											worldItem:GetAttribute("ItemName") or worldItem.Name,
+											itemName
+										) then
+										return automationHelpers.worldItemIsFullyInsideRoom(
+											worldItem,
+											dropRoom
+										)
+									end
+								end
+							end
+							guardedWait(0.05)
+						until os.clock() >= worldDeadline
+						return false
 					end
 					guardedWait(0.05)
 				until os.clock() >= deadline
 				local _, occupiedCount = inventorySnapshot()
 				if countInventoryItem(itemName) < beforeCount then
-					return true
+					return not requireRoomReturn
 				end
 				if occupiedCount < inventorySlotCount and not inventoryHasItem(itemName) then
-					return true
+					return not requireRoomReturn
 				end
 				guardedWait(0.2)
 			end
-			return countInventoryItem(itemName) < beforeCount
+			return not requireRoomReturn
+				and countInventoryItem(itemName) < beforeCount
 		end
 		local corePlacementNames = {
 			[normalizeItemName("Cross")] = true,
@@ -7608,7 +8304,7 @@ local function placeItemsInFavouriteRoom(owner)
 			[normalizeItemName("Blacklight")] = true,
 			[normalizeItemName("Video Camera")] = true,
 		}
-		local finalOrder = {
+		local finalOrder: any = {
 			{Name = "Salt Canister", Optional = true},
 			{Name = "Holy Oil", Optional = true},
 		}
@@ -7705,10 +8401,28 @@ local function placeItemsInFavouriteRoom(owner)
 		end
 
 		local function attemptPickupFromCurrentPosition(
-			itemName,
-			model,
-			timeout
-		)
+			itemName: any,
+			model: any,
+			timeout: any
+		): any
+			local root = player.Character
+				and player.Character:FindFirstChild("HumanoidRootPart")
+			if not root then
+				return nil
+			end
+			if automationHelpers.distanceFromPositionToInstance(root.Position, model)
+				> PICKUP_MAX_DISTANCE then
+				if not moveNearWorldItem(model) then
+					return nil
+				end
+				root = player.Character
+					and player.Character:FindFirstChild("HumanoidRootPart")
+			end
+			if not root
+				or automationHelpers.distanceFromPositionToInstance(root.Position, model)
+					> PICKUP_MAX_DISTANCE then
+				return nil
+			end
 			local beforeItemCount = countInventoryItem(itemName)
 			local _, beforeOccupiedCount, _, beforeSlotValues =
 				inventorySnapshot()
@@ -7724,11 +8438,11 @@ local function placeItemsInFavouriteRoom(owner)
 		end
 
 		local function pickupNamedItem(
-			itemName,
-			protectedNames,
-			optional,
-			returnToFavouriteRoom
-		)
+			itemName: any,
+			protectedNames: any,
+			optional: any,
+			returnToFavouriteRoom: any
+		): any
 			local storedItem = scanStoredInventory(itemName)
 			local existingSlot = findInventorySlot(itemName)
 			if storedItem or existingSlot then
@@ -7737,7 +8451,7 @@ local function placeItemsInFavouriteRoom(owner)
 				return true, storedItem, existingSlot
 			end
 
-			local found, model = findItem(itemName)
+			local found: any, model: any = findItem(itemName)
 			if not found or not model then
 				storedItem = scanStoredInventory(itemName)
 				if storedItem or inventoryHasItem(itemName) then
@@ -7768,7 +8482,7 @@ local function placeItemsInFavouriteRoom(owner)
 					return false, model, nil
 				end
 
-				local stillFound, refreshedModel =
+				local stillFound: any, refreshedModel: any =
 					findItem(itemName)
 				if stillFound and refreshedModel then
 					model = refreshedModel
@@ -7984,11 +8698,11 @@ local function placeItemsInFavouriteRoom(owner)
 				or sameItemName(itemName, "EMF Reader")
 		end
 
-		local function activateBatch(batch)
+		local function activateBatch(batch: any): any
 			for _, itemName in ipairs(batch) do
 				if shouldActivate(itemName)
 					and inventoryHasItem(itemName) then
-					local slotNumber =
+					local slotNumber: any =
 						waitForHotbarSlot(itemName, 2)
 						or findInventorySlot(itemName)
 					if slotNumber
@@ -8005,13 +8719,13 @@ local function placeItemsInFavouriteRoom(owner)
 			end
 		end
 
-		local function dropBatch(batch)
+		local function dropBatch(batch: any): any
 			waitForNoHunt(true)
 			activateBatch(batch)
 
 			for _, itemName in ipairs(batch) do
 				if inventoryHasItem(itemName) then
-					local slotNumber =
+					local slotNumber: any =
 						waitForHotbarSlot(itemName, 2.5)
 						or findInventorySlot(itemName)
 					if not slotNumber
@@ -8048,14 +8762,15 @@ local function placeItemsInFavouriteRoom(owner)
 			-- Base Camp, including room-placement items.
 			dropInventoryExcept({}, false)
 
-			local remaining = shuffledCopy(coreOrder)
+			local remaining: any = shuffledCopy(coreOrder)
 
 			while #remaining > 0 do
-				local batch = {}
-				local randomized = shuffledCopy(remaining)
+				local batch: any = {}
+				local randomized: any = shuffledCopy(remaining)
 				remaining = {}
 
-				for _, itemName in ipairs(randomized) do
+				for itemIndex = 1, #randomized do
+					local itemName: any = randomized[itemIndex]
 					if #batch < inventorySlotCount then
 						local picked = pickupNamedItem(
 							itemName,
@@ -8094,7 +8809,9 @@ local function placeItemsInFavouriteRoom(owner)
 			guardedWait(0.2)
 			dropInventoryExcept({}, false)
 
-			for _, entry in ipairs(shuffledCopy(finalOrder)) do
+			local retainedOrder: any = shuffledCopy(finalOrder)
+			for entryIndex = 1, #retainedOrder do
+				local entry: any = retainedOrder[entryIndex]
 				local picked = pickupNamedItem(
 					entry.Name,
 					finalRetainedNames,
@@ -8166,6 +8883,11 @@ local roundAutomation: any = createRoundAutomation({
 	GetInstanceWorldPosition = getInstanceWorldPosition,
 	GetRoomBoundingParts = getRoomBoundingParts,
 	PointIsInsidePart = pointIsInsidePart,
+	DistanceFromPositionToInstance = automationHelpers.distanceFromPositionToInstance,
+	CharacterIsFullyInsideRoom = automationHelpers.characterIsFullyInsideRoom,
+	WorldItemIsFullyInsideRoom = automationHelpers.worldItemIsFullyInsideRoom,
+	FindExitDoorDescriptors = automationHelpers.findExitDoorDescriptors,
+	InstanceBelongsToExitDoor = automationHelpers.instanceBelongsToExitDoor,
 	TeleportToRoom = teleportToRoomBoundingBoxCenter,
 	TeleportToBaseCamp = teleportToBaseCamp,
 	TeleportToFavouriteRoom = teleportToFavouriteRoom,
@@ -8207,12 +8929,106 @@ local function escapeCurrentHunt()
 		end
 	end
 end
-local function scanDeepEvidence()
-	local needPrint = not evidenceFound.Print
-	local needOrb = not perkTrackerState.orbObserved
+local function scanSpiritBookWriting(items: any): boolean
+	local function spiritBookHasWriting(model: any): boolean
+		if not model or not model:IsA("Model") then
+			return false
+		end
+		local itemName = string.lower(
+			tostring(model:GetAttribute("ItemName") or "")
+		)
+		local modelName = string.lower(model.Name)
+		local identifiedBook = itemName == "spirit book"
+			or modelName == "spirit book"
+		local canvas: any = model:FindFirstChild("Canvas", true)
+		local surfaceGui: any = canvas and canvas:FindFirstChild("SurfaceGui")
+		local frame: any = surfaceGui and surfaceGui:FindFirstChild("Frame")
+		local imageLabel: any = frame and frame:FindFirstChild("ImageLabel")
+		if imageLabel and imageLabel:IsA("ImageLabel")
+			and imageLabel.Image ~= "" then
+			return true
+		end
+		if not identifiedBook then
+			return false
+		end
+		local descendants: any = model:GetDescendants()
+		for _, descendant: any in ipairs(descendants) do
+			if descendant:IsA("Decal") and descendant.Texture ~= "" then
+				return true
+			end
+			if descendant:IsA("ImageLabel")
+				and descendant.Image ~= ""
+				and descendant:FindFirstAncestor("Canvas") then
+				return true
+			end
+		end
+		return false
+	end
+	local checked: any = setmetatable({}, {__mode = "k"})
+	local containers: any = {
+		items,
+		player:FindFirstChild("ToolsHolder"),
+		player.Character,
+	}
+	for _, container: any in ipairs(containers) do
+		if container then
+			local descendants: any = container:GetDescendants()
+			for _, descendant: any in ipairs(descendants) do
+				if descendant:IsA("Model") and not checked[descendant] then
+					checked[descendant] = true
+					if spiritBookHasWriting(descendant) then
+						return true
+					end
+				end
+			end
+		end
+	end
+	return false
+end
+local function scanHighestEMFReader(): number
+	local best: number = highestEMF
+	local checkedReaders: any = setmetatable({}, {__mode = "k"})
+	local containers: any = {
+		workspace:FindFirstChild("Items"),
+		player:FindFirstChild("ToolsHolder"),
+		player.Character,
+	}
+	for _, container: any in ipairs(containers) do
+		if container then
+			local descendants: any = container:GetDescendants()
+			for _, candidate: any in ipairs(descendants) do
+				if candidate:IsA("Model")
+					and not checkedReaders[candidate]
+					and candidate:GetAttribute("ItemName") == "EMF Reader" then
+					checkedReaders[candidate] = true
+					local readingObject: any = candidate:FindFirstChild(
+						"ReadingLevel",
+						true
+					)
+					local level: any = if readingObject
+						and (readingObject:IsA("NumberValue")
+							or readingObject:IsA("IntValue"))
+						then readingObject.Value
+						else candidate:GetAttribute("ReadingLevel")
+					local numericLevel: number? = tonumber(level)
+					if numericLevel then
+						best = math.max(
+							best,
+							math.clamp(math.floor(numericLevel + 0.5), 1, 5)
+						)
+					end
+				end
+			end
+		end
+	end
+	return best
+end
+local function scanDeepEvidence(): any
+	local needPrint: boolean = not evidenceFound.Print
+	local needOrb: boolean = not perkTrackerState.orbObserved
 
 	if needPrint or needOrb then
-		for _, object in ipairs(workspace:GetDescendants()) do
+		for _, object: any in ipairs(workspace:GetDescendants()) do
 			if needPrint
 				and object:IsA("BasePart")
 				and (
@@ -8242,55 +9058,7 @@ local function scanDeepEvidence()
 	end
 
 	if highestEMF < 5 then
-		local checkedReaders =
-			setmetatable({}, {__mode = "k"})
-
-		for _, container in ipairs({
-			workspace:FindFirstChild("Items"),
-			player:FindFirstChild("ToolsHolder"),
-			player.Character,
-		}) do
-			if container then
-				for _, candidate in ipairs(
-					container:GetDescendants()
-				) do
-					if candidate:IsA("Model")
-						and not checkedReaders[candidate]
-						and candidate:GetAttribute("ItemName")
-							== "EMF Reader" then
-						checkedReaders[candidate] = true
-
-						local readingObject =
-							candidate:FindFirstChild(
-								"ReadingLevel",
-								true
-							)
-						local level
-						if readingObject
-							and (
-								readingObject:IsA("NumberValue")
-								or readingObject:IsA("IntValue")
-							) then
-							level = readingObject.Value
-						else
-							level =
-								candidate:GetAttribute("ReadingLevel")
-						end
-
-						if typeof(level) == "number" then
-							highestEMF = math.max(
-								highestEMF,
-								math.clamp(
-									math.floor(level + 0.5),
-									1,
-									5
-								)
-							)
-						end
-					end
-				end
-			end
-		end
+		highestEMF = scanHighestEMFReader()
 	end
 
 	local items = workspace:FindFirstChild("Items")
@@ -8306,73 +9074,8 @@ local function scanDeepEvidence()
 			end
 		end
 	end
-	if not evidenceFound.Inscription then
-		local function spiritBookHasWriting(model)
-			if not model or not model:IsA("Model") then
-				return false
-			end
-			local itemName =
-				string.lower(
-					tostring(
-						model:GetAttribute("ItemName") or ""
-					)
-				)
-			local modelName = string.lower(model.Name)
-			local identifiedBook =
-				itemName == "spirit book"
-				or modelName == "spirit book"
-			local canvas = model:FindFirstChild("Canvas", true)
-			local surfaceGui =
-				canvas and canvas:FindFirstChild("SurfaceGui")
-			local frame =
-				surfaceGui and surfaceGui:FindFirstChild("Frame")
-			local imageLabel =
-				frame and frame:FindFirstChild("ImageLabel")
-			if imageLabel
-				and imageLabel:IsA("ImageLabel")
-				and imageLabel.Image ~= "" then
-				return true
-			end
-			if not identifiedBook then
-				return false
-			end
-			for _, descendant in ipairs(model:GetDescendants()) do
-				if descendant:IsA("Decal")
-					and descendant.Texture ~= "" then
-					return true
-				end
-				if descendant:IsA("ImageLabel")
-					and descendant.Image ~= ""
-					and descendant:FindFirstAncestor("Canvas") then
-					return true
-				end
-			end
-			return false
-		end
-		local checked = setmetatable({}, {__mode = "k"})
-		for _, container in ipairs({
-			items,
-			player:FindFirstChild("ToolsHolder"),
-			player.Character,
-		}) do
-			if container then
-				for _, descendant in ipairs(
-					container:GetDescendants()
-				) do
-					if descendant:IsA("Model")
-						and not checked[descendant] then
-						checked[descendant] = true
-						if spiritBookHasWriting(descendant) then
-							evidenceFound.Inscription = true
-							break
-						end
-					end
-				end
-			end
-			if evidenceFound.Inscription then
-				break
-			end
-		end
+	if not evidenceFound.Inscription and scanSpiritBookWriting(items) then
+		evidenceFound.Inscription = true
 	end
 end
 local function normalizeSpiritBoxSubtitle(value)
@@ -8750,7 +9453,7 @@ function Controller:ToggleRandomLights()
 		return false, "Map rooms were not found"
 	end
 
-	local eligible = {}
+	local eligible: any = {}
 	local seen = setmetatable({}, {__mode = "k"})
 	for _, switch in ipairs(Services.CollectionService:GetTagged("LightSwitch")) do
 		if switch:IsDescendantOf(rooms) and switch:GetAttribute("LightsBroken") ~= true then
@@ -8786,10 +9489,10 @@ function Controller:ToggleRandomLights()
 			if not runtimeIsActive() then
 				return
 			end
-			local room = eligible[index]
-			local switch = room and room:FindFirstChild("LightSwitch", true)
-			local beforeRoom = room and room:GetAttribute("LightsOn")
-			local beforeSwitch = switch and switch:GetAttribute("State")
+			local room: any = eligible[index]
+			local switch: any = room and room:FindFirstChild("LightSwitch", true)
+			local beforeRoom: any = room and room:GetAttribute("LightsOn")
+			local beforeSwitch: any = switch and switch:GetAttribute("State")
 
 			if room
 				and room.Parent == rooms
@@ -8842,6 +9545,10 @@ function Controller:ToggleFuseBox()
 		end
 
 		local before = fuseBox:GetAttribute("Enabled")
+		perkTrackerState.suppressLeviathanLightsUntil = math.max(
+			perkTrackerState.suppressLeviathanLightsUntil,
+			os.clock() + 3
+		)
 		pcall(remote.FireServer, remote)
 		task.wait(0.45)
 		if not runtimeIsActive() then
@@ -8885,6 +9592,10 @@ function Controller:ToggleFuseBox()
 					if not runtimeIsActive() then
 						return
 					end
+					perkTrackerState.suppressLeviathanLightsUntil = math.max(
+						perkTrackerState.suppressLeviathanLightsUntil,
+						os.clock() + 3
+					)
 					pcall(remote.FireServer, remote)
 
 					for _, descendant in ipairs(fuseBox:GetDescendants()) do
@@ -8913,6 +9624,10 @@ function Controller:ToggleFuseBox()
 		end
 
 		if changed and runtimeIsActive() then
+			perkTrackerState.suppressLeviathanLightsUntil = math.max(
+				perkTrackerState.suppressLeviathanLightsUntil,
+				os.clock() + 2.5
+			)
 			perkTrackerState.flashButton(toggleFuseBoxButton)
 		elseif runtimeIsActive() and presenter and presenter.Notify then
 			presenter:Notify(actionFailure or "The fuse box did not respond")
