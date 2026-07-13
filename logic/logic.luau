@@ -1341,20 +1341,37 @@ perkTrackerState.applyJournalRowState = function(frame, desiredState)
 	end
 	return current == desiredState
 end
-perkTrackerState.syncJournal = function()
+perkTrackerState.syncJournal = function(forcedGhost)
 	if closed or perkTrackerState.journalMutationBusy then
-		return
+		return false
 	end
-	local candidates =
-		perkTrackerState.getRemainingCandidates(false)
+	local forcedSelection = type(forcedGhost) == "string"
+		and forcedGhost ~= ""
+		and not string.find(forcedGhost, "/", 1, true)
+		and GhostModule.Find(forcedGhost) ~= nil
+	if forcedGhost ~= nil and not forcedSelection then
+		return false
+	end
+	local candidates
+	if forcedSelection then
+		candidates = {forcedGhost}
+	else
+		candidates = perkTrackerState.getRemainingCandidates(false)
+		if #candidates == 0 then
+			-- Keep the Journal on the same priority ladder as the timed
+			-- selector: confirmed evidence survives conflicting soft rule-outs.
+			candidates = perkTrackerState.getRemainingCandidates(true)
+		end
+	end
 	local candidateSet = {}
 	for _, ghostName in ipairs(candidates) do
 		candidateSet[ghostName] = true
 	end
-	local selectedGhost
+	local selectedGhost = forcedSelection and forcedGhost or nil
 	local guess = perkTrackerState.currentGhostGuess
 	local score = perkTrackerState.currentGhostGuessScore or 0
-	if guess
+	if not selectedGhost
+		and guess
 		and score >= 80
 		and not string.find(guess, "/", 1, true)
 		and candidateSet[guess] then
@@ -1364,80 +1381,47 @@ perkTrackerState.syncJournal = function()
 		perkTrackerState.findJournalGhostTypes()
 	if ghostTypes then
 		perkTrackerState.journalMutationBusy = true
+		local selectedApplied = selectedGhost == nil
 		for _, profile in ipairs(GHOST_PROFILES) do
 			local ghostName = profile.Name
 			local applicable = candidateSet[ghostName] == true
-			local previous =
-				perkTrackerState.journalDesiredApplicability[
-					ghostName
-				]
-			if previous == nil then
-				previous = true
+			local desiredState = false
+			if applicable then
+				desiredState = nil
 			end
-			if previous ~= applicable then
-				local frame =
-					ghostTypes:FindFirstChild(ghostName)
-				if frame and frame:IsA("Frame") then
-					local current =
-						perkTrackerState.readJournalRowState(frame)
-					if applicable then
-						if current == false then
-							perkTrackerState.applyJournalRowState(
-								frame,
-								nil
-							)
-						end
-					else
-						perkTrackerState.applyJournalRowState(
-							frame,
-							false
-						)
-					end
-					perkTrackerState.journalDesiredApplicability[
-						ghostName
-					] = applicable
-				end
+			if ghostName == selectedGhost then
+				desiredState = true
 			end
-		end
-		if selectedGhost
-			~= perkTrackerState.lastJournalVisualGhost then
-			local selectedFrame =
-				selectedGhost
-				and ghostTypes:FindFirstChild(selectedGhost)
-			local selectedApplied = false
-			if selectedFrame
-				and selectedFrame:IsA("Frame") then
-				selectedApplied =
-					perkTrackerState.applyJournalRowState(
-						selectedFrame,
-						true
-					)
+			local frame = ghostTypes:FindFirstChild(ghostName)
+			local applied = false
+			if frame and frame:IsA("Frame") then
+				applied = perkTrackerState.applyJournalRowState(
+					frame,
+					desiredState
+				)
 			end
-			if selectedApplied then
-				perkTrackerState.lastJournalSelectedGhost =
-					selectedGhost
-				perkTrackerState.lastJournalVisualGhost =
-					selectedGhost
-			elseif selectedGhost then
-				local events =
-					Services.ReplicatedStorage:FindFirstChild("Events")
-				local event =
-					events and events:FindFirstChild(
-						"EvidenceMarkedInJournal"
-					)
-				if event and event:IsA("RemoteEvent") then
-					pcall(function()
-						event:FireServer(selectedGhost)
-					end)
-				end
+			if ghostName == selectedGhost then
+				selectedApplied = applied
 			end
+			perkTrackerState.journalDesiredApplicability[ghostName] =
+				applicable
 		end
 		perkTrackerState.journalMutationBusy = false
-		return
+		if selectedGhost and selectedApplied then
+			perkTrackerState.lastJournalSelectedGhost = selectedGhost
+			perkTrackerState.lastJournalVisualGhost = selectedGhost
+			return true
+		end
+		if not selectedGhost then
+			perkTrackerState.lastJournalVisualGhost = nil
+			return true
+		end
 	end
 	if selectedGhost
-		and selectedGhost
-			~= perkTrackerState.lastJournalSelectedGhost then
+		and selectedGhost == perkTrackerState.lastJournalSelectedGhost then
+		return true
+	end
+	if selectedGhost then
 		local events =
 			Services.ReplicatedStorage:FindFirstChild("Events")
 		local event =
@@ -1452,8 +1436,10 @@ perkTrackerState.syncJournal = function()
 				perkTrackerState.lastJournalSelectedGhost =
 					selectedGhost
 			end
+			return sent
 		end
 	end
+	return selectedGhost == nil
 end
 perkTrackerState.getAutoSpiritBoxQuestion = function()
 	local questions = {}

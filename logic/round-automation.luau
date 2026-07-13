@@ -2847,28 +2847,8 @@ local function selectRoundJournalGhost(ghostName, generation)
 	if not doRoundOperationActive(generation) then
 		return false
 	end
-	local ghostTypes = perkTrackerState.findJournalGhostTypes()
-	if ghostTypes then
-		local frame = ghostTypes:FindFirstChild(ghostName)
-		if frame and frame:IsA("Frame")
-			and perkTrackerState.applyJournalRowState(frame, true)
-			and doRoundOperationActive(generation) then
-			perkTrackerState.lastJournalSelectedGhost = ghostName
-			perkTrackerState.lastJournalVisualGhost = ghostName
-			return true
-		end
-	end
-	local events = Services.ReplicatedStorage:FindFirstChild("Events")
-	local remote = events and events:FindFirstChild("EvidenceMarkedInJournal")
-	if remote and remote:IsA("RemoteEvent")
-		and doRoundOperationActive(generation) then
-		local sent = pcall(remote.FireServer, remote, ghostName)
-		if sent then
-			perkTrackerState.lastJournalSelectedGhost = ghostName
-		end
-		return sent
-	end
-	return false
+	return perkTrackerState.syncJournal(ghostName) == true
+		and doRoundOperationActive(generation)
 end
 
 	local setEnabled
