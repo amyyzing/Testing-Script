@@ -196,6 +196,7 @@ local perkTrackerState = {
 	pendingKill = nil,
 	keresKillDecreaseCount = 0,
 	aswangKillIncreaseCount = 0,
+	aswangSaltConfidence = 0,
 	killSpeedProcessedPlayers = setmetatable({}, {__mode = "k"}),
 	huntStartedAt = nil,
 	umbraRootSoundChecked = false,
@@ -364,7 +365,7 @@ local function setGhostIdentificationLabel(ghostName, score, certain)
 	evidenceLabels.Ghost.Text = "Ghost: " .. tostring(ghostName) .. " (" .. suffix .. ")"
 	evidenceLabels.Ghost.TextColor3 = color
 end
-local function recordPerkDetection(ghostName, reason, confidence)
+local function recordPerkDetection(ghostName, reason, confidence, source)
 	if not PERK_CONFIDENCE[ghostName] then
 		return
 	end
@@ -388,6 +389,7 @@ local function recordPerkDetection(ghostName, reason, confidence)
 			ExpiresAt = if persistent then nil elseif ttl then now + ttl else nil,
 			Tentative = true,
 			Persistent = persistent,
+			Source = source,
 		}
 		refreshPerkLogs()
 		return
@@ -396,6 +398,7 @@ local function recordPerkDetection(ghostName, reason, confidence)
 		local previousReason = existing.Reason
 		local previousDetectedAt = existing.DetectedAt or -math.huge
 		existing.Reason = reason or existing.Reason
+		existing.Source = source or existing.Source
 		existing.DetectedAt = now
 		if persistent or existing.Persistent
 			or (existing.Confidence or 0) >= 80 then
@@ -2773,8 +2776,8 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 		local initialTransparency = ghost:GetAttribute("Transparency")
 		if typeof(initialTransparency) == "boolean" then
 			perkTrackerState.lastTransparencyState = initialTransparency
-		elseif typeof(initialTransparency) == "number" then
-			perkTrackerState.lastTransparencyState = initialTransparency >= 0.5
+		elseif initialTransparency == 0 or initialTransparency == 1 then
+			perkTrackerState.lastTransparencyState = initialTransparency == 1
 		end
 		perkTrackerState.transparencyAttributeConnection = connect(
 			ghost:GetAttributeChangedSignal("Transparency"),
@@ -2786,8 +2789,8 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 				local invisible
 				if typeof(value) == "boolean" then
 					invisible = value
-				elseif typeof(value) == "number" then
-					invisible = value >= 0.5
+				elseif value == 0 or value == 1 then
+					invisible = value == 1
 				else
 					return
 				end
@@ -2821,6 +2824,9 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 	perkTrackerState.pendingKill = nil
 	perkTrackerState.keresKillDecreaseCount = 0
 	perkTrackerState.aswangKillIncreaseCount = 0
+	if not preserveFindings then
+		perkTrackerState.aswangSaltConfidence = 0
+	end
 	perkTrackerState.killSpeedProcessedPlayers = setmetatable({}, {__mode = "k"})
 	perkTrackerState.huntStartedAt = nil
 	perkTrackerState.umbraRootSoundChecked = false
@@ -2936,23 +2942,13 @@ local function getGhostTransparencyState(ghost)
 	if typeof(transparency) == "boolean" then
 		return transparency
 	end
-	if typeof(transparency) == "number" then
-		return transparency >= 0.5
+	if transparency == 0 or transparency == 1 then
+		return transparency == 1
 	end
-	if not ghost then
-		return nil
-	end
-	local observedVisualPart = false
-	for _, descendant in ipairs(ghost:GetDescendants()) do
-		if descendant:IsA("BasePart")
-			and descendant.Name ~= "HumanoidRootPart" then
-			observedVisualPart = true
-			if descendant.Transparency < 0.95 then
-				return false
-			end
-		end
-	end
-	return observedVisualPart and true or nil
+	-- The replicated binary attribute is the phase authority.  Skipping an
+	-- absent/transitional value is safer than inferring a phase from visual
+	-- parts whose replication can trail the Humanoid WalkSpeed change.
+	return nil
 end
 local function getAverageTeamEnergy()
 	local players = Services.Players:GetPlayers()
@@ -3234,17 +3230,123 @@ automationHelpers.characterIsFullyInsideRoom = function(character, room)
 		true
 	)
 end
-automationHelpers.worldItemIsFullyInsideRoom = function(item, room)
-	local position = getInstanceWorldPosition(item)
-	if not position then
+automationHelpers.worldItemIsBurntCross = function(item: any): boolean
+	if not item then
 		return false
 	end
-	for _, bounds in ipairs(getRoomBoundingParts(room)) do
-		if pointIsInsidePart(bounds, position) then
+	local itemName = string.lower(tostring(item:GetAttribute("ItemName") or item.Name))
+	if itemName ~= "cross" and not string.find(itemName, "cross", 1, true) then
+		return false
+	end
+	local function isBurnt(object: any): boolean
+		if object:GetAttribute("Burned") == true
+			or object:GetAttribute("Burnt") == true
+			or object:GetAttribute("Burning") == true then
+			return true
+		end
+		if (object:IsA("ParticleEmitter")
+				or object:IsA("Fire")
+				or object:IsA("Smoke")
+				or object:IsA("Beam")
+				or object:IsA("Trail"))
+			and object.Enabled == true then
+			return true
+		end
+		local name = string.lower(tostring(object.Name))
+		return string.find(name, "burned", 1, true) ~= nil
+			or string.find(name, "burnt", 1, true) ~= nil
+	end
+	if isBurnt(item) then
+		return true
+	end
+	for _, descendant: any in ipairs(item:GetDescendants()) do
+		if isBurnt(descendant) then
 			return true
 		end
 	end
 	return false
+end
+automationHelpers.worldItemIsFullyInsideRoom = function(item: any, room: any): boolean
+	if not item or not item.Parent or not room
+		or automationHelpers.worldItemIsBurntCross(item) then
+		return false
+	end
+	local boundingParts: any = getRoomBoundingParts(room)
+	if #boundingParts == 0 then
+		return false
+	end
+	local itemFrame: any
+	local itemSize: any
+	if item:IsA("BasePart") then
+		itemFrame = item.CFrame
+		itemSize = item.Size
+	elseif item:IsA("Model") then
+		local ok, frame, size = pcall(item.GetBoundingBox, item)
+		if ok then
+			itemFrame = frame
+			itemSize = size
+		end
+	end
+	if not itemFrame or not itemSize then
+		return false
+	end
+
+	-- Require the model volume itself (not just its pivot's X/Z) to overlap the
+	-- lower portion of a room bound.  Sampling its center and bottom footprint
+	-- catches ordinary item-sized models without accepting roof placements.
+	local half: any = itemSize * 0.5
+	local samplePoints: any = {
+		itemFrame.Position,
+		itemFrame:PointToWorldSpace(Vector3.new(0, -half.Y, 0)),
+		itemFrame:PointToWorldSpace(Vector3.new(-half.X, -half.Y, -half.Z)),
+		itemFrame:PointToWorldSpace(Vector3.new(-half.X, -half.Y, half.Z)),
+		itemFrame:PointToWorldSpace(Vector3.new(half.X, -half.Y, -half.Z)),
+		itemFrame:PointToWorldSpace(Vector3.new(half.X, -half.Y, half.Z)),
+	}
+	local touchesRoomVolume: boolean = false
+	for _, point: any in ipairs(samplePoints) do
+		for _, bounds: any in ipairs(boundingParts) do
+			local localPoint: any = bounds.CFrame:PointToObjectSpace(point)
+			local boundsHalf: any = bounds.Size * 0.5
+			if math.abs(localPoint.X) <= boundsHalf.X + 0.05
+				and math.abs(localPoint.Y) <= boundsHalf.Y + 0.05
+				and math.abs(localPoint.Z) <= boundsHalf.Z + 0.05
+				and localPoint.Y <= boundsHalf.Y * 0.35 then
+				touchesRoomVolume = true
+				break
+			end
+		end
+		if touchesRoomVolume then
+			break
+		end
+	end
+	if not touchesRoomVolume then
+		return false
+	end
+
+	-- Reject placements intersecting collidable furniture, walls, or meshes.
+	-- A supporting floor whose top is at the item's bottom is intentionally
+	-- allowed; room-volume helper parts and the local character are ignored.
+	local overlapParams: any = OverlapParams.new()
+	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+	overlapParams.FilterDescendantsInstances = {item, player.Character}
+	overlapParams.MaxParts = 48
+	local querySize: any = itemSize + Vector3.new(0.6, 0.4, 0.6)
+	local itemBottom: number = itemFrame.Position.Y - itemSize.Y * 0.5
+	local boundingSet: any = {}
+	for _, bounds: any in ipairs(boundingParts) do
+		boundingSet[bounds] = true
+	end
+	for _, blocker: any in ipairs(workspace:GetPartBoundsInBox(itemFrame, querySize, overlapParams)) do
+		if blocker.CanCollide
+			and not boundingSet[blocker] then
+			local blockerTop: number = blocker.Position.Y + blocker.Size.Y * 0.5
+			if blockerTop > itemBottom + 0.35 then
+				return false
+			end
+		end
+	end
+	return true
 end
 local function instanceIsInsideRoom(instance, room)
 	local position = getInstanceWorldPosition(instance)
@@ -3316,25 +3418,6 @@ local function getMapSizeSpeedFactor()
 	return 1
 end
 automationHelpers.ghostSpeedMultipliers = {0.5, 0.75, 1, 1.25, 1.5, 2}
-local function closestConfiguredBaseSpeed(rawWalkSpeed, baseSpeed)
-	if typeof(rawWalkSpeed) ~= "number" or rawWalkSpeed <= 0 then
-		return nil, math.huge, nil
-	end
-	local mapFactor = getMapSizeSpeedFactor()
-	local bestExpected = nil
-	local bestError = math.huge
-	local bestMultiplier = nil
-	for _, multiplier in ipairs(automationHelpers.ghostSpeedMultipliers) do
-		local expected = baseSpeed * mapFactor * multiplier
-		local errorAmount = math.abs(rawWalkSpeed - expected)
-		if errorAmount < bestError then
-			bestError = errorAmount
-			bestExpected = expected
-			bestMultiplier = multiplier
-		end
-	end
-	return bestExpected, bestError, bestMultiplier
-end
 local function _samplesByLightingContext(samples, predicate)
 	local groups = {}
 	for _, sample in ipairs(samples) do
@@ -3578,6 +3661,13 @@ local function evaluatePendingKill(hunting, now)
 				confirmedDeviation
 					<= math.max(0.1, math.abs(confirmedPostSpeed) * 0.012)
 			if stable and relativeDifference <= -0.07 then
+				if (perkTrackerState.aswangSaltConfidence or 0) >= 94 then
+					-- A direct hunting salt slowdown is the stronger, ability-specific
+					-- observation; do not create a mutually exclusive Keres kill log
+					-- from a later noisy death window.
+					perkTrackerState.pendingKill = nil
+					return
+				end
 				perkTrackerState.keresKillDecreaseCount =
 					perkTrackerState.keresKillDecreaseCount + 1
 				perkTrackerState.clearGhostRuleOut("Keres")
@@ -3623,7 +3713,8 @@ local function evaluatePendingKill(hunting, now)
 						),
 					perkTrackerState.aswangKillIncreaseCount >= 2
 						and 99
-						or 97
+						or 97,
+					"KillSpeed"
 				)
 				perkTrackerState.ruleOutGhost(
 					"Keres",
@@ -3913,19 +4004,6 @@ analyzePhantom = function(now, huntEnded)
 		end
 	end
 
-	local replicatedBlinkSpeed = readReplicatedGhostValue(
-		ghost,
-		"WalkSpeedWhileBlinking"
-	)
-	if typeof(replicatedBlinkSpeed) == "number"
-		and math.abs(replicatedBlinkSpeed - 13.5) <= 0.05 then
-		recordPattern(
-			"the replicated WalkSpeedWhileBlinking flag was exactly 13.5",
-			99
-		)
-		return
-	end
-
 	local samples = {}
 	for _, sample in ipairs(perkTrackerState.motionSamples) do
 		if sample.Hunting
@@ -3957,113 +4035,19 @@ analyzePhantom = function(now, huntEnded)
 		table.insert(run.Samples, sample)
 	end
 	local lastRun = runs[#runs]
-	if lastRun and now - lastRun.StartTime >= 0.18 then
+	if lastRun then
 		lastRun.EndTime = now
 	end
 
-	local function stablePhaseSpeed(run)
-		if not run or not run.EndTime
-			or run.EndTime - run.StartTime < 0.15 then
+	local function settledPhaseSpeed(run)
+		if not run then
 			return nil
 		end
 		local speeds = {}
 		for _, sample in ipairs(run.Samples) do
-			if sample.Time >= run.StartTime
-				and sample.Time <= run.EndTime then
-				table.insert(speeds, sample.GhostWalkSpeed)
-			end
-		end
-		if #speeds < 2 then
-			return nil
-		end
-		local phaseMedian = median(speeds)
-		if not phaseMedian
-			or standardDeviation(speeds)
-				> math.max(0.12, phaseMedian * 0.02) then
-			return nil
-		end
-		return phaseMedian
-	end
-
-	local absoluteQualified = 0
-	local absoluteMatched = 0
-	local matchedVisibleSpeed
-	local matchedInvisibleSpeed
-	local matchedMultiplier
-	local mapFactor = getMapSizeSpeedFactor()
-	for index, invisibleRun in ipairs(runs) do
-		if not invisibleRun.Invisible then
-			continue
-		end
-		local invisibleSpeed = stablePhaseSpeed(invisibleRun)
-		local adjacentVisibleSpeeds = {}
-		for _, adjacentIndex in ipairs({index - 1, index + 1}) do
-			local visibleRun = runs[adjacentIndex]
-			if visibleRun and not visibleRun.Invisible then
-				local visibleSpeed = stablePhaseSpeed(visibleRun)
-				if visibleSpeed then
-					table.insert(adjacentVisibleSpeeds, visibleSpeed)
-				end
-			end
-		end
-		local visibleSpeed = median(adjacentVisibleSpeeds)
-		if not visibleSpeed or not invisibleSpeed then
-			continue
-		end
-		absoluteQualified = absoluteQualified + 1
-		local expectedVisible, visibleError, multiplier =
-			closestConfiguredBaseSpeed(visibleSpeed, 11)
-		local expectedInvisible = multiplier
-			and 13.5 * mapFactor * multiplier
-		local ratio = invisibleSpeed / visibleSpeed
-		if expectedVisible and expectedInvisible and multiplier
-			and visibleError <= math.max(0.15, expectedVisible * 0.025)
-			and math.abs(invisibleSpeed - expectedInvisible)
-				<= math.max(0.18, expectedInvisible * 0.025)
-			and math.abs(ratio - (13.5 / 11)) <= 0.04 then
-			absoluteMatched = absoluteMatched + 1
-			matchedVisibleSpeed = visibleSpeed
-			matchedInvisibleSpeed = invisibleSpeed
-			matchedMultiplier = multiplier
-		end
-	end
-	if absoluteMatched >= 1 then
-		perkTrackerState.phantomQualifiedCyclesThisHunt = absoluteQualified
-		perkTrackerState.phantomMatchedCyclesThisHunt = absoluteMatched
-		perkTrackerState.phantomContradictoryCyclesThisHunt = 0
-		if not perkTrackerState.phantomPatternRecordedThisHunt then
-			perkTrackerState.phantomPatternRecordedThisHunt = true
-			perkTrackerState.phantomPatternHunts =
-				perkTrackerState.phantomPatternHunts + 1
-		end
-		local confidence = perkTrackerState.phantomPatternHunts >= 2
-			and 99
-			or 95
-		recordPattern(
-			"a stable visible/invisible hunt pair matched the map-scaled Phantom speeds ("
-				.. string.format("%.2f", matchedVisibleSpeed)
-				.. " visible, "
-				.. string.format("%.2f", matchedInvisibleSpeed)
-				.. " invisible, "
-				.. string.format("%.2fx", matchedMultiplier)
-				.. " configured speed)",
-			confidence
-		)
-		return
-	end
-	if #runs < 3 then
-		return
-	end
-
-	local function stableRunSpeed(run)
-		if not run or not run.EndTime
-			or run.EndTime - run.StartTime < 0.35 then
-			return nil
-		end
-		local speeds = {}
-		for _, sample in ipairs(run.Samples) do
-			if sample.Time >= run.StartTime + 0.12
-				and sample.Time <= run.EndTime - 0.08 then
+			-- Transparency and WalkSpeed do not always replicate atomically.  Drop
+			-- the phase-edge sample and compare only settled values.
+			if sample.Time >= run.StartTime + 0.095 then
 				table.insert(speeds, sample.GhostWalkSpeed)
 			end
 		end
@@ -4076,66 +4060,73 @@ analyzePhantom = function(now, huntEnded)
 	local qualified = 0
 	local matched = 0
 	local contradictory = 0
-	local matchedRatios = {}
-	local invisibleDurations = {}
-	for index = 2, #runs - 1 do
-		local invisibleRun = runs[index]
-		local beforeRun = runs[index - 1]
-		local afterRun = runs[index + 1]
-		if invisibleRun.Invisible
-			and not beforeRun.Invisible
-			and not afterRun.Invisible then
-			local beforeSpeed = stableRunSpeed(beforeRun)
-			local invisibleSpeed = stableRunSpeed(invisibleRun)
-			local afterSpeed = stableRunSpeed(afterRun)
-			if beforeSpeed and invisibleSpeed and afterSpeed then
-				local visibleBaseline = median({beforeSpeed, afterSpeed})
-				if visibleBaseline and visibleBaseline > 0 then
-					local ratio = invisibleSpeed / visibleBaseline
-					qualified = qualified + 1
-					table.insert(
-						invisibleDurations,
-						invisibleRun.EndTime - invisibleRun.StartTime
-					)
-					if ratio >= 1.15 and ratio <= 1.4 then
-						matched = matched + 1
-						table.insert(matchedRatios, ratio)
-					elseif ratio <= 1.06 then
-						contradictory = contradictory + 1
-					end
+	local matchedVisibleSpeed
+	local matchedInvisibleSpeed
+	local matchedRatio
+	local expectedRatio = 13.5 / 11
+	for index, invisibleRun in ipairs(runs) do
+		if not invisibleRun.Invisible then
+			continue
+		end
+		local invisibleSpeed = settledPhaseSpeed(invisibleRun)
+		local adjacentVisibleSpeeds = {}
+		for _, adjacentIndex in ipairs({index - 1, index + 1}) do
+			local visibleRun = runs[adjacentIndex]
+			if visibleRun and not visibleRun.Invisible then
+				local visibleSpeed = settledPhaseSpeed(visibleRun)
+				if visibleSpeed then
+					table.insert(adjacentVisibleSpeeds, visibleSpeed)
 				end
 			end
 		end
+		local visibleSpeed = median(adjacentVisibleSpeeds)
+		if not visibleSpeed or not invisibleSpeed then
+			continue
+		end
+		qualified = qualified + 1
+		local ratio = invisibleSpeed / visibleSpeed
+		if math.abs(ratio - expectedRatio) <= 0.05 then
+			matched = matched + 1
+			matchedVisibleSpeed = visibleSpeed
+			matchedInvisibleSpeed = invisibleSpeed
+			matchedRatio = ratio
+		elseif ratio <= 1.08 then
+			contradictory = contradictory + 1
+		end
 	end
 	perkTrackerState.phantomQualifiedCyclesThisHunt = qualified
-	perkTrackerState.phantomMatchedCyclesThisHunt = matched
+	perkTrackerState.phantomMatchedCyclesThisHunt = math.max(
+		perkTrackerState.phantomMatchedCyclesThisHunt,
+		matched
+	)
 	perkTrackerState.phantomContradictoryCyclesThisHunt = contradictory
 
-	if matched >= 3
-		and matched / math.max(qualified, 1) >= 0.75
-		and contradictory <= 1 then
+	if matched >= 1 then
 		if not perkTrackerState.phantomPatternRecordedThisHunt then
 			perkTrackerState.phantomPatternRecordedThisHunt = true
 			perkTrackerState.phantomPatternHunts =
 				perkTrackerState.phantomPatternHunts + 1
 		end
-		local ratio = median(matchedRatios) or (13.5 / 11)
-		local invisibleDuration = median(invisibleDurations)
-		local confidence = perkTrackerState.phantomPatternHunts >= 2
+		perkTrackerState.phantomNoPatternHunts = 0
+		local confidence = (
+			perkTrackerState.phantomMatchedCyclesThisHunt >= 2
+			or perkTrackerState.phantomPatternHunts >= 2
+		)
 			and 99
 			or 95
 		recordPattern(
-			"three complete visible-invisible-visible hunt cycles showed invisible WalkSpeed about "
-				.. tostring(math.floor((ratio - 1) * 100 + 0.5))
-				.. "% faster than the adjacent visible baseline"
-				.. (invisibleDuration
-					and (", with a median invisible interval of "
-						.. string.format("%.2f", invisibleDuration)
-						.. "s")
-					or ""),
+			"settled Transparency 0/1 hunt samples showed the Phantom invisible-speed ratio ("
+				.. string.format("%.2f", matchedVisibleSpeed)
+				.. " visible, "
+				.. string.format("%.2f", matchedInvisibleSpeed)
+				.. " invisible, "
+				.. string.format("%.3fx", matchedRatio)
+				.. ")",
 			confidence
 		)
-	elseif huntEnded and qualified >= 3
+		return
+	end
+	if huntEnded and qualified >= 2
 		and contradictory == qualified then
 		perkTrackerState.phantomNoPatternHunts =
 			perkTrackerState.phantomNoPatternHunts + 1
@@ -4144,7 +4135,7 @@ analyzePhantom = function(now, huntEnded)
 			clearPerkDetection("Phantom")
 			perkTrackerState.ruleOutGhost(
 				"Phantom",
-				"two completed hunts each contained three mature blink cycles with no invisible-linked WalkSpeed increase",
+				"two completed hunts had repeated settled Transparency 0/1 speed pairs with no invisible-linked WalkSpeed increase",
 				90
 			)
 			updateGhostIdentification(ghost)
@@ -4490,7 +4481,7 @@ local function analyzeWendigo()
 		updateGhostIdentification(perkTrackerState.ghost)
 	end
 end
-local function analyzeOni(now)
+local function analyzeOni(now: number): ()
 	local rivalSpeedPattern = perkDetections.Wendigo
 		or perkDetections.Dullahan
 		or perkTrackerState.dullahanPatternDetected
@@ -4512,9 +4503,9 @@ local function analyzeOni(now)
 	end
 	local mapFactor = getMapSizeSpeedFactor()
 	local mapNormalizedSpeed = huntMedian / math.max(mapFactor, 0.001)
-	local function closestBaseMode(baseSpeed)
-		local bestMultiplier
-		local bestBase
+	local function closestBaseMode(baseSpeed: number): (number, number, number)
+		local bestMultiplier: number = 1
+		local bestBase: number = mapNormalizedSpeed
 		local bestError = math.huge
 		for _, multiplier in ipairs(automationHelpers.ghostSpeedMultipliers) do
 			local inferredBase = mapNormalizedSpeed / multiplier
@@ -4814,6 +4805,9 @@ perkTrackerState.markSaltDisturbed = function(disturbedModel)
 			LastSpeedSampleAt = nil,
 			Ghost = ghost,
 			HuntingAtTouch = ghost:GetAttribute("Hunting") == true,
+			SawHuntingSample = false,
+			HuntEnded = false,
+			HuntEndedAt = nil,
 			Disturbed = false,
 			WraithResolved = false,
 			AswangResolved = false,
@@ -4864,12 +4858,15 @@ perkTrackerState.recentSaltPreSpeed = function(ghost, now)
 	if #recentSpeeds > 0 then
 		return median(table.clone(recentSpeeds)),
 			#recentSpeeds,
-			#recentSpeeds >= 3
+			true
 	end
 	local humanoid = ghost and ghost:FindFirstChildOfClass("Humanoid")
 	local liveSpeed = humanoid and humanoid.WalkSpeed or nil
 	if typeof(liveSpeed) == "number" and liveSpeed > 0 then
-		return liveSpeed, 0, false
+		-- Salt can be reached on the first hunting tick, before three rolling
+		-- samples exist.  The live pre-contact value is still a usable baseline;
+		-- a later low-then-recovery sequence independently validates it.
+		return liveSpeed, 0, true
 	end
 	return nil, 0, false
 end
@@ -4902,6 +4899,9 @@ perkTrackerState.beginSaltTouch = function(saltModel)
 		LastSpeedSampleAt = nil,
 		Ghost = ghost,
 		HuntingAtTouch = ghost:GetAttribute("Hunting") == true,
+		SawHuntingSample = false,
+		HuntEnded = false,
+		HuntEndedAt = nil,
 		Disturbed = false,
 		WraithResolved = false,
 		AswangResolved = false,
@@ -5020,6 +5020,8 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 	local pendingSaltTouches: any = perkTrackerState.saltPendingTouches
 	for saltModel: any, observation: any in pairs(pendingSaltTouches) do
 		local age = now - observation.StartedAt
+		-- Wraith contact is deliberately hunt-independent.  The only wait is a
+		-- short replication grace for the SaltLine -> DisturbedSaltLine change.
 		if observation.Disturbed then
 			perkTrackerState.wraithRuledOut = true
 			perkTrackerState.ruleOutGhost(
@@ -5031,105 +5033,149 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 			observation.WraithResolved = true
 			recordPerkDetection(
 				"Wraith",
-				"Ghost touched SaltLine and it did not become DisturbedSaltLine",
+				"Ghost touched SaltLine without disturbing it, independent of hunt state",
 				95
 			)
 		end
-		if not observation.AswangResolved
-			and observation.Disturbed
-			and observation.Ghost == ghost
-			and typeof(observation.HuntingAtTouch) == "boolean"
-			and observation.HuntingAtTouch ~= hunting then
-			observation.AswangResolved = true
+
+		-- Aswang uses the same contact observation, but only a contact made while
+		-- hunting may arm its speed pattern.  Once that hunt ends, retain the
+		-- collected samples for delayed evaluation instead of erasing them.
+		if observation.Ghost == ghost
+			and observation.HuntingAtTouch == true then
+			if hunting and not observation.HuntEnded
+				and typeof(currentSpeed) == "number"
+				and currentSpeed > 0
+				and (
+					not observation.LastSpeedSampleAt
+					or now - observation.LastSpeedSampleAt >= 0.075
+				) then
+				observation.SawHuntingSample = true
+				observation.LastSpeedSampleAt = now
+				observation.SpeedSamples = observation.SpeedSamples or {}
+				table.insert(observation.SpeedSamples, {
+					Time = now,
+					Speed = currentSpeed,
+				})
+			elseif not hunting and not observation.HuntEnded then
+				observation.HuntEnded = true
+				observation.HuntEndedAt = now
+			end
 		end
+
 		if not observation.AswangResolved
 			and observation.Ghost == ghost
-			and hunting
-			and observation.HuntingAtTouch == true
-			and typeof(currentSpeed) == "number"
-			and currentSpeed > 0
-			and (
-				not observation.LastSpeedSampleAt
-				or now - observation.LastSpeedSampleAt >= 0.075
-			) then
-			observation.LastSpeedSampleAt = now
-			observation.SpeedSamples = observation.SpeedSamples or {}
-			table.insert(observation.SpeedSamples, {
-				Time = now,
-				Speed = currentSpeed,
-				Disturbed = observation.Disturbed == true,
-			})
-		end
-		if not observation.AswangResolved
-			and observation.Disturbed
-			and observation.Ghost == ghost
-			and hunting
-			and observation.HuntingAtTouch == true
-			and observation.BaselineReliable
-			and typeof(observation.PreSpeed) == "number"
-			and observation.PreSpeed > 0
-			and typeof(currentSpeed) == "number"
-			and currentSpeed > 0 then
-			local disturbedAge = now - observation.DisturbedAt
+			and observation.HuntingAtTouch == true then
+			local speedSamples: any = observation.SpeedSamples or {}
+			local preSpeed = observation.PreSpeed
+			local baselineUsable = observation.BaselineReliable
+				and typeof(preSpeed) == "number"
+				and preSpeed > 0
 			local dropCount = 0
 			local noDropCount = 0
 			local latestSlowAt
 			local minimumSpeed = math.huge
-			for _, speedSample in ipairs(observation.SpeedSamples or {}) do
-				local ratio = speedSample.Speed / observation.PreSpeed
+			for _, speedSample: any in ipairs(speedSamples) do
 				minimumSpeed = math.min(minimumSpeed, speedSample.Speed)
-				if ratio <= 0.9 then
-					dropCount = dropCount + 1
-					latestSlowAt = speedSample.Time
-				end
-				if ratio >= 0.94 then
-					noDropCount = noDropCount + 1
+				if baselineUsable then
+					local ratio = speedSample.Speed / preSpeed
+					if ratio <= 0.94 then
+						dropCount = dropCount + 1
+						latestSlowAt = speedSample.Time
+					end
+					if ratio >= 0.97 then
+						noDropCount = noDropCount + 1
+					end
 				end
 			end
+
 			if dropCount >= 2 and not observation.AswangSlowObserved then
 				observation.AswangSlowObserved = true
 				observation.AswangSlowAt = latestSlowAt
 				observation.AswangMinimumSpeed = minimumSpeed
 				observation.Phase = "SeekRecovery"
 				perkTrackerState.clearGhostRuleOut("Aswang")
+				perkTrackerState.aswangSaltConfidence = math.max(
+					perkTrackerState.aswangSaltConfidence or 0,
+					95
+				)
 				recordPerkDetection(
 					"Aswang",
-					"during the same hunt, direct salt contact disturbed the pile and produced a repeated WalkSpeed drop below the pre-touch baseline",
-					95
+					"during the same hunt, direct salt contact produced repeated WalkSpeed samples at least 6% below the pre-touch baseline",
+					95,
+					"SaltContact"
 				)
 				updateGhostIdentification(ghost)
 			end
-			if observation.AswangSlowObserved then
-				local recoveryCount = 0
+
+			local recoveryCount = 0
+			if observation.AswangSlowObserved and baselineUsable then
 				local slowAt = observation.AswangSlowAt or now
 				local lowSpeed = observation.AswangMinimumSpeed or minimumSpeed
-				for _, speedSample in ipairs(observation.SpeedSamples or {}) do
+				for _, speedSample: any in ipairs(speedSamples) do
 					if speedSample.Time >= slowAt + 0.15
-						and speedSample.Speed >= observation.PreSpeed * 0.95
-						and speedSample.Speed >= lowSpeed * 1.08 then
+						and speedSample.Speed >= preSpeed * 0.95
+						and speedSample.Speed >= lowSpeed * 1.06 then
 						recoveryCount = recoveryCount + 1
 					end
 				end
-				if recoveryCount >= 2 then
-					observation.AswangResolved = true
-					observation.Phase = "Recovered"
-					perkTrackerState.clearGhostRuleOut("Aswang")
-					recordPerkDetection(
-						"Aswang",
-						"during one hunt, the ghost touched and disturbed salt, temporarily slowed across repeated samples, then recovered to its pre-touch WalkSpeed",
-						99
-					)
-					updateGhostIdentification(ghost)
+			end
+
+			-- If the touch callback saw WalkSpeed only after the slowdown had
+			-- already applied, infer the missing baseline from an ordered, repeated
+			-- low phase followed by a repeated recovery plateau.
+			local inferredRecoveryCount = 0
+			local lowSampleCount = 0
+			local lastLowAt
+			local canInferLiveBaseline = not observation.AswangSlowObserved
+				and (observation.PreSampleCount or 0) == 0
+				and not perkTrackerState.dullahanPatternDetected
+				and not perkDetections.Dullahan
+			if canInferLiveBaseline
+				and #speedSamples >= 4
+				and minimumSpeed < math.huge then
+				for _, speedSample: any in ipairs(speedSamples) do
+					if speedSample.Speed <= minimumSpeed * 1.02 then
+						lowSampleCount = lowSampleCount + 1
+						lastLowAt = speedSample.Time
+					end
 				end
-			elseif disturbedAge >= 4
-				and #(observation.SpeedSamples or {}) >= 10
-				and noDropCount == #(observation.SpeedSamples or {})
+				if lowSampleCount >= 2 and lastLowAt then
+					for _, speedSample: any in ipairs(speedSamples) do
+						if speedSample.Time >= lastLowAt + 0.15
+							and speedSample.Speed >= minimumSpeed * 1.06 then
+							inferredRecoveryCount = inferredRecoveryCount + 1
+						end
+					end
+				end
+			end
+
+			if recoveryCount >= 2 or inferredRecoveryCount >= 2 then
+				observation.AswangSlowObserved = true
+				observation.AswangMinimumSpeed = minimumSpeed
+				observation.AswangResolved = true
+				observation.Phase = "Recovered"
+				perkTrackerState.clearGhostRuleOut("Aswang")
+				perkTrackerState.aswangSaltConfidence = 99
+				recordPerkDetection(
+					"Aswang",
+					"during one hunt, direct salt contact caused a repeated temporary WalkSpeed reduction followed by recovery",
+					99,
+					"SaltContact"
+				)
+				updateGhostIdentification(ghost)
+			elseif not observation.AswangSlowObserved
+				and baselineUsable
+				and (observation.PreSampleCount or 0) >= 1
+				and #speedSamples >= 10
+				and noDropCount == #speedSamples
+				and (age >= 4 or observation.HuntEnded)
 				and not perkDetections.Aswang then
 				observation.AswangResolved = true
 				clearPerkDetection("Aswang")
 				perkTrackerState.ruleOutGhost(
 					"Aswang",
-					"a verified hunting salt contact disturbed the pile, but a full four-second sample showed no temporary WalkSpeed drop",
+					"a verified hunting salt contact had a full speed sample without a temporary WalkSpeed reduction",
 					90
 				)
 				updateGhostIdentification(ghost)
@@ -5137,7 +5183,15 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 		end
 		local observationAge = now
 			- (observation.DisturbedAt or observation.StartedAt)
-		if observationAge >= 6.5
+		local preserveActiveHunt = hunting
+			and observation.HuntingAtTouch == true
+			and not observation.HuntEnded
+			and not observation.AswangResolved
+		local preserveHuntEdge = observation.HuntEndedAt
+			and now - observation.HuntEndedAt < 1
+		if (observationAge >= 10
+			and not preserveActiveHunt
+			and not preserveHuntEdge)
 			or observation.Ghost ~= ghost then
 			perkTrackerState.saltPendingTouches[saltModel] = nil
 		end
@@ -6406,9 +6460,9 @@ automationHelpers.findExitDoorDescriptors = function(): any
 	end)
 	return descriptors
 end
-local function teleportToRoomBoundingBoxCenter(room: any, options: any)
+local function teleportToRoomBoundingBoxCenter(room: any, options: any): (boolean, any)
 	options = options or {}
-	local function teleportIsActive()
+	local function teleportIsActive(): boolean
 		if type(options.IsActive) ~= "function" then
 			return true
 		end
@@ -6455,29 +6509,34 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 		table.insert(excludedInstances, ghostProxyModel)
 	end
 
-	local standingOffset =
+	local standingOffset: number =
 		humanoid.HipHeight + root.Size.Y * 0.5 + 0.12
-	local footprintHalfX = root.Size.X * 0.5
-	local footprintHalfZ = root.Size.Z * 0.5
+	local footprintHalfX: number = root.Size.X * 0.5
+	local footprintHalfZ: number = root.Size.Z * 0.5
 	for _, bodyPart in ipairs(character:GetDescendants()) do
 		if bodyPart:IsA("BasePart")
 			and not automationHelpers.partBelongsToHeldCharacterItem(
 				bodyPart,
 				character
 			) then
-			local half = bodyPart.Size * 0.5
-			for _, x in ipairs({-half.X, half.X}) do
-				for _, y in ipairs({-half.Y, half.Y}) do
-					for _, z in ipairs({-half.Z, half.Z}) do
-						local worldCorner = bodyPart.CFrame:PointToWorldSpace(
-							Vector3.new(x, y, z)
-						)
-						local rootLocal = root.CFrame:PointToObjectSpace(worldCorner)
-						footprintHalfX = math.max(footprintHalfX, math.abs(rootLocal.X))
-						footprintHalfZ = math.max(footprintHalfZ, math.abs(rootLocal.Z))
-					end
-				end
-			end
+			local half: any = bodyPart.Size * 0.5
+			local relative: any = root.CFrame:ToObjectSpace(bodyPart.CFrame)
+			local projectedHalfX: number =
+				math.abs(relative.XVector.X) * half.X
+				+ math.abs(relative.YVector.X) * half.Y
+				+ math.abs(relative.ZVector.X) * half.Z
+			local projectedHalfZ: number =
+				math.abs(relative.XVector.Z) * half.X
+				+ math.abs(relative.YVector.Z) * half.Y
+				+ math.abs(relative.ZVector.Z) * half.Z
+			footprintHalfX = math.max(
+				footprintHalfX,
+				math.abs(relative.Position.X) + projectedHalfX
+			)
+			footprintHalfZ = math.max(
+				footprintHalfZ,
+				math.abs(relative.Position.Z) + projectedHalfZ
+			)
 		end
 	end
 	footprintHalfX = footprintHalfX + 0.22
@@ -6501,7 +6560,7 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 	local maximumTargetDistance = tonumber(options.MaximumTargetDistance)
 	local maximumPreferredDistance = tonumber(options.MaximumPreferredDistance)
 	local candidateValidator = options.CandidateValidator
-	local function candidatePassesCustomValidation(position)
+	local function candidatePassesCustomValidation(position: any): boolean
 		if type(candidateValidator) ~= "function" then
 			return true
 		end
@@ -6517,7 +6576,7 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 		overlapParams.RespectCanCollide = true
 	end)
 
-	local function safelyInsideXZ(position, boundingPart)
+	local function safelyInsideXZ(position: any, boundingPart: any): boolean
 		local localPosition =
 			boundingPart.CFrame:PointToObjectSpace(position)
 		local half = boundingPart.Size * 0.5
@@ -6528,7 +6587,7 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 				<= math.max(0, half.Z - horizontalInset)
 	end
 
-	local function isCollidableInstance(instance)
+	local function isCollidableInstance(instance: any): boolean
 		if instance == workspace.Terrain then
 			return true
 		end
@@ -6537,7 +6596,7 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 			and instance.CanCollide
 	end
 
-	local function newRaycastParams(excludes)
+	local function newRaycastParams(excludes: any): any
 		local raycastParams = RaycastParams.new()
 		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 		raycastParams.FilterDescendantsInstances = excludes
@@ -6549,10 +6608,10 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 	end
 
 	local function raycastFirstCollidable(
-		origin,
-		direction,
-		additionalExcludes
-	)
+		origin: any,
+		direction: any,
+		additionalExcludes: any
+	): any
 		local excludes = table.clone(excludedInstances)
 		for _, instance in ipairs(additionalExcludes or {}) do
 			if instance and instance ~= workspace.Terrain then
@@ -6599,7 +6658,7 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 		Vector3.new(-footprintHalfX, 0, -footprintHalfZ),
 	}
 
-	local function inspectFootprint(floorPosition)
+	local function inspectFootprint(floorPosition: any): any
 		local supportHits = 0
 		local flatSupportHits = 0
 		local centerSupported = false
@@ -6637,7 +6696,7 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 		}
 	end
 
-	local function worldHalfExtents(part)
+	local function worldHalfExtents(part: any): any
 		local half = part.Size * 0.5
 		local frame = part.CFrame
 		return Vector3.new(
@@ -6653,7 +6712,7 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 		)
 	end
 
-	local function inspectBodyArea(candidate, floorY, supportSet)
+	local function inspectBodyArea(candidate: any, floorY: number, supportSet: any): any
 		local probeBottom = floorY + 0.12
 		local probeTop = probeBottom + bodyProbeSize.Y
 		local probe = CFrame.new(
@@ -6751,7 +6810,7 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 		Vector3.new(-1, 0, -1).Unit,
 	}
 
-	local function horizontalClearance(candidate, floorY, supportSet)
+	local function horizontalClearance(candidate: any, floorY: number, supportSet: any): number
 		local supportExcludes = {}
 		for instance in pairs(supportSet) do
 			if instance ~= workspace.Terrain then
@@ -6759,7 +6818,7 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 			end
 		end
 
-		local minimum = 9
+		local minimum: number = 9
 		for _, height in ipairs({0.75, 2.65}) do
 			local origin = Vector3.new(
 				candidate.X,
@@ -6767,7 +6826,7 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 				candidate.Z
 			)
 			for _, direction in ipairs(clearanceDirections) do
-				local result = raycastFirstCollidable(
+				local result: any = raycastFirstCollidable(
 					origin,
 					direction * 9,
 					supportExcludes
@@ -6878,11 +6937,11 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 	local rawCandidates = {}
 	local minimumBottomByBoundingPart = setmetatable({}, {__mode = "k"})
 	local function addColumnCandidates(
-		boundingPart,
-		localX,
-		localZ,
-		rippleOrder
-	)
+		boundingPart: any,
+		localX: number,
+		localZ: number,
+		rippleOrder: any
+	): ()
 		local half = boundingPart.Size * 0.5
 		local origin = boundingPart.CFrame:PointToWorldSpace(
 			Vector3.new(localX, half.Y + 24, localZ)
@@ -7057,14 +7116,14 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 	bodyGeometryProbe.Parent = workspace
 	table.insert(excludedInstances, bodyGeometryProbe)
 	overlapParams.FilterDescendantsInstances = excludedInstances
-	local function destroyBodyGeometryProbe()
+	local function destroyBodyGeometryProbe(): ()
 		if bodyGeometryProbe then
 			bodyGeometryProbe:Destroy()
 			bodyGeometryProbe = nil
 		end
 	end
 
-	local function surfaceLooksLikeGround(surface)
+	local function surfaceLooksLikeGround(surface: any): boolean
 		if surface == workspace.Terrain then
 			return true
 		end
@@ -7114,7 +7173,7 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 	local candidates = {}
 	local evaluated = setmetatable({}, {__mode = "k"})
 	local evaluationCount = 0
-	local function evaluateCandidate(candidate)
+	local function evaluateCandidate(candidate: any): ()
 		if not candidate or evaluated[candidate] then
 			return
 		end
@@ -7128,7 +7187,7 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 		end
 	end
 	local strictCandidateCount = 0
-	local function evaluatePool(pool)
+	local function evaluatePool(pool: any): boolean
 		if #pool == 0 then
 			return false
 		end
@@ -7264,14 +7323,15 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 	local originalAnchored = root.Anchored
 	local originalAutoRotate = humanoid.AutoRotate
 	local originalPlatformStand = humanoid.PlatformStand
-	local disabledStates = {}
-
-	for _, state in ipairs({
+	local disabledStates: any = {}
+	local disabledHumanoidStates: any = {
 		Enum.HumanoidStateType.FallingDown,
 		Enum.HumanoidStateType.Ragdoll,
 		Enum.HumanoidStateType.Freefall,
-	}) do
-		local ok, enabled = pcall(function()
+	}
+
+	for _, state: any in ipairs(disabledHumanoidStates) do
+		local ok: boolean, enabled: any = pcall(function(): any
 			return humanoid:GetStateEnabled(state)
 		end)
 		if ok then
@@ -7413,11 +7473,11 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any)
 			and settledRisk <= expectedRisk + 750
 	end
 
-	local selected = nil
-	local strictModes = options.RequireStrict and {true} or {true, false}
-	for _, requireStrict in ipairs(strictModes) do
+	local selected: any = nil
+	local strictModes: any = options.RequireStrict and {true} or {true, false}
+	for _, requireStrict: boolean in ipairs(strictModes) do
 		for groundTier = 0, 3 do
-			for _, candidate in ipairs(candidates) do
+			for _, candidate: any in ipairs(candidates) do
 				if candidate.GroundTier == groundTier
 					and candidate.StrictSafe == requireStrict
 					and tryCandidate(candidate, requireStrict) then
@@ -7678,9 +7738,20 @@ local function teleportToFavouriteRoom(options)
 	attemptOptions.FaceBoundingBoxCenter = true
 	return teleportToRoomBoundingBoxCenter(room, attemptOptions)
 end
-local placeItemsInFavouriteRoom: any = function(owner: any)
+local placeItemsInFavouriteRoom: any = function(owner: any, requestedRoom: any)
 	if roomItemPlacementState.busy or closed then
 		return false, "room item setup is already running"
+	end
+	local placementTargetRoom = requestedRoom
+	if not placementTargetRoom then
+		local targetGhost = getGhostModel()
+		placementTargetRoom = findFavouriteRoom(
+			findRoomsFolder(),
+			targetGhost and targetGhost:GetAttribute("FavoriteRoom") or nil
+		)
+	end
+	if not placementTargetRoom or not placementTargetRoom.Parent then
+		return false, "favourite room was not available for item setup"
 	end
 	roomItemPlacementState.busy = true
 	roomItemPlacementState.generation =
@@ -7692,27 +7763,27 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 	roomItemPlacementState.lastError = nil
 	placeRoomItemsButton.Text = COPY.Actions.PlacingRoomItems
 	placeRoomItemsButton.BackgroundColor3 = COLORS.accentDark
-	roomItemPlacementState.thread = task.spawn(function()
+	roomItemPlacementState.thread = task.spawn(function(): ()
 		local failedItems: any = {}
 		local failureSet: any = {}
-		local function recordFailure(message)
+		local function recordFailure(message: any): ()
 			if not failureSet[message] then
 				failureSet[message] = true
 				table.insert(failedItems, message)
 			end
 		end
-		local function operationIsActive()
+		local function operationIsActive(): boolean
 			return not closed
 				and roomItemPlacementState.busy
 				and roomItemPlacementState.generation
 					== operationGeneration
 		end
-		local function assertOperationActive()
+		local function assertOperationActive(): ()
 			if not operationIsActive() then
 				error("Room item setup cancelled", 0)
 			end
 		end
-		local function guardedWait(seconds)
+		local function guardedWait(seconds: number): ()
 			local deadline = os.clock() + seconds
 			repeat
 				assertOperationActive()
@@ -7724,16 +7795,10 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 				)
 			until os.clock() >= deadline
 		end
-		local function currentFavouriteRoom()
-			local currentGhost = getGhostModel()
-			return findFavouriteRoom(
-				findRoomsFolder(),
-				currentGhost
-					and currentGhost:GetAttribute("FavoriteRoom")
-					or nil
-			)
+		local function currentFavouriteRoom(): any
+			return placementTargetRoom.Parent and placementTargetRoom or nil
 		end
-		local function waitForNoHunt(returnToFavouriteRoom)
+		local function waitForNoHunt(returnToFavouriteRoom: any): boolean
 			local paused = false
 			while operationIsActive() do
 				local currentGhost = getGhostModel()
@@ -7765,7 +7830,10 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 					)
 				if not alreadyInRoom then
 					local teleported, reason =
-						teleportToFavouriteRoom()
+						teleportToRoomBoundingBoxCenter(
+							currentFavourite,
+							{FaceBoundingBoxCenter = true}
+						)
 					if not teleported then
 						error(
 							"Favourite-room teleport failed: "
@@ -7785,7 +7853,7 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 		if not events then
 			error("ReplicatedStorage.Events was not found", 0)
 		end
-		local function getRemote(name)
+		local function getRemote(name: any): any
 			local remote = events:FindFirstChild(name)
 			if not remote or not remote:IsA("RemoteEvent") then
 				error(name .. " RemoteEvent was not found", 0)
@@ -7797,102 +7865,86 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 		local requestItemDrop = getRemote("RequestItemDrop")
 		local toggleItemState = getRemote("ToggleItemState")
 		local PICKUP_MAX_DISTANCE = 8
-		local function fireRemote(remote, ...)
+		local function fireRemote(remote: any, ...: any): ()
 			assertOperationActive()
 			local ok, err = pcall(remote.FireServer, remote, ...)
 			if not ok then
 				error("Remote call failed: " .. tostring(err), 0)
 			end
+			guardedWait(0.1)
 		end
 		local playerGui = player:FindFirstChild("PlayerGui")
 		local hotbar =
 			playerGui and playerGui:FindFirstChild("Hotbar")
 		local hotbarSlots =
 			hotbar and hotbar:FindFirstChild("Slots")
-		if not hotbarSlots then
-			error("Hotbar.Slots was not found", 0)
-		end
-		local function normalizeItemName(value)
-			local normalized =
-				string.lower(tostring(value or ""))
-					:match("^%s*(.-)%s*$")
-					:gsub("%s+", " ")
+		local function normalizeItemName(value: any): string
+			local normalized: string = string.lower(tostring(value or ""))
+			normalized = string.match(normalized, "^%s*(.-)%s*$") or normalized
+			normalized = string.gsub(normalized, "%s+", " ")
 			if normalized == "holyoil"
 				or normalized == "hoil oil" then
 				return "holy oil"
 			end
 			return normalized
 		end
-		local function sameItemName(left, right)
+		local function sameItemName(left: any, right: any): boolean
 			return normalizeItemName(left)
 				== normalizeItemName(right)
 		end
 		local inventorySlotCount = 3
-		local function inventorySlotKey(slotNumber)
+		local function inventorySlotKey(slotNumber: any): string
 			return "InvSlot" .. tostring(slotNumber)
 		end
-		local function inventorySlotValue(slotNumber)
+		local function inventorySlotValue(slotNumber: any): any
 			return player:GetAttribute(
 				inventorySlotKey(slotNumber)
 			)
 		end
-		local function valueIsOccupied(value)
+		local function valueIsOccupied(value: any): boolean
 			return value ~= nil
 				and value ~= false
 				and tostring(value) ~= ""
 		end
-		local function storedItemName(object)
-			if not object then
-				return nil
-			end
-			local value = object:GetAttribute("ItemName")
-			if typeof(value) == "string" and value ~= "" then
-				return value
-			end
-			for _, descendant in ipairs(object:GetDescendants()) do
-				value = descendant:GetAttribute("ItemName")
-				if typeof(value) == "string" and value ~= "" then
-					return value
-				end
-			end
-			return nil
-		end
-		local function scanStoredInventory(itemName)
-			local requested =
-				itemName and normalizeItemName(itemName) or nil
-			local matchingItem
-			local matchingCount = 0
-			local totalCount = 0
-			local function scanContainer(container)
-				if not container then
-					return
-				end
-				for _, child in ipairs(container:GetChildren()) do
-					local name = storedItemName(child)
-					if name then
-						totalCount = totalCount + 1
-						if requested
-							and normalizeItemName(name) == requested
-							and not (
-								requested
-									== normalizeItemName("Cross")
-								and child:GetAttribute("Burned")
-									== true
-							) then
-							matchingCount = matchingCount + 1
-							matchingItem = matchingItem or child
+		local function directStoredInventoryModels(
+			itemName: any,
+			includeBurntCross: any
+		): any
+			local matches = {}
+			local requested = itemName and normalizeItemName(itemName) or nil
+			for _, container in ipairs({
+				player:FindFirstChild("ToolsHolder"),
+				player.Character,
+			}) do
+				if container then
+					for _, child in ipairs(container:GetChildren()) do
+						local name = child:IsA("Model")
+							and child:GetAttribute("ItemName")
+							or nil
+						if typeof(name) == "string"
+							and name ~= ""
+							and (not requested
+								or normalizeItemName(name) == requested)
+							and (includeBurntCross == true
+								or not automationHelpers.worldItemIsBurntCross(child)) then
+							table.insert(matches, child)
 						end
 					end
 				end
 			end
-			scanContainer(player:FindFirstChild("ToolsHolder"))
-			scanContainer(player.Character)
-			return matchingItem, matchingCount, math.min(
-				totalCount,
+			return matches
+		end
+		local function scanStoredInventory(itemName: any): (any, number, number)
+			local matching = itemName
+				and directStoredInventoryModels(itemName, false)
+				or {}
+			local allStored = directStoredInventoryModels(nil, true)
+			return matching[1], #matching, math.min(
+				#allStored,
 				inventorySlotCount
 			)
 		end
-		local function objectMatchesSlotValue(object, slotValue)
+		local function objectMatchesSlotValue(object: any, slotValue: any): boolean
 			if not object or not valueIsOccupied(slotValue) then
 				return false
 			end
@@ -7933,8 +7985,7 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 			end
 			return false
 		end
-		local function storedInventorySlot(itemName: any): any
-			local storedItem: any = scanStoredInventory(itemName)
+		local function storedObjectSlot(storedItem: any): any
 			if not storedItem then
 				return nil
 			end
@@ -7984,33 +8035,24 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 			end
 			return nil
 		end
-		local function slotLabel(slot)
+		local function slotLabel(slot: any): any
 			local label = slot and slot:FindFirstChild("ItemName")
 			return label
 				and label:IsA("TextLabel")
 				and label.Text
 				or nil
 		end
-		local function hotbarSlotName(slotNumber)
+		local function hotbarSlotName(slotNumber: any): any
+			if not hotbarSlots then
+				return nil
+			end
 			return slotLabel(
 				hotbarSlots:FindFirstChild(
 					"InvSlot" .. tostring(slotNumber)
 				)
 			)
 		end
-		local function countHotbarItem(itemName)
-			local count = 0
-			for slotNumber = 1, inventorySlotCount do
-				if sameItemName(
-					hotbarSlotName(slotNumber),
-					itemName
-				) then
-					count = count + 1
-				end
-			end
-			return count
-		end
-		local function findHotbarSlot(itemName)
+		local function findHotbarSlot(itemName: any): any
 			for slotNumber = 1, inventorySlotCount do
 				if sameItemName(
 					hotbarSlotName(slotNumber),
@@ -8021,51 +8063,82 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 			end
 			return nil
 		end
-		local function findInventorySlot(itemName)
-			return findHotbarSlot(itemName)
-				or storedInventorySlot(itemName)
+		local function inventorySlotCandidates(
+			itemName: any,
+			includeBurntCross: any
+		): any
+			local models = directStoredInventoryModels(
+				itemName,
+				includeBurntCross == true
+			)
+			if #models == 0 then
+				return {}
+			end
+			local candidates = {}
+			local added = {}
+			local function add(slotNumber: any): ()
+				if slotNumber
+					and slotNumber >= 1
+					and slotNumber <= inventorySlotCount
+					and not added[slotNumber] then
+					added[slotNumber] = true
+					table.insert(candidates, slotNumber)
+				end
+			end
+			for _, model in ipairs(models) do
+				add(storedObjectSlot(model))
+			end
+			add(findHotbarSlot(itemName))
+			-- If the server exposes only an opaque InvSlot token, every occupied
+			-- slot is a candidate. Equip callers confirm the requested direct
+			-- Character model before acting, then fall back across all three slots.
+			for slotNumber = 1, inventorySlotCount do
+				if valueIsOccupied(inventorySlotValue(slotNumber)) then
+					add(slotNumber)
+				end
+			end
+			for slotNumber = 1, inventorySlotCount do
+				add(slotNumber)
+			end
+			return candidates
+		end
+		local function findInventorySlot(itemName: any): any
+			return inventorySlotCandidates(itemName, false)[1]
 		end
 		local function countInventoryItem(itemName: any): number
 			local _, storedCount: number =
 				scanStoredInventory(itemName)
-			return math.max(
-				(countHotbarItem(itemName) :: any) or 0,
-				storedCount
-			)
+			return storedCount
 		end
-		local function inventoryHasItem(itemName)
+		local function countPhysicalInventoryItem(
+			itemName: any,
+			includeBurntCross: any
+		): number
+			return #directStoredInventoryModels(itemName, includeBurntCross)
+		end
+		local function inventoryHasItem(itemName: any): boolean
 			return countInventoryItem(itemName) > 0
 		end
 		local function inventorySlotName(slotNumber: any): any
+			for _, child in ipairs(directStoredInventoryModels(nil, true)) do
+				if storedObjectSlot(child) == slotNumber then
+					return child:GetAttribute("ItemName")
+				end
+			end
 			local hotbarName = hotbarSlotName(slotNumber)
 			if hotbarName and hotbarName ~= "" then
 				return hotbarName
 			end
-			local inventoryContainers: any = {
-				player:FindFirstChild("ToolsHolder"),
-				player.Character,
-			}
-			for _, container: any in ipairs(inventoryContainers) do
-				if container then
-					for _, child: any in ipairs(container:GetChildren()) do
-						local name = storedItemName(child)
-						if name
-							and objectMatchesSlotValue(
-								child,
-								inventorySlotValue(slotNumber)
-							) then
-							return name
-						end
-					end
-				end
-			end
 			return nil
 		end
-		local function inventorySnapshot()
+		local function inventorySnapshot(): (any, number, any, any)
 			local slots = {}
+			local occupiedSlots = {}
+			local directClaimedSlots = {}
 			local occupiedCount = 0
 			local freeSlot
 			local values = {}
+			local directModels = directStoredInventoryModels(nil, true)
 			for slotNumber = 1, inventorySlotCount do
 				local value = inventorySlotValue(slotNumber)
 				values[slotNumber] = value
@@ -8076,16 +8149,74 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 						and hotbarSlotName(slotNumber) ~= ""
 					)
 				if occupied then
+					occupiedSlots[slotNumber] = true
 					slots[slotNumber] =
 						inventorySlotName(slotNumber)
-					occupiedCount = occupiedCount + 1
 				elseif not freeSlot then
 					freeSlot = slotNumber
 				end
 			end
+			local unmappedDirectModels = {}
+			for _, storedItem in ipairs(directModels) do
+				local slotNumber = storedObjectSlot(storedItem)
+				if slotNumber then
+					occupiedSlots[slotNumber] = true
+					directClaimedSlots[slotNumber] = true
+					if not slots[slotNumber] then
+						slots[slotNumber] = storedItem:GetAttribute("ItemName")
+					end
+				else
+					table.insert(unmappedDirectModels, storedItem)
+				end
+			end
+			-- Direct Character/ToolsHolder models are authoritative. Reconcile an
+			-- opaque model only with a matching hotbar label. Otherwise claim a
+			-- blank slot conservatively instead of merging two different items or
+			-- counting the same labeled tool twice.
+			for _, storedItem in ipairs(unmappedDirectModels) do
+				local itemName = storedItem:GetAttribute("ItemName")
+				local reconciledSlot
+				for slotNumber = 1, inventorySlotCount do
+					if occupiedSlots[slotNumber]
+						and not directClaimedSlots[slotNumber]
+						and sameItemName(hotbarSlotName(slotNumber), itemName) then
+						reconciledSlot = slotNumber
+						break
+					end
+				end
+				if not reconciledSlot then
+					for slotNumber = 1, inventorySlotCount do
+						if not occupiedSlots[slotNumber] then
+							reconciledSlot = slotNumber
+							occupiedSlots[slotNumber] = true
+							break
+						end
+					end
+				end
+				if reconciledSlot then
+					directClaimedSlots[reconciledSlot] = true
+					slots[reconciledSlot] = slots[reconciledSlot] or itemName
+				end
+			end
+			for slotNumber = 1, inventorySlotCount do
+				if occupiedSlots[slotNumber] then
+					occupiedCount = occupiedCount + 1
+				end
+			end
+			freeSlot = nil
+			if occupiedCount < inventorySlotCount then
+				for slotNumber = 1, inventorySlotCount do
+					if not occupiedSlots[slotNumber]
+						and not valueIsOccupied(values[slotNumber])
+						and not hotbarSlotName(slotNumber) then
+						freeSlot = slotNumber
+						break
+					end
+				end
+			end
 			return slots, occupiedCount, freeSlot, values
 		end
-		local function waitForHotbarSlot(itemName, timeout)
+		local function waitForHotbarSlot(itemName: any, timeout: any): any
 			local deadline = os.clock() + (timeout or 1.5)
 			repeat
 				assertOperationActive()
@@ -8097,7 +8228,7 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 			until os.clock() >= deadline
 			return nil
 		end
-		local function findItem(itemName)
+		local function findItem(itemName: any): (boolean, any)
 			local itemFolder = workspace:FindFirstChild("Items")
 			if not itemFolder then
 				return false, nil
@@ -8111,16 +8242,13 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 					or child:IsA("BasePart")
 				)
 					and sameItemName(candidateName, itemName)
-					and not (
-						sameItemName(itemName, "Cross")
-						and child:GetAttribute("Burned") == true
-					) then
+					and not automationHelpers.worldItemIsBurntCross(child) then
 					return true, child
 				end
 			end
 			return false, nil
 		end
-		local function moveNearWorldItem(model)
+		local function moveNearWorldItem(model: any): boolean
 			local character = player.Character
 			local root = character
 				and character:FindFirstChild("HumanoidRootPart")
@@ -8159,17 +8287,22 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 				and automationHelpers.distanceFromPositionToInstance(root.Position, model)
 					<= PICKUP_MAX_DISTANCE
 		end
-		local function equipItem(slotNumber, returnToFavouriteRoom)
+		local function equipItem(
+			slotNumber: any,
+			returnToFavouriteRoom: any,
+			allowUnknownSlot: any
+		): boolean
 			waitForNoHunt(returnToFavouriteRoom == true)
 			if not slotNumber
 				or slotNumber < 1
 				or slotNumber > inventorySlotCount
-				or (
-					not valueIsOccupied(
-						inventorySlotValue(slotNumber)
-					)
-					and not inventorySlotName(slotNumber)
-				) then
+				or (not allowUnknownSlot
+					and (
+						not valueIsOccupied(
+							inventorySlotValue(slotNumber)
+						)
+						and not inventorySlotName(slotNumber)
+					)) then
 				return false
 			end
 			fireRemote(
@@ -8179,39 +8312,156 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 			guardedWait(0.18)
 			return true
 		end
+		local function equipNamedItem(
+			itemName: any,
+			returnToFavouriteRoom: any,
+			includeBurntCross: any
+		): (boolean, any, any)
+			local function equippedModel(): any
+				local character = player.Character
+				if not character then
+					return nil
+				end
+				for _, model in ipairs(directStoredInventoryModels(
+					itemName,
+					includeBurntCross == true
+				)) do
+					if model:IsDescendantOf(character) then
+						return model
+					end
+				end
+				return nil
+			end
+			local alreadyEquipped = equippedModel()
+			if alreadyEquipped then
+				local exactSlot = storedObjectSlot(alreadyEquipped)
+				if exactSlot then
+					return true, exactSlot, alreadyEquipped
+				end
+			end
+			local candidates = inventorySlotCandidates(
+				itemName,
+				includeBurntCross == true
+			)
+			if alreadyEquipped then
+				-- A no-op request for a blank slot can leave the opaque target in
+				-- Character, so pre-existing presence is not confirmation. Switch to
+				-- another real slot first and only then probe for the target's return.
+				local switchedAway = false
+				for _, candidate in ipairs(candidates) do
+					if equipItem(candidate, returnToFavouriteRoom, true) then
+						local switchDeadline = os.clock() + 0.25
+						repeat
+							local current = equippedModel()
+							if not current then
+								switchedAway = true
+								break
+							end
+							local resolvedSlot = storedObjectSlot(current)
+							if resolvedSlot then
+								return true, resolvedSlot, current
+							end
+							guardedWait(0.05)
+						until os.clock() >= switchDeadline
+					end
+					if switchedAway then
+						break
+					end
+				end
+				if not switchedAway and not equippedModel() then
+					switchedAway = true
+				end
+				if not switchedAway then
+					-- The item may still be toggled/used while equipped, but callers that
+					-- need to drop it must reject the deliberately unconfirmed slot.
+					return true, nil, alreadyEquipped
+				end
+			end
+			for _, candidate in ipairs(candidates) do
+				if equipItem(candidate, returnToFavouriteRoom, true) then
+					local confirmationDeadline = os.clock() + 0.4
+					repeat
+						local confirmed = equippedModel()
+						if confirmed then
+							return true, candidate, confirmed
+						end
+						guardedWait(0.05)
+					until os.clock() >= confirmationDeadline
+					local confirmed = equippedModel()
+					if confirmed then
+						return true, candidate, confirmed
+					end
+				end
+			end
+			return false, nil, nil
+		end
 		local function confirmedDrop(
 			slotNumber: any,
 			itemName: any,
 			returnToFavouriteRoom: any
-		): any
+		): boolean
 			local requireRoomReturn = returnToFavouriteRoom == true
-			local beforeCount = countInventoryItem(itemName)
-			local beforeSlotValue =
-				inventorySlotValue(slotNumber)
+			local includeBurntCross = not requireRoomReturn
+			local beforeCount = countPhysicalInventoryItem(
+				itemName,
+				includeBurntCross
+			)
 			if beforeCount == 0 then
 				return true
 			end
-			for attempt = 1, 2 do
-				local currentSlot: any = findInventorySlot(itemName)
+			local dropCandidates = inventorySlotCandidates(
+				itemName,
+				includeBurntCross
+			)
+			for attempt = 1, inventorySlotCount do
+				local slotCandidates = dropCandidates
+				local currentSlot = slotCandidates[attempt] or slotNumber
 				if not currentSlot then
-					return not requireRoomReturn
+					return false
 				end
-				slotNumber = currentSlot or slotNumber
-				if not equipItem(
-					slotNumber,
-					returnToFavouriteRoom
-				) then
+				slotNumber = currentSlot
+				local equipped, confirmedSlot = equipNamedItem(
+					itemName,
+					returnToFavouriteRoom,
+					includeBurntCross
+				)
+				local _, occupiedCount = inventorySnapshot()
+				if not equipped
+					or (not confirmedSlot
+						and (#directStoredInventoryModels(nil, true) ~= 1
+							or occupiedCount ~= 1)) then
 					guardedWait(0.15)
 					continue
 				end
+				slotNumber = confirmedSlot or currentSlot
 				local dropRoom: any
 				local existingWorldItems: any = setmetatable({}, {__mode = "k"})
 				if requireRoomReturn then
-					waitForNoHunt(true)
+					waitForNoHunt(false)
 					dropRoom = currentFavouriteRoom()
-					local character = player.Character
-					if not dropRoom or not character
-						or not automationHelpers.characterIsFullyInsideRoom(character, dropRoom) then
+					local movedToOpenPosition = dropRoom
+						and teleportToRoomBoundingBoxCenter(dropRoom, {
+							FaceBoundingBoxCenter = true,
+							RequireStrict = true,
+							IsActive = operationIsActive,
+						})
+					if not movedToOpenPosition then
+						return false
+					end
+					guardedWait(0.12)
+					local currentGhost = getGhostModel()
+					if currentGhost
+						and currentGhost:GetAttribute("Hunting") == true then
+						waitForNoHunt(false)
+						continue
+					end
+					local character: any = player.Character
+					if not dropRoom or not character then
+						return false
+					end
+					local characterInsideRoom: boolean =
+						automationHelpers.characterIsFullyInsideRoom(character, dropRoom)
+					if not characterInsideRoom then
 						return false
 					end
 					local items = workspace:FindFirstChild("Items")
@@ -8231,12 +8481,12 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 					inventorySlotKey(slotNumber)
 				)
 				local deadline = os.clock() + 1.65
-				repeat
-					assertOperationActive()
-					if countInventoryItem(itemName) < beforeCount
-						or not inventoryHasItem(itemName)
-						or inventorySlotValue(slotNumber)
-							~= beforeSlotValue then
+					repeat
+						assertOperationActive()
+						if countPhysicalInventoryItem(
+								itemName,
+								includeBurntCross
+							) < beforeCount then
 						if not requireRoomReturn then
 							return true
 						end
@@ -8250,11 +8500,12 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 										and sameItemName(
 											worldItem:GetAttribute("ItemName") or worldItem.Name,
 											itemName
-										) then
-										return automationHelpers.worldItemIsFullyInsideRoom(
+										)
+										and automationHelpers.worldItemIsFullyInsideRoom(
 											worldItem,
 											dropRoom
-										)
+										) then
+										return true
 									end
 								end
 							end
@@ -8265,16 +8516,26 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 					guardedWait(0.05)
 				until os.clock() >= deadline
 				local _, occupiedCount = inventorySnapshot()
-				if countInventoryItem(itemName) < beforeCount then
+				if countPhysicalInventoryItem(
+						itemName,
+						includeBurntCross
+					) < beforeCount then
 					return not requireRoomReturn
 				end
-				if occupiedCount < inventorySlotCount and not inventoryHasItem(itemName) then
+				if occupiedCount < inventorySlotCount
+					and countPhysicalInventoryItem(
+						itemName,
+						includeBurntCross
+					) == 0 then
 					return not requireRoomReturn
 				end
 				guardedWait(0.2)
 			end
 			return not requireRoomReturn
-				and countInventoryItem(itemName) < beforeCount
+				and countPhysicalInventoryItem(
+					itemName,
+					includeBurntCross
+				) < beforeCount
 		end
 		local corePlacementNames = {
 			[normalizeItemName("Cross")] = true,
@@ -8308,11 +8569,26 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 			{Name = "Salt Canister", Optional = true},
 			{Name = "Holy Oil", Optional = true},
 		}
+		local function slotItemIsProtected(
+			slotNumber: any,
+			slotName: any,
+			protectedNames: any
+		): boolean
+			if not protectedNames[normalizeItemName(slotName)] then
+				return false
+			end
+			if sameItemName(slotName, "Cross") then
+				-- A burning/burnt Cross occupies inventory but must never be
+				-- protected for relocation into a new favourite room.
+				return findInventorySlot("Cross") == slotNumber
+			end
+			return true
+		end
 
 		local function ensureInventorySpace(
-			protectedNames,
-			returnToFavouriteRoom
-		)
+			protectedNames: any,
+			returnToFavouriteRoom: any
+		): boolean
 			local _, occupiedCount = inventorySnapshot()
 			if occupiedCount < inventorySlotCount then
 				return true
@@ -8322,9 +8598,11 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 				local slotName = inventorySlotName(slotNumber)
 				if slotName
 					and slotName ~= ""
-					and not protectedNames[
-						normalizeItemName(slotName)
-					] then
+					and not slotItemIsProtected(
+						slotNumber,
+						slotName,
+						protectedNames
+					) then
 					if confirmedDrop(
 						slotNumber,
 						slotName,
@@ -8343,13 +8621,13 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 		end
 
 		local function waitForPickupConfirmation(
-			itemName,
-			model,
-			beforeItemCount,
-			beforeOccupiedCount,
-			beforeSlotValues,
-			timeout
-		)
+			itemName: any,
+			model: any,
+			beforeItemCount: number,
+			beforeOccupiedCount: number,
+			beforeSlotValues: any,
+			timeout: number
+		): any
 			local deadline = os.clock() + timeout
 			repeat
 				assertOperationActive()
@@ -8421,6 +8699,10 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 			if not root
 				or automationHelpers.distanceFromPositionToInstance(root.Position, model)
 					> PICKUP_MAX_DISTANCE then
+				return nil
+			end
+			if sameItemName(itemName, "Cross")
+				and automationHelpers.worldItemIsBurntCross(model) then
 				return nil
 			end
 			local beforeItemCount = countInventoryItem(itemName)
@@ -8596,7 +8878,7 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 			return false, model, nil
 		end
 
-		local function toggleEquippedItem(itemName)
+		local function toggleEquippedItem(itemName: any): boolean
 			local character = player.Character
 			if not character then
 				return false
@@ -8621,9 +8903,9 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 		end
 
 		local function dropInventoryExcept(
-			protectedNames,
-			returnToFavouriteRoom
-		)
+			protectedNames: any,
+			returnToFavouriteRoom: any
+		): boolean
 			for _ = 1, 6 do
 				local _, occupiedCount = inventorySnapshot()
 				if occupiedCount == 0 then
@@ -8637,9 +8919,11 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 					local slotName =
 						inventorySlotName(slotNumber)
 					if slotName and slotName ~= "" then
-						if not protectedNames[
-							normalizeItemName(slotName)
-						] then
+						if not slotItemIsProtected(
+							slotNumber,
+							slotName,
+							protectedNames
+						) then
 							foundUnprotected = true
 							if confirmedDrop(
 								slotNumber,
@@ -8676,7 +8960,7 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 			return false
 		end
 
-		local function shuffledCopy(list)
+		local function shuffledCopy(list: any): any
 			local copy = {}
 			for index, value in ipairs(list) do
 				copy[index] = value
@@ -8691,14 +8975,14 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 			return copy
 		end
 
-		local function shouldActivate(itemName)
+		local function shouldActivate(itemName: any): boolean
 			return sameItemName(itemName, "Spirit Box")
 				or sameItemName(itemName, "Laser Projector")
 				or sameItemName(itemName, "Blacklight")
 				or sameItemName(itemName, "EMF Reader")
 		end
 
-		local function activateBatch(batch: any): any
+		local function activateBatch(batch: any): ()
 			for _, itemName in ipairs(batch) do
 				if shouldActivate(itemName)
 					and inventoryHasItem(itemName) then
@@ -8706,7 +8990,7 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 						waitForHotbarSlot(itemName, 2)
 						or findInventorySlot(itemName)
 					if slotNumber
-						and equipItem(slotNumber, true) then
+						and equipNamedItem(itemName, true, false) then
 						guardedWait(0.2)
 						if not toggleEquippedItem(itemName) then
 							recordFailure(
@@ -8719,7 +9003,7 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 			end
 		end
 
-		local function dropBatch(batch: any): any
+		local function dropBatch(batch: any): ()
 			waitForNoHunt(true)
 			activateBatch(batch)
 
@@ -8833,7 +9117,7 @@ local placeItemsInFavouriteRoom: any = function(owner: any)
 			teleportToBaseCamp()
 			roomItemPlacementState.lastCompletedGeneration =
 				operationGeneration
-			roomItemPlacementState.lastResult = ok
+			roomItemPlacementState.lastResult = ok and #failedItems == 0
 			roomItemPlacementState.lastError = not ok
 				and tostring(err):match("^[^\n]+")
 				or (#failedItems > 0 and table.concat(failedItems, ", ") or nil)
@@ -8886,6 +9170,10 @@ local roundAutomation: any = createRoundAutomation({
 	DistanceFromPositionToInstance = automationHelpers.distanceFromPositionToInstance,
 	CharacterIsFullyInsideRoom = automationHelpers.characterIsFullyInsideRoom,
 	WorldItemIsFullyInsideRoom = automationHelpers.worldItemIsFullyInsideRoom,
+	WorldItemIsBurntCross = automationHelpers.worldItemIsBurntCross,
+	HasOrbEvidence = function()
+		return evidenceFound.Orb or perkTrackerState.orbObserved
+	end,
 	FindExitDoorDescriptors = automationHelpers.findExitDoorDescriptors,
 	InstanceBelongsToExitDoor = automationHelpers.instanceBelongsToExitDoor,
 	TeleportToRoom = teleportToRoomBoundingBoxCenter,
@@ -9331,7 +9619,7 @@ local function updateEvidence()
 	updateGhostIdentification(ghost)
 end
 
-local Controller = {}
+local Controller: any = {}
 Controller.__index = Controller
 
 function Controller:Connect(signal, callback)
@@ -9726,7 +10014,7 @@ function Controller:Destroy()
 	end
 end
 
-local controller = setmetatable({}, Controller)
+local controller: any = setmetatable({}, Controller)
 function Controller:Start()
 	if self.Started then
 		return self
