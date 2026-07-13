@@ -58,4 +58,90 @@ local ranked = GhostModule.RankDetections({
 expect(ranked[1].Ghost == "Siren", "higher confidence should rank first")
 expect(ranked[1].TierName == "Pretty Sure", "95 confidence should be Pretty Sure")
 
-print("ghost-module.spec: catalog, filtering, ranking, and clone assertions passed")
+local highestDetection = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Siren", "Keres", "Wisp"},
+	Detections = {
+		Siren = {Confidence = 95},
+		Keres = 35,
+		Wisp = {Score = 60},
+	},
+	RandomIndex = function()
+		return 1
+	end,
+})
+expect(highestDetection == "Siren", "highest candidate detection should be selected")
+
+local compositeCurrentGuess = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Leviathan", "Skinwalker", "Wisp"},
+	Detections = {
+		Wisp = {Confidence = 65},
+		Demon = {Confidence = 100},
+	},
+	CurrentGuess = "Leviathan / Skinwalker / Demon",
+	CurrentScore = 95,
+	RandomIndex = function(count)
+		expect(count == 2, "only allowed composite names should tie")
+		return 2
+	end,
+})
+expect(
+	compositeCurrentGuess == "Skinwalker",
+	"current composite score should apply to each allowed parsed name"
+)
+
+local detectionBeatsCurrent = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Siren", "Keres"},
+	Detections = {Siren = 99},
+	CurrentGuess = "Siren / Keres",
+	CurrentScore = 50,
+	RandomIndex = function()
+		return 1
+	end,
+})
+expect(
+	detectionBeatsCurrent == "Siren",
+	"current score should not replace a candidate's higher detection score"
+)
+
+local allZero = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Demon", "Wraith", "Umbra"},
+	Detections = {NotAllowed = 100},
+	CurrentGuess = "AlsoNotAllowed",
+	CurrentScore = 100,
+	RandomIndex = function(count)
+		expect(count == 3, "all zero-score candidates should be eligible")
+		return 3
+	end,
+})
+expect(allZero == "Umbra", "all-zero candidates should use the random chooser")
+
+local deduplicated = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Siren", "Siren", Keres = true},
+	Detections = {Siren = 80, Keres = 80},
+	RandomIndex = function(count)
+		expect(count == 2, "duplicate candidates should be ignored")
+		return 2
+	end,
+})
+expect(deduplicated == "Keres", "keyed candidate names should be supported deterministically")
+
+expect(GhostModule.SelectHighestConfidenceGuess() == nil, "missing options should return nil")
+expect(
+	GhostModule.SelectHighestConfidenceGuess({Candidates = {}}) == nil,
+	"empty candidates should return nil"
+)
+expect(
+	GhostModule.SelectHighestConfidenceGuess({Candidates = {false, 123}}) == nil,
+	"invalid candidates should return nil"
+)
+expect(
+	GhostModule.SelectHighestConfidenceGuess({
+		Candidates = {"Siren"},
+		RandomIndex = function()
+			return 0
+		end,
+	}) == nil,
+	"an invalid deterministic chooser result should return nil"
+)
+
+print("ghost-module.spec: catalog, filtering, ranking, clone, and timeout guess assertions passed")

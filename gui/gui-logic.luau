@@ -153,6 +153,33 @@ function GuiLogic:SetTemperature(value, freezing)
 	label.TextColor3 = freezing and self.View.Colors.green or self.View.Colors.text
 end
 
+function GuiLogic:SetDoRoundState(enabled, elapsedSeconds, phase)
+	local button = self.View.Buttons.DoRound
+	if not button then
+		return
+	end
+
+	local elapsed = math.max(0, math.floor(tonumber(elapsedSeconds) or 0))
+	local minutes = math.floor(elapsed / 60)
+	local seconds = elapsed % 60
+	local copy = self.View.Copy.DoRound
+	local phaseText = typeof(phase) == "string" and phase or ""
+	if phaseText == "" then
+		phaseText = enabled and copy.Statuses.Running or copy.Statuses.Ready
+	else
+		phaseText = copy.Phases[phaseText] or phaseText
+	end
+
+	button.Text = string.format(
+		"%s %d:%02d\n%s",
+		self.View.Copy.Controls.DoRound,
+		minutes,
+		seconds,
+		phaseText
+	)
+	self:SetButtonEnabled(button, enabled == true)
+end
+
 function GuiLogic:SetPerkLogs(positiveEntries, negativeEntries)
 	local function render(list, placeholder, entries, color)
 		for _, child in ipairs(list:GetChildren()) do
@@ -445,7 +472,10 @@ function GuiLogic:Bind(controller)
 		end
 	end)
 	controller:Connect(buttons.PlaceRoomItems.MouseButton1Click, function()
-		controller:PlaceRoomItems()
+		local ok, reason = controller:PlaceRoomItems()
+		if ok == false then
+			self:Notify(reason)
+		end
 	end)
 	controller:Connect(buttons.AutoSpiritBox.MouseButton1Click, function()
 		controller:ToggleAutoSpiritBox()
@@ -464,6 +494,9 @@ function GuiLogic:Bind(controller)
 		if ok == false then
 			self:Notify(reason)
 		end
+	end)
+	controller:Connect(buttons.DoRound.MouseButton1Click, function()
+		controller:ToggleDoRound()
 	end)
 
 	local evidenceMode = view.EvidenceLabels.EvidenceMode

@@ -5,6 +5,10 @@ return function(dependencies)
 	local environment = dependencies.Environment or ((getgenv and getgenv()) or _G)
 	local generation = dependencies.Generation
 	local GhostModule = assert(dependencies.GhostModule, "logic/logic.luau requires GhostModule")
+	local createRoundAutomation = assert(
+		dependencies.RoundAutomation,
+		"logic/logic.luau requires RoundAutomation"
+	)
 	local view = assert(dependencies.View, "logic/logic.luau requires View")
 	local presenter = dependencies.Presenter
 
@@ -21,6 +25,7 @@ return function(dependencies)
 	local fullBrightButton = view.Buttons.FullBright
 	local placeRoomItemsButton = view.Buttons.PlaceRoomItems
 	local autoSpiritBoxButton = view.Buttons.AutoSpiritBox
+	local doRoundButton = view.Buttons.DoRound
 	local randomLightsButton = view.Buttons.RandomLights
 	local toggleFuseBoxButton = view.Buttons.ToggleFuseBox
 local walkSpeedForcerButton = view.Buttons.WalkSpeedForcer
@@ -70,12 +75,35 @@ local speed = 10
 local fullBrightEnabled = false
 local ghostEspEnabled = false
 local huntEscapeEnabled = false
+local huntEscapeManualEnabled = false
 local huntEscapeTriggered = false
 local itemEspEnabled = false
 local roomItemPlacementState = {
 	busy = false,
 	generation = 0,
 	thread = nil,
+	owner = nil,
+	lastResult = nil,
+	lastError = nil,
+	lastCompletedGeneration = 0,
+}
+local doRoundState = {
+	enabled = false,
+	generation = 0,
+	thread = nil,
+	startedAt = nil,
+	lastElapsed = 0,
+	phase = "Off",
+	autoSpiritBoxLease = false,
+	questionsActive = false,
+	usedDoorNames = {},
+	roomItems = {},
+	itemPower = setmetatable({}, {__mode = "k"}),
+	outsideSince = setmetatable({}, {__mode = "k"}),
+	maintenanceAccumulator = 0,
+	lastFavouriteRoom = nil,
+	roundMap = nil,
+	roundGhost = nil,
 }
 local ghostBillboard
 local ghostDirectHighlight
@@ -224,6 +252,7 @@ local perkTrackerState = {
 	spiritBoxVoiceFolder = nil,
 	spiritBoxRemoteBound = false,
 	autoSpiritBoxEnabled = false,
+	autoSpiritBoxManualEnabled = false,
 	autoSpiritBoxAccumulator = 0,
 	autoSpiritBoxQuestionIndex = 0,
 	journalGhostTypesContainer = nil,
@@ -246,6 +275,7 @@ local perkTrackerState = {
 	demonMotionObserved = false,
 	ruledOutGhosts = {},
 	refreshIdentification = function() end,
+	automationMutationUntil = 0,
 }
 local evidenceFound = {
 	Print = false,
@@ -1267,6 +1297,14 @@ perkTrackerState.updateAutoSpiritBox = function(deltaTime)
 	if closed or not perkTrackerState.autoSpiritBoxEnabled then
 		return
 	end
+	if doRoundState.autoSpiritBoxLease then
+		local ghost = workspace:FindFirstChild("Ghost")
+		if not doRoundState.questionsActive
+			or not ghost
+			or ghost:GetAttribute("Hunting") == true then
+			return
+		end
+	end
 	perkTrackerState.autoSpiritBoxAccumulator =
 		perkTrackerState.autoSpiritBoxAccumulator
 		+ deltaTime
@@ -1780,12 +1818,55 @@ local function bindSpeedLock(humanoid)
 end
 
 local function setButtonEnabled(button, enabled)
+	if not button then
+		return
+	end
 	if presenter and presenter.SetButtonEnabled then
 		presenter:SetButtonEnabled(button, enabled)
 		return
 	end
 	button.BackgroundColor3 = enabled and COLORS.accentDark or COLORS.cardHover
 	button.TextColor3 = enabled and Color3.new(1, 1, 1) or COLORS.text
+end
+
+local function setDoRoundStatus(phase)
+	doRoundState.phase = tostring(phase or doRoundState.phase or "Off")
+	local elapsed = doRoundState.startedAt
+		and math.max(0, os.clock() - doRoundState.startedAt)
+		or doRoundState.lastElapsed
+		or 0
+	if presenter and presenter.SetDoRoundState then
+		presenter:SetDoRoundState(
+			doRoundState.enabled,
+			elapsed,
+			doRoundState.phase
+		)
+	elseif doRoundButton then
+		doRoundButton.Text = string.format(
+			"Do-Round %d:%02d - %s",
+			math.floor(elapsed / 60),
+			math.floor(elapsed % 60),
+			doRoundState.phase
+		)
+		setButtonEnabled(doRoundButton, doRoundState.enabled)
+	end
+end
+
+local function refreshAutoSpiritBoxEnabled()
+	local enabled = perkTrackerState.autoSpiritBoxManualEnabled
+		or doRoundState.autoSpiritBoxLease
+	if enabled ~= perkTrackerState.autoSpiritBoxEnabled then
+		perkTrackerState.autoSpiritBoxEnabled = enabled
+		perkTrackerState.autoSpiritBoxAccumulator = enabled and 2.05 or 0
+	end
+	setButtonEnabled(autoSpiritBoxButton, enabled)
+	return enabled
+end
+
+local function refreshHuntEscapeEnabled()
+	huntEscapeEnabled = huntEscapeManualEnabled
+	setButtonEnabled(huntEscapeButton, huntEscapeEnabled)
+	return huntEscapeEnabled
 end
 
 perkTrackerState.flashButton = function(button)
@@ -4865,6 +4946,25 @@ perkTrackerState.ensureObjectTeleportTracker = function()
 end
 perkTrackerState.updateObjectTeleportTracker = function(deltaTime, now)
 	perkTrackerState.ensureObjectTeleportTracker()
+	if roomItemPlacementState.busy
+		or now < (perkTrackerState.automationMutationUntil or 0) then
+		perkTrackerState.pendingObjectTeleports = {}
+		perkTrackerState.recentSmokeEffects = {}
+		for object, previous in pairs(perkTrackerState.objectTeleportObjects) do
+			if object.Parent
+				and (object.Parent.Name == "Items"
+					or object.Parent.Name == "Interactables") then
+				local position = getInstanceWorldPosition(object)
+				if position then
+					previous.Position = position
+					previous.Time = now
+					previous.Room = perkTrackerState.roomNameAtPosition(position)
+				end
+			end
+		end
+		perkTrackerState.objectTeleportAccumulator = 0
+		return
+	end
 	perkTrackerState.objectTeleportAccumulator =
 		perkTrackerState.objectTeleportAccumulator + deltaTime
 	if perkTrackerState.objectTeleportAccumulator < 0.4 then
@@ -5033,7 +5133,10 @@ end
 perkTrackerState.updateRavagerTracker = function(deltaTime, ghost, now)
 	local state = perkTrackerState
 	local hunting = ghost and ghost:GetAttribute("Hunting") == true
-	if roomItemPlacementState.busy or not ghost or not hunting then
+	if roomItemPlacementState.busy
+		or now < (state.automationMutationUntil or 0)
+		or not ghost
+		or not hunting then
 		if state.ravagerGhost ~= ghost
 			or state.ravagerLastGhostPosition ~= nil
 			or state.ravagerDetectedThisHunt
@@ -5563,14 +5666,23 @@ local function findBaseCampRoom()
 		or roomsFolder:FindFirstChild("BaseCamp")
 		or findFavouriteRoom(roomsFolder, "Base Camp")
 end
-local function teleportToRoomBoundingBoxCenter(room)
+local function teleportToRoomBoundingBoxCenter(room, options)
+	options = options or {}
+	local function teleportIsActive()
+		if type(options.IsActive) ~= "function" then
+			return true
+		end
+		local ok, active = pcall(options.IsActive)
+		return ok and active == true
+	end
 	local character = player.Character
 	local root =
 		character and character:FindFirstChild("HumanoidRootPart")
 	local humanoid =
 		character and character:FindFirstChildOfClass("Humanoid")
 
-	if not room or not character or not root or not humanoid then
+	if not room or not character or not root or not humanoid
+		or not teleportIsActive() then
 		return false, "room or character unavailable"
 	end
 
@@ -5621,6 +5733,9 @@ local function teleportToRoomBoundingBoxCenter(room)
 		math.max(root.Size.Z + 0.72, 2.3)
 	)
 	local bodyGeometryProbe = nil
+	local preferredPositions = options.PreferredPositions or {}
+	local targetPosition = options.TargetPosition
+	local maximumTargetDistance = tonumber(options.MaximumTargetDistance)
 
 	local overlapParams = OverlapParams.new()
 	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -5912,6 +6027,31 @@ local function teleportToRoomBoundingBoxCenter(room)
 	local function assessCandidate(candidate)
 		candidate.Position = candidate.FloorPosition
 			+ Vector3.new(0, standingOffset, 0)
+		if targetPosition and maximumTargetDistance then
+			local targetOffset = Vector3.new(
+				candidate.Position.X - targetPosition.X,
+				0,
+				candidate.Position.Z - targetPosition.Z
+			)
+			if targetOffset.Magnitude > maximumTargetDistance then
+				return false
+			end
+		end
+		candidate.PreferredDistance = candidate.CenterDistance
+		if #preferredPositions > 0 then
+			candidate.PreferredDistance = math.huge
+			for _, preferred in ipairs(preferredPositions) do
+				local offset = Vector3.new(
+					candidate.Position.X - preferred.X,
+					0,
+					candidate.Position.Z - preferred.Z
+				)
+				candidate.PreferredDistance = math.min(
+					tonumber(candidate.PreferredDistance) or math.huge,
+					offset.Magnitude
+				)
+			end
+		end
 		if not safelyInsideXZ(
 			candidate.Position,
 			candidate.BoundingPart
@@ -5961,7 +6101,8 @@ local function teleportToRoomBoundingBoxCenter(room)
 	local function addColumnCandidates(
 		boundingPart,
 		localX,
-		localZ
+		localZ,
+		rippleOrder
 	)
 		local half = boundingPart.Size * 0.5
 		local origin = boundingPart.CFrame:PointToWorldSpace(
@@ -6007,8 +6148,24 @@ local function teleportToRoomBoundingBoxCenter(room)
 						CenterDistance = math.sqrt(
 							localX ^ 2 + localZ ^ 2
 						),
+						RippleOrder = rippleOrder or 0,
 						SampleOrder = #rawCandidates + 1,
 					}
+					candidate.SearchDistance = candidate.CenterDistance
+					if #preferredPositions > 0 then
+						candidate.SearchDistance = math.huge
+						for _, preferred in ipairs(preferredPositions) do
+							local offset = Vector3.new(
+								result.Position.X - preferred.X,
+								0,
+								result.Position.Z - preferred.Z
+							)
+							candidate.SearchDistance = math.min(
+								candidate.SearchDistance,
+								offset.Magnitude
+							)
+						end
+					end
 					table.insert(rawCandidates, candidate)
 					minimumBottomByBoundingPart[boundingPart] = math.min(
 						minimumBottomByBoundingPart[boundingPart]
@@ -6028,8 +6185,8 @@ local function teleportToRoomBoundingBoxCenter(room)
 		end
 	end
 
-	-- Keep at least the original 6 x 3 coverage, then add cells for
-	-- larger rooms so safe gaps between the old fixed centers are found.
+	-- Build the original adaptive coverage, but inspect it like a ripple:
+	-- exact center first, then each progressively farther center ring.
 	for _, boundingPart in ipairs(boundingParts) do
 		local usableX =
 			math.max(0, boundingPart.Size.X - horizontalInset * 2)
@@ -6048,16 +6205,23 @@ local function teleportToRoomBoundingBoxCenter(room)
 				3,
 				10
 			)
+			local samplePoints = {}
 			local sampledColumns = {}
-			local function sample(localX, localZ)
+			local function queueSample(localX, localZ)
 				local key = string.format("%.3f:%.3f", localX, localZ)
 				if sampledColumns[key] then
 					return
 				end
 				sampledColumns[key] = true
-				addColumnCandidates(boundingPart, localX, localZ)
+				table.insert(samplePoints, {
+					X = localX,
+					Z = localZ,
+					Radius = math.sqrt(localX ^ 2 + localZ ^ 2),
+					BuildOrder = #samplePoints + 1,
+				})
 			end
 
+			queueSample(0, 0)
 			for xIndex = 1, xCount do
 				local xRatio = (xIndex - 0.5) / xCount - 0.5
 				local localX = xRatio * usableX
@@ -6065,13 +6229,26 @@ local function teleportToRoomBoundingBoxCenter(room)
 				for zIndex = 1, zCount do
 					local zRatio = (zIndex - 0.5) / zCount - 0.5
 					local localZ = zRatio * usableZ
-					sample(localX, localZ)
+					queueSample(localX, localZ)
 				end
-				if xIndex % 3 == 0 then
+			end
+			table.sort(samplePoints, function(left, right)
+				if math.abs(left.Radius - right.Radius) > 0.01 then
+					return left.Radius < right.Radius
+				end
+				return left.BuildOrder < right.BuildOrder
+			end)
+			for rippleOrder, point in ipairs(samplePoints) do
+				addColumnCandidates(
+					boundingPart,
+					point.X,
+					point.Z,
+					rippleOrder
+				)
+				if rippleOrder % 12 == 0 then
 					Services.RunService.Heartbeat:Wait()
 				end
 			end
-			sample(0, 0)
 		end
 	end
 
@@ -6163,43 +6340,47 @@ local function teleportToRoomBoundingBoxCenter(room)
 			Services.RunService.Heartbeat:Wait()
 		end
 	end
-	local function evaluatePool(pool, limit)
-		local count = math.min(#pool, limit)
-		if count <= 0 then
-			return
+	local strictCandidateCount = 0
+	local function evaluatePool(pool)
+		if #pool == 0 then
+			return false
 		end
-		if #pool <= limit then
-			for _, candidate in ipairs(pool) do
-				evaluateCandidate(candidate)
+		table.sort(pool, function(left, right)
+			if math.abs(left.SearchDistance - right.SearchDistance) > 0.01 then
+				return left.SearchDistance < right.SearchDistance
 			end
-			return
-		end
-
-		local closest = pool[1]
-		for _, candidate in ipairs(pool) do
-			if candidate.CenterDistance < closest.CenterDistance then
-				closest = candidate
+			if left.RippleOrder ~= right.RippleOrder then
+				return left.RippleOrder < right.RippleOrder
+			end
+			return left.SampleOrder < right.SampleOrder
+		end)
+		local completionRadius
+		for index, candidate in ipairs(pool) do
+			evaluateCandidate(candidate)
+			if candidate.StrictSafe and candidate.CoreBlockers == 0 then
+				strictCandidateCount = strictCandidateCount + 1
+				if strictCandidateCount >= 3 and not completionRadius then
+					completionRadius = candidate.SearchDistance
+				end
+			end
+			if completionRadius
+				and index < #pool
+				and pool[index + 1].SearchDistance > completionRadius + 0.05 then
+				return true
 			end
 		end
-		evaluateCandidate(closest)
-
-		local remaining = math.max(count - 1, 0)
-		for index = 1, remaining do
-			local poolIndex = math.clamp(
-				math.floor((index - 0.5) * #pool / remaining) + 1,
-				1,
-				#pool
-			)
-			evaluateCandidate(pool[poolIndex])
-		end
+		return strictCandidateCount > 0
 	end
 
-	-- Detailed body/footprint checks run only on a spatially distributed
-	-- shortlist. Ground-band candidates get most of the budget.
-	evaluatePool(candidatePools[1], 24)
-	evaluatePool(candidatePools[2], 10)
-	evaluatePool(candidatePools[3], 8)
-	evaluatePool(candidatePools[4], 4)
+	-- Expand from the center (or requested target) until several strict retry
+	-- points are available. If no strict point exists, exhaust the ripple so
+	-- the risk fallback truly is the safest assessed option.
+	for _, pool in ipairs(candidatePools) do
+		evaluatePool(pool)
+		if strictCandidateCount >= 3 then
+			break
+		end
+	end
 
 	if #candidates == 0 then
 		destroyBodyGeometryProbe()
@@ -6220,6 +6401,9 @@ local function teleportToRoomBoundingBoxCenter(room)
 			return left.StrictSafe
 		end
 		if left.StrictSafe then
+			if math.abs(left.PreferredDistance - right.PreferredDistance) > 0.05 then
+				return left.PreferredDistance < right.PreferredDistance
+			end
 			local bottomDifference = math.abs(
 				left.BottomDistance - right.BottomDistance
 			)
@@ -6229,7 +6413,7 @@ local function teleportToRoomBoundingBoxCenter(room)
 			if math.abs(left.Clearance - right.Clearance) > 0.1 then
 				return left.Clearance > right.Clearance
 			end
-			return left.CenterDistance < right.CenterDistance
+			return left.SampleOrder < right.SampleOrder
 		end
 		if left.CoreBlockers ~= right.CoreBlockers then
 			return left.CoreBlockers < right.CoreBlockers
@@ -6239,6 +6423,9 @@ local function teleportToRoomBoundingBoxCenter(room)
 		end
 		if math.abs(left.Risk - right.Risk) > 1 then
 			return left.Risk < right.Risk
+		end
+		if math.abs(left.PreferredDistance - right.PreferredDistance) > 0.05 then
+			return left.PreferredDistance < right.PreferredDistance
 		end
 		if left.FlatSupportHits ~= right.FlatSupportHits then
 			return left.FlatSupportHits > right.FlatSupportHits
@@ -6255,16 +6442,21 @@ local function teleportToRoomBoundingBoxCenter(room)
 		if math.abs(left.Clearance - right.Clearance) > 0.1 then
 			return left.Clearance > right.Clearance
 		end
-		return left.CenterDistance < right.CenterDistance
+		return left.SampleOrder < right.SampleOrder
 	end)
 
-	local look = Vector3.new(
+	local lookTarget = options.LookAtPosition
+	local firstCandidate = candidates[1]
+	local look = lookTarget and Vector3.new(
+		lookTarget.X - firstCandidate.Position.X,
+		0,
+		lookTarget.Z - firstCandidate.Position.Z
+	) or Vector3.new(
 		root.CFrame.LookVector.X,
 		0,
 		root.CFrame.LookVector.Z
 	)
 	if look.Magnitude < 0.05 then
-		local firstCandidate = candidates[1]
 		look = Vector3.new(
 			firstCandidate.BoundingPart.CFrame.LookVector.X,
 			0,
@@ -6308,7 +6500,8 @@ local function teleportToRoomBoundingBoxCenter(room)
 	local strictTeleportAttempts = 0
 	local fallbackTeleportAttempts = 0
 	local function tryCandidate(candidate, requireStrict)
-		if not root.Parent
+		if not teleportIsActive()
+			or not root.Parent
 			or not humanoid.Parent
 			or not assessCandidate(candidate)
 			or candidate.CoreBlockers > 0
@@ -6329,9 +6522,20 @@ local function teleportToRoomBoundingBoxCenter(room)
 		end
 		local expectedRisk = candidate.Risk
 		local expectedSupportHits = candidate.SupportHits
+		local destinationLook = look
+		if lookTarget then
+			local targeted = Vector3.new(
+				lookTarget.X - candidate.Position.X,
+				0,
+				lookTarget.Z - candidate.Position.Z
+			)
+			if targeted.Magnitude >= 0.05 then
+				destinationLook = targeted.Unit
+			end
+		end
 		local destination = CFrame.lookAt(
 			candidate.Position,
-			candidate.Position + look
+			candidate.Position + destinationLook
 		)
 		local moved = pcall(function()
 			character:PivotTo(destination)
@@ -6341,7 +6545,7 @@ local function teleportToRoomBoundingBoxCenter(room)
 		end
 
 		for _ = 1, 3 do
-			if not root.Parent then
+			if not teleportIsActive() or not root.Parent then
 				return false
 			end
 			root.AssemblyLinearVelocity = Vector3.zero
@@ -6397,8 +6601,9 @@ local function teleportToRoomBoundingBoxCenter(room)
 	end
 
 	local selected = nil
-	for groundTier = 0, 3 do
-		for _, requireStrict in ipairs({true, false}) do
+	local strictModes = options.RequireStrict and {true} or {true, false}
+	for _, requireStrict in ipairs(strictModes) do
+		for groundTier = 0, 3 do
 			for _, candidate in ipairs(candidates) do
 				if candidate.GroundTier == groundTier
 					and candidate.StrictSafe == requireStrict
@@ -6441,6 +6646,27 @@ local function teleportToRoomBoundingBoxCenter(room)
 		return false,
 			"no grounded destination remained stable during teleport"
 	end
+	if not teleportIsActive() then
+		if root.Parent and character.Parent then
+			pcall(function()
+				character:PivotTo(originalPivot)
+			end)
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			root.Anchored = originalAnchored
+		end
+		if humanoid.Parent then
+			humanoid.PlatformStand = originalPlatformStand
+			humanoid.AutoRotate = originalAutoRotate
+			for state, enabled in pairs(disabledStates) do
+				pcall(function()
+					humanoid:SetStateEnabled(state, enabled)
+				end)
+			end
+		end
+		destroyBodyGeometryProbe()
+		return false, "teleport was cancelled"
+	end
 
 	pcall(function()
 		humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
@@ -6474,14 +6700,14 @@ local function teleportToRoomBoundingBoxCenter(room)
 	return true, nil
 end
 
-local function teleportToBaseCamp()
+local function teleportToBaseCamp(options)
 	local room = findBaseCampRoom()
 	if not room then
 		return false, "Base Camp room was not found"
 	end
-	return teleportToRoomBoundingBoxCenter(room)
+	return teleportToRoomBoundingBoxCenter(room, options)
 end
-local function teleportToFavouriteRoom()
+local function teleportToFavouriteRoom(options)
 	local ghost = getGhostModel()
 	local roomsFolder = findRoomsFolder()
 	local roomName = ghost and ghost:GetAttribute("FavoriteRoom") or nil
@@ -6489,17 +6715,20 @@ local function teleportToFavouriteRoom()
 	if not room then
 		return false, "Favourite room was not found: " .. tostring(roomName)
 	end
-	return teleportToRoomBoundingBoxCenter(room)
+	return teleportToRoomBoundingBoxCenter(room, options)
 end
-local function placeItemsInFavouriteRoom()
+local function placeItemsInFavouriteRoom(owner)
 	if roomItemPlacementState.busy or closed then
-		return
+		return false, "room item setup is already running"
 	end
 	roomItemPlacementState.busy = true
 	roomItemPlacementState.generation =
 		roomItemPlacementState.generation + 1
 	local operationGeneration =
 		roomItemPlacementState.generation
+	roomItemPlacementState.owner = owner or "Manual"
+	roomItemPlacementState.lastResult = nil
+	roomItemPlacementState.lastError = nil
 	placeRoomItemsButton.Text = COPY.Actions.PlacingRoomItems
 	placeRoomItemsButton.BackgroundColor3 = COLORS.accentDark
 	roomItemPlacementState.thread = task.spawn(function()
@@ -7047,7 +7276,7 @@ local function placeItemsInFavouriteRoom()
 		end
 		local corePlacementNames = {
 			[normalizeItemName("Cross")] = true,
-			[normalizeItemName("Spirit Book")] = true,
+			[normalizeItemName("Spirit Box")] = true,
 			[normalizeItemName("Laser Projector")] = true,
 			[normalizeItemName("Flower Pot")] = true,
 			[normalizeItemName("EMF Reader")] = true,
@@ -7055,13 +7284,12 @@ local function placeItemsInFavouriteRoom()
 			[normalizeItemName("Video Camera")] = true,
 		}
 		local finalRetainedNames = {
-			[normalizeItemName("Spirit Box")] = true,
 			[normalizeItemName("Salt Canister")] = true,
 			[normalizeItemName("Holy Oil")] = true,
 		}
 		local coreOrder = {
 			"Cross",
-			"Spirit Book",
+			"Spirit Box",
 			"Laser Projector",
 			"Flower Pot",
 			"EMF Reader",
@@ -7075,7 +7303,6 @@ local function placeItemsInFavouriteRoom()
 			[normalizeItemName("Video Camera")] = true,
 		}
 		local finalOrder = {
-			{Name = "Spirit Box", Optional = false},
 			{Name = "Salt Canister", Optional = true},
 			{Name = "Holy Oil", Optional = true},
 		}
@@ -7445,7 +7672,8 @@ local function placeItemsInFavouriteRoom()
 		end
 
 		local function shouldActivate(itemName)
-			return sameItemName(itemName, "Laser Projector")
+			return sameItemName(itemName, "Spirit Box")
+				or sameItemName(itemName, "Laser Projector")
 				or sameItemName(itemName, "Blacklight")
 				or sameItemName(itemName, "EMF Reader")
 		end
@@ -7580,8 +7808,15 @@ local function placeItemsInFavouriteRoom()
 
 		if operationIsActive() then
 			teleportToBaseCamp()
+			roomItemPlacementState.lastCompletedGeneration =
+				operationGeneration
+			roomItemPlacementState.lastResult = ok
+			roomItemPlacementState.lastError = not ok
+				and tostring(err):match("^[^\n]+")
+				or (#failedItems > 0 and table.concat(failedItems, ", ") or nil)
 			roomItemPlacementState.busy = false
 			roomItemPlacementState.thread = nil
+			roomItemPlacementState.owner = nil
 			placeRoomItemsButton.Text = COPY.Controls.PlaceRoomItems
 			placeRoomItemsButton.BackgroundColor3 =
 				COLORS.cardHover
@@ -7593,7 +7828,7 @@ local function placeItemsInFavouriteRoom()
 				message = "Returned to Base Camp. Issues: "
 					.. table.concat(failedItems, ", ")
 			else
-				message = "Room items were randomized and placed in three-item batches; the final pickups were Spirit Box, Salt Canister, and Holy Oil when available."
+				message = "The seven room items were placed; Salt Canister and Holy Oil were retained when available."
 			end
 			pcall(function()
 				game:GetService("StarterGui"):SetCore(
@@ -7609,8 +7844,43 @@ local function placeItemsInFavouriteRoom()
 			== operationGeneration then
 			roomItemPlacementState.busy = false
 			roomItemPlacementState.thread = nil
+			roomItemPlacementState.owner = nil
 		end
 	end)
+	return true, operationGeneration
+end
+
+local roundAutomation: any = createRoundAutomation({
+	Services = Services,
+	Player = player,
+	RuntimeIsActive = runtimeIsActive,
+	GetGhostModel = getGhostModel,
+	FindRoomsFolder = findRoomsFolder,
+	FindFavouriteRoom = findFavouriteRoom,
+	GetInstanceWorldPosition = getInstanceWorldPosition,
+	GetRoomBoundingParts = getRoomBoundingParts,
+	PointIsInsidePart = pointIsInsidePart,
+	TeleportToRoom = teleportToRoomBoundingBoxCenter,
+	TeleportToBaseCamp = teleportToBaseCamp,
+	TeleportToFavouriteRoom = teleportToFavouriteRoom,
+	PlaceItemsInFavouriteRoom = placeItemsInFavouriteRoom,
+	InstanceIsInsideRoom = instanceIsInsideRoom,
+	State = doRoundState,
+	PerkTrackerState = perkTrackerState,
+	RoomItemPlacementState = roomItemPlacementState,
+	PerkDetections = perkDetections,
+	GhostProfiles = GHOST_PROFILES,
+	GhostModule = GhostModule,
+	Presenter = presenter,
+	PlaceRoomItemsButton = placeRoomItemsButton,
+	Copy = COPY,
+	Colors = COLORS,
+	RefreshAutoSpiritBoxEnabled = refreshAutoSpiritBoxEnabled,
+	SetDoRoundStatus = setDoRoundStatus,
+	SetGhostIdentificationLabel = setGhostIdentificationLabel,
+})
+local function setDoRoundEnabled(enabled, finalPhase)
+	return roundAutomation.SetEnabled(enabled, finalPhase)
 end
 local function teleportOutside()
 	return teleportToBaseCamp()
@@ -8079,8 +8349,8 @@ function Controller:ToggleGhostEsp()
 end
 
 function Controller:ToggleHuntEscape()
-	huntEscapeEnabled = not huntEscapeEnabled
-	setButtonEnabled(huntEscapeButton, huntEscapeEnabled)
+	huntEscapeManualEnabled = not huntEscapeManualEnabled
+	refreshHuntEscapeEnabled()
 	if huntEscapeEnabled then
 		escapeCurrentHunt()
 	end
@@ -8112,14 +8382,20 @@ function Controller:TeleportToFavouriteRoom()
 end
 
 function Controller:PlaceRoomItems()
-	placeItemsInFavouriteRoom()
+	if doRoundState.enabled then
+		return false, "Do-Round currently owns room item setup"
+	end
+	return placeItemsInFavouriteRoom("Manual")
 end
 
 function Controller:ToggleAutoSpiritBox()
-	perkTrackerState.autoSpiritBoxEnabled = not perkTrackerState.autoSpiritBoxEnabled
-	perkTrackerState.autoSpiritBoxAccumulator = perkTrackerState.autoSpiritBoxEnabled and 2.05 or 0
-	setButtonEnabled(autoSpiritBoxButton, perkTrackerState.autoSpiritBoxEnabled)
-	return perkTrackerState.autoSpiritBoxEnabled
+	perkTrackerState.autoSpiritBoxManualEnabled =
+		not perkTrackerState.autoSpiritBoxManualEnabled
+	return refreshAutoSpiritBoxEnabled()
+end
+
+function Controller:ToggleDoRound()
+	return setDoRoundEnabled(not doRoundState.enabled)
 end
 
 function Controller:SetEvidenceMode(mode)
@@ -8356,6 +8632,11 @@ function Controller:GetState()
 		ItemEsp = itemEspEnabled,
 		FullBright = fullBrightEnabled,
 		AutoSpiritBox = perkTrackerState.autoSpiritBoxEnabled,
+		DoRound = doRoundState.enabled,
+		DoRoundPhase = doRoundState.phase,
+		DoRoundElapsed = doRoundState.startedAt
+			and math.max(0, os.clock() - doRoundState.startedAt)
+			or 0,
 		WalkSpeedForcer = perkTrackerState.speedForcerEnabled,
 		EvidenceMode = perkTrackerState.evidenceMode,
 	}
@@ -8366,10 +8647,15 @@ function Controller:Destroy()
 		return
 	end
 	closed = true
+	if doRoundState.enabled then
+		setDoRoundEnabled(false, "Off")
+	end
 	ghostEspEnabled = false
 	huntEscapeEnabled = false
+	huntEscapeManualEnabled = false
 	itemEspEnabled = false
 	perkTrackerState.autoSpiritBoxEnabled = false
+	perkTrackerState.autoSpiritBoxManualEnabled = false
 	perkTrackerState.autoSpiritBoxAccumulator = 0
 	perkTrackerState.speedForcerEnabled = false
 	perkTrackerState.speedForceAccumulator = 0
@@ -8429,6 +8715,9 @@ function Controller:Start()
 		bindSpeedLock(initialHumanoid)
 	end
 	setSpeed(10)
+	refreshAutoSpiritBoxEnabled()
+	refreshHuntEscapeEnabled()
+	setDoRoundStatus("Off")
 	setButtonEnabled(
 		walkSpeedForcerButton,
 		perkTrackerState.speedForcerEnabled
@@ -8456,6 +8745,9 @@ function Controller:Start()
 		updateAccumulator = 0
 		updateEvidence()
 		escapeCurrentHunt()
+		if doRoundState.enabled then
+			setDoRoundStatus(doRoundState.phase)
+		end
 		if ghostEspEnabled then
 			local ghost = getGhostModel()
 			local ghostPart = getGhostPart(ghost)
