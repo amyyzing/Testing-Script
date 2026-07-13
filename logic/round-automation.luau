@@ -2212,26 +2212,9 @@ local function roundItemEnabledObject(model)
 	return nil
 end
 
-local function snapshotRoundWorldItems(itemName)
-	local snapshot = setmetatable({}, {__mode = "k"})
-	local items = workspace:FindFirstChild("Items")
-	if not items then
-		return snapshot
-	end
-	local normalized = normalizeRoundItemName(itemName)
-	for _, candidate in ipairs(items:GetChildren()) do
-		if normalizeRoundItemName(roundWorkspaceItemName(candidate)) == normalized then
-			snapshot[candidate] = true
-		end
-	end
-	return snapshot
-end
-
 local function confirmRoundItemDropInRoom(
-	originalModel,
 	itemName,
 	room,
-	beforeWorldItems,
 	generation
 )
 	local normalized = normalizeRoundItemName(itemName)
@@ -2242,8 +2225,7 @@ local function confirmRoundItemDropInRoom(
 		if items then
 			for _, candidate in ipairs(items:GetChildren()) do
 				if normalizeRoundItemName(roundWorkspaceItemName(candidate)) == normalized
-					and (candidate == originalModel
-						or not beforeWorldItems[candidate]) then
+					and not roundCrossIsBurnt(candidate) then
 					replacement = replacement or candidate
 					if worldItemIsInsideRoomBounds(candidate, room) then
 						doRoundState.roomItems[normalized] = candidate
@@ -2258,15 +2240,14 @@ local function confirmRoundItemDropInRoom(
 		doRoundWait(generation, math.min(0.05, deadline - os.clock()))
 	until false
 	if replacement then
-		-- Preserve the server-created replacement even when it landed outside so
-		-- the next maintenance pass moves the real instance instead of a stale one.
+		-- Preserve the matching world item even when it is outside so the next
+		-- maintenance pass can move the authoritative instance into the room.
 		doRoundState.roomItems[normalized] = replacement
 	end
 	return false, replacement
 end
 
 local function dropRoundEquippedItemIntoRoom(
-	originalModel,
 	itemName,
 	room,
 	dropRemote,
@@ -2290,10 +2271,9 @@ local function dropRoundEquippedItemIntoRoom(
 		end
 		-- With exactly one authoritative physical model, wrong candidates are
 		-- blank/no-op slots. Probe all candidates and accept only the target's
-		-- verified world replacement inside the room.
+		-- verified matching world item inside the room.
 		candidates = roundSlotCandidates(itemName)
 	end
-	local beforeWorldItems = snapshotRoundWorldItems(itemName)
 	for _, slotNumber in ipairs(candidates) do
 		if not roundActionIsSafe(generation) then
 			return false
@@ -2308,10 +2288,8 @@ local function dropRoundEquippedItemIntoRoom(
 			return false
 		end
 		local placed, replacement = confirmRoundItemDropInRoom(
-			originalModel,
 			itemName,
 			room,
-			beforeWorldItems,
 			generation
 		)
 		if placed or replacement then
@@ -2363,7 +2341,6 @@ local function restoreRoundItemToRoom(model, room, generation)
 			return false
 		end
 		return dropRoundEquippedItemIntoRoom(
-			model,
 			itemName,
 			room,
 			drop,
@@ -2447,7 +2424,6 @@ local function restoreRoundItemToRoom(model, room, generation)
 		return false
 	end
 	return dropRoundEquippedItemIntoRoom(
-		model,
 		itemName,
 		room,
 		drop,
