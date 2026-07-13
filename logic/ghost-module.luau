@@ -659,6 +659,91 @@ local function detectionScore(detection)
 	return 0
 end
 
+local function selectHighestConfidenceGuess(options)
+	if type(options) ~= "table" or type(options.Candidates) ~= "table" then
+		return nil
+	end
+
+	local candidates = {}
+	local allowed = {}
+	local function addCandidate(value)
+		if type(value) ~= "string" then
+			return
+		end
+		local name = value:match("^%s*(.-)%s*$")
+		if name == "" or allowed[name] then
+			return
+		end
+		allowed[name] = true
+		table.insert(candidates, name)
+	end
+
+	for _, value in ipairs(options.Candidates) do
+		addCandidate(value)
+	end
+	local keyedCandidates = {}
+	for key, value in pairs(options.Candidates) do
+		if type(key) == "string" and value then
+			table.insert(keyedCandidates, key)
+		end
+	end
+	table.sort(keyedCandidates)
+	for _, name in ipairs(keyedCandidates) do
+		addCandidate(name)
+	end
+	if #candidates == 0 then
+		return nil
+	end
+
+	local scores = {}
+	local detections = type(options.Detections) == "table" and options.Detections or {}
+	for _, name in ipairs(candidates) do
+		local score = detectionScore(detections[name])
+		if score ~= score or score < 0 then
+			score = 0
+		end
+		scores[name] = score
+	end
+
+	local currentScore = options.CurrentScore
+	if type(currentScore) == "number" and currentScore == currentScore and currentScore > 0
+		and type(options.CurrentGuess) == "string" then
+		for name in string.gmatch(options.CurrentGuess, "[^/]+") do
+			name = name:match("^%s*(.-)%s*$")
+			if allowed[name] then
+				scores[name] = math.max(scores[name], currentScore)
+			end
+		end
+	end
+
+	local maximumScore = 0
+	for _, name in ipairs(candidates) do
+		maximumScore = math.max(maximumScore, scores[name])
+	end
+	local tied = {}
+	for _, name in ipairs(candidates) do
+		if scores[name] == maximumScore then
+			table.insert(tied, name)
+		end
+	end
+
+	local index
+	if options.RandomIndex ~= nil then
+		if type(options.RandomIndex) ~= "function" then
+			return nil
+		end
+		local ok, selected = pcall(options.RandomIndex, #tied)
+		if not ok or type(selected) ~= "number" or selected ~= math.floor(selected)
+			or selected < 1 or selected > #tied then
+			return nil
+		end
+		index = selected
+	else
+		index = math.random(#tied)
+	end
+	return tied[index]
+end
+
 local function rankDetections(detections, evidence, ruleOuts, options)
 	options = options or {}
 	local candidateOptions = shallowCopy(options)
@@ -950,6 +1035,7 @@ GhostModule.NormalizeEvidence = normalizeEvidence
 GhostModule.SupportsEvidence = supportsEvidence
 GhostModule.FilterCandidates = filterCandidates
 GhostModule.RankDetections = rankDetections
+GhostModule.SelectHighestConfidenceGuess = selectHighestConfidenceGuess
 GhostModule.NewTracker = newTracker
 
 return GhostModule
