@@ -1,4 +1,47 @@
-local GhostModule = require("../ghost-module")
+local localModules = {
+	["ghost/Aswang.luau"] = require("../Aswang"),
+	["ghost/Banshee.luau"] = require("../Banshee"),
+	["ghost/Demon.luau"] = require("../Demon"),
+	["ghost/Dullahan.luau"] = require("../Dullahan"),
+	["ghost/Dybbuk.luau"] = require("../Dybbuk"),
+	["ghost/Entity.luau"] = require("../Entity"),
+	["ghost/Ghoul.luau"] = require("../Ghoul"),
+	["ghost/Keres.luau"] = require("../Keres"),
+	["ghost/Leviathan.luau"] = require("../Leviathan"),
+	["ghost/Nightmare.luau"] = require("../Nightmare"),
+	["ghost/Oni.luau"] = require("../Oni"),
+	["ghost/Phantom.luau"] = require("../Phantom"),
+	["ghost/Ravager.luau"] = require("../Ravager"),
+	["ghost/Revenant.luau"] = require("../Revenant"),
+	["ghost/Shadow.luau"] = require("../Shadow"),
+	["ghost/Siren.luau"] = require("../Siren"),
+	["ghost/Skinwalker.luau"] = require("../Skinwalker"),
+	["ghost/Specter.luau"] = require("../Specter"),
+	["ghost/Spirit.luau"] = require("../Spirit"),
+	["ghost/Umbra.luau"] = require("../Umbra"),
+	["ghost/Vesper.luau"] = require("../Vesper"),
+	["ghost/Vex.luau"] = require("../Vex"),
+	["ghost/Wendigo.luau"] = require("../Wendigo"),
+	["ghost/Wisp.luau"] = require("../Wisp"),
+	["ghost/Wraith.luau"] = require("../Wraith"),
+	["ghost/engine.luau"] = require("../engine"),
+	["ghost/runtime.luau"] = require("../runtime"),
+	["ghost/collector.luau"] = require("../collector"),
+	["ghost/session.luau"] = require("../session"),
+	["ghost/tracker.luau"] = require("../tracker"),
+}
+
+local buildPackage = require("../")
+local GhostPackage = buildPackage({
+	LoadModule = function(path)
+		local module = localModules[path]
+		if module == nil then
+			error("unexpected local ghost package path: " .. tostring(path), 2)
+		end
+		return module
+	end,
+})
+local GhostModule = GhostPackage.Catalog
 
 local function expect(condition, message)
 	if not condition then
@@ -6,12 +49,18 @@ local function expect(condition, message)
 	end
 end
 
+expect(#GhostPackage.Definitions == 25, "package should load 25 ghost definitions")
+expect(#GhostPackage.Manifest == 25, "package manifest should contain 25 ghosts")
 expect(#GhostModule.Profiles == 25, "catalog should contain 25 ghosts")
 expect(#GhostModule.Order == 25, "catalog order should contain 25 ghosts")
 expect(GhostModule.NormalizeEvidence("Prints") == "Handprints", "Prints alias should normalize")
 expect(GhostModule.NormalizeEvidence("Inscription") == "GhostWriting", "Inscription alias should normalize")
 expect(GhostModule.Find("The Wisp").Name == "Wisp", "The Wisp alias should resolve")
-for _, profile in ipairs(GhostModule.Profiles) do
+for index, profile in ipairs(GhostModule.Profiles) do
+	expect(
+		GhostPackage.Manifest[index] == profile.Name,
+		profile.Name .. " should retain manifest order"
+	)
 	expect(#profile.Evidence == 3, profile.Name .. " should have three real evidence types")
 	expect(type(profile.Perks["Pretty Sure"]) == "table", profile.Name .. " needs Pretty Sure notes")
 	expect(type(profile.Perks.Maybe) == "table", profile.Name .. " needs Maybe notes")
@@ -236,4 +285,4 @@ expect(
 	"an invalid deterministic chooser result should return nil"
 )
 
-print("ghost-module.spec: catalog, filtering, ranking, clone, and timeout guess assertions passed")
+print("catalog.spec: package loading, catalog, filtering, ranking, clone, and timeout guess assertions passed")

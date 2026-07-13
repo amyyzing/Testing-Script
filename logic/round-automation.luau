@@ -25,11 +25,11 @@ return function(dependencies: any)
 	local doRoundState: any = assert(dependencies.State, "round-automation requires State")
 	local perkTrackerState: any = assert(dependencies.PerkTrackerState, "round-automation requires PerkTrackerState")
 	local roomItemPlacementState: any = assert(dependencies.RoomItemPlacementState, "round-automation requires RoomItemPlacementState")
-	local perkDetections: any = assert(dependencies.PerkDetections, "round-automation requires PerkDetections")
-	local GhostModule: any = assert(dependencies.GhostModule, "round-automation requires GhostModule")
-	local hasOrbEvidence: any = dependencies.HasOrbEvidence or function()
-		return perkTrackerState.orbObserved == true
-	end
+	local GhostSession: any = assert(dependencies.GhostSession, "round-automation requires GhostSession")
+	local getGhostSessionInput: any = assert(
+		dependencies.GetGhostSessionInput,
+		"round-automation requires GetGhostSessionInput"
+	)
 	local presenter: any = dependencies.Presenter
 	local placeRoomItemsButton: any = assert(dependencies.PlaceRoomItemsButton, "round-automation requires PlaceRoomItemsButton")
 	local COPY: any = assert(dependencies.Copy, "round-automation requires Copy")
@@ -857,8 +857,8 @@ local function beginAutomationMutation(duration)
 		perkTrackerState.suppressItemDisableUntil or 0,
 		untilTime
 	)
-	perkTrackerState.suppressLeviathanLightsUntil = math.max(
-		perkTrackerState.suppressLeviathanLightsUntil or 0,
+	perkTrackerState.suppressRoomLightObservationsUntil = math.max(
+		perkTrackerState.suppressRoomLightObservationsUntil or 0,
 		untilTime
 	)
 end
@@ -2981,72 +2981,12 @@ local function runDoRound(generation)
 
 			if doRoundState.startedAt
 				and os.clock() - doRoundState.startedAt >= 180 then
-				local timeoutCandidates = {}
-				local included = {}
-				for _, name in ipairs(
-					perkTrackerState.getRemainingCandidates(false)
-				) do
-					if not perkTrackerState.isGhostRuledOut(name)
-						and not included[name] then
-						table.insert(timeoutCandidates, name)
-						included[name] = true
-					end
-				end
-				if perkTrackerState.evidenceMode == "Mimicry" then
-					for name, detection in pairs(perkDetections) do
-						if detection.Persistent
-							and not perkTrackerState.isGhostRuledOut(name)
-							and not included[name] then
-							table.insert(timeoutCandidates, name)
-							included[name] = true
-						end
-					end
-				end
-
-				-- Keep a previously drawn tie winner only while it remains eligible
-				-- and still shares the current highest confidence.  A later rule-out
-				-- or stronger observation immediately forces a fresh selection.
-				local maximumScore = 0
-				local candidateScores = {}
-				for _, name in ipairs(timeoutCandidates) do
-					local detection = perkDetections[name]
-					local candidateScore = detection
-						and tonumber(detection.Confidence)
-						or 0
-					if guess and string.find(guess, name, 1, true) then
-						candidateScore = math.max(candidateScore, score)
-					end
-					candidateScores[name] = candidateScore
-					maximumScore = math.max(maximumScore, candidateScore)
-				end
-				local maximumNames = {}
-				for _, name in ipairs(timeoutCandidates) do
-					if candidateScores[name] == maximumScore then
-						table.insert(maximumNames, name)
-					end
-				end
-				table.sort(maximumNames)
-				local orbPresent = hasOrbEvidence() == true
-				local selectionSignature = table.concat(maximumNames, "\0")
-					.. "|orb="
-					.. tostring(orbPresent)
-				if selectionSignature ~= timeoutSelectionSignature then
-					timeoutSelectionSignature = selectionSignature
-					timeoutFallback = nil
-				end
-				if timeoutFallback
-					and (not included[timeoutFallback]
-						or perkTrackerState.isGhostRuledOut(timeoutFallback)
-						or candidateScores[timeoutFallback] ~= maximumScore) then
-					timeoutFallback = nil
-				end
-				if not timeoutFallback and #timeoutCandidates > 0 then
-					timeoutFallback = GhostModule.SelectHighestConfidenceGuess({
-						Candidates = timeoutCandidates,
-						Detections = perkDetections,
+				local input = getGhostSessionInput()
+				local function selectTimeout(previousChoice)
+					return GhostSession.SelectTimeoutGuess(input, {
 						CurrentGuess = guess,
 						CurrentScore = score,
-						SkinwalkerHalfWeight = not orbPresent,
+						PreviousChoice = previousChoice,
 						RandomUnit = function()
 							return math.random()
 						end,
@@ -3055,17 +2995,17 @@ local function runDoRound(generation)
 						end,
 					})
 				end
-				if timeoutFallback
-					and included[timeoutFallback]
-					and not perkTrackerState.isGhostRuledOut(timeoutFallback) then
-					local fallbackDetection = perkDetections[timeoutFallback]
-					local fallbackScore = fallbackDetection
-						and tonumber(fallbackDetection.Confidence)
-						or 0
-					if guess and string.find(guess, timeoutFallback, 1, true) then
-						fallbackScore = math.max(fallbackScore, score)
-					end
-					fallbackScore = math.max(fallbackScore, 1)
+				local selection = selectTimeout(timeoutFallback)
+				if selection.Signature ~= timeoutSelectionSignature then
+					timeoutSelectionSignature = selection.Signature
+					selection = selectTimeout(nil)
+				end
+				timeoutFallback = selection.Ghost
+				if timeoutFallback then
+					local fallbackScore = math.max(
+						tonumber(selection.Confidence) or 0,
+						1
+					)
 					if selectRoundJournalGhost(timeoutFallback, generation) then
 						perkTrackerState.currentGhostGuess = timeoutFallback
 						perkTrackerState.currentGhostGuessScore = fallbackScore
