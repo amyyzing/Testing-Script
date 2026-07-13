@@ -223,7 +223,7 @@ else
 end
 
 local LOBBY_MACRO_DELAY = 0.75
-local LOBBY_DATA_LOAD_GRACE = 10
+local LOBBY_DATA_LOAD_GRACE = 4
 
 local function waitForLobbyDataLoad()
 	-- game:IsLoaded() only confirms that the place replicated. The game's
