@@ -45,9 +45,13 @@ local POWERED_ROOM_ITEMS = {
 local ROUND_HELD_ITEMS = {"Salt Canister", "Holy Oil"}
 
 local function normalizeRoundItemName(value)
-	return string.lower(tostring(value or ""))
+	local normalized = string.lower(tostring(value or ""))
 		:match("^%s*(.-)%s*$")
 		:gsub("%s+", " ")
+	if normalized == "holyoil" or normalized == "hoil oil" then
+		return "holy oil"
+	end
+	return normalized
 end
 
 local function roundItemName(model)
@@ -176,6 +180,80 @@ local function roundApproachPositions(target, distance)
 	}, center
 end
 
+local function horizontalUnit(vector, fallback)
+	local horizontal = Vector3.new(vector.X, 0, vector.Z)
+	if horizontal.Magnitude < 0.05 then
+		return fallback
+	end
+	return horizontal.Unit
+end
+
+local function roundDoorGeometry(target)
+	local frame, size = roundTargetCFrame(target)
+	if not frame or not size then
+		return nil
+	end
+	local right = horizontalUnit(frame.RightVector, Vector3.new(1, 0, 0))
+	local look = horizontalUnit(frame.LookVector, Vector3.new(0, 0, -1))
+	local wideAxis
+	local normalAxis
+	local wideLength
+	local thickness
+	if size.X >= size.Z then
+		wideAxis = right
+		normalAxis = look
+		wideLength = size.X
+		thickness = size.Z
+	else
+		wideAxis = look
+		normalAxis = right
+		wideLength = size.Z
+		thickness = size.X
+	end
+	local standDistance = math.clamp(thickness * 0.5 + 2.85, 2.9, 3.6)
+	return {
+		Frame = frame,
+		Center = frame.Position,
+		WideAxis = wideAxis,
+		NormalAxis = normalAxis,
+		WideLength = wideLength,
+		Thickness = thickness,
+		StandDistance = standDistance,
+		MinimumDistance = math.max(thickness * 0.5 + 2.1, 2.2),
+		MaximumDistance = thickness * 0.5 + 4,
+	}
+end
+
+local function roundDoorApproaches(target)
+	local geometry = roundDoorGeometry(target)
+	if not geometry then
+		return {}, nil, nil
+	end
+	local approaches = {}
+	for _, side in ipairs({1, -1}) do
+		local positions = {}
+		for _, adjustment in ipairs({0, -0.45, 0.45, -0.9, 0.9}) do
+			local distance = math.clamp(
+				geometry.StandDistance + adjustment,
+				geometry.MinimumDistance,
+				geometry.MaximumDistance
+			)
+			table.insert(
+				positions,
+				geometry.Center + geometry.NormalAxis * side * distance
+			)
+		end
+		table.insert(approaches, {
+			Side = side,
+			Position = positions[1],
+			CandidatePositions = positions,
+			Facing = geometry.NormalAxis * -side,
+			Geometry = geometry,
+		})
+	end
+	return approaches, geometry.Center, geometry
+end
+
 local function roomForRoundTarget(target, preferredPositions)
 	local rooms = findRoomsFolder()
 	if not rooms then
@@ -242,6 +320,45 @@ local function teleportNearRoundTarget(target, preferredPosition, generation)
 	})
 end
 
+local function teleportToRoundDoorFace(target, approach, generation)
+	local geometry = approach and approach.Geometry
+	local preferred = approach and approach.CandidatePositions
+	if not geometry or not preferred or #preferred == 0 then
+		return false, "door face geometry was unavailable"
+	end
+	local room = roomForRoundTarget(target, preferred)
+	if not room then
+		return false, "no room bounding box was found at the door face"
+	end
+	return teleportToRoomBoundingBoxCenter(room, {
+		PreferredPositions = preferred,
+		TargetPosition = geometry.Center,
+		MaximumTargetDistance = geometry.MaximumDistance + 0.35,
+		MaximumPreferredDistance = 0.95,
+		LookDirection = approach.Facing,
+		RequireStrict = true,
+		CandidateValidator = function(position)
+			local relative = Vector3.new(
+				position.X - geometry.Center.X,
+				0,
+				position.Z - geometry.Center.Z
+			)
+			local lateral = math.abs(relative:Dot(geometry.WideAxis))
+			local signedNormal = relative:Dot(geometry.NormalAxis)
+			return lateral <= 0.65
+				and signedNormal * approach.Side > 0
+				and math.abs(signedNormal) >= geometry.MinimumDistance - 0.1
+				and math.abs(signedNormal) <= geometry.MaximumDistance + 0.1
+		end,
+		IsActive = function()
+			return generation == nil
+				or (runtimeIsActive()
+					and doRoundState.enabled
+					and doRoundState.generation == generation)
+		end,
+	})
+end
+
 local function shuffleRoundList(list)
 	local copy = {}
 	for index, value in ipairs(list) do
@@ -260,19 +377,22 @@ local function roundIsHunting()
 end
 
 local function roundIdentityIsCurrent()
+	local currentGhost = getGhostModel()
 	return doRoundState.roundMap ~= nil
 		and workspace:FindFirstChild("Map") == doRoundState.roundMap
 		and doRoundState.roundGhost ~= nil
-		and getGhostModel() == doRoundState.roundGhost
+		and (currentGhost == nil or currentGhost == doRoundState.roundGhost)
 end
 
 local function roundActionIsSafe(generation)
+	local currentGhost = getGhostModel()
 	return (generation == nil
 			or (runtimeIsActive()
 				and doRoundState.enabled
 				and doRoundState.generation == generation))
 		and roundIdentityIsCurrent()
-		and doRoundState.roundGhost:GetAttribute("Hunting") ~= true
+		and currentGhost == doRoundState.roundGhost
+		and currentGhost:GetAttribute("Hunting") ~= true
 		and player:GetAttribute("Dead") ~= true
 end
 
@@ -288,6 +408,9 @@ local function roundUnsafeReason(generation)
 	end
 	if player:GetAttribute("Dead") == true then
 		return "player is dead"
+	end
+	if getGhostModel() == nil then
+		return "ghost unavailable"
 	end
 	return "hunt started"
 end
@@ -335,47 +458,62 @@ local function previewMajorAxis(part)
 	return axis.Magnitude >= 0.05 and axis.Unit or nil
 end
 
+local function playerHasDoorPlacementGeometry(target)
+	local geometry = roundDoorGeometry(target)
+	local root = player.Character
+		and player.Character:FindFirstChild("HumanoidRootPart")
+	if not geometry or not root then
+		return false, geometry, root
+	end
+	local rootOffset = Vector3.new(
+		root.Position.X - geometry.Center.X,
+		0,
+		root.Position.Z - geometry.Center.Z
+	)
+	local rootLateral = math.abs(rootOffset:Dot(geometry.WideAxis))
+	local rootNormal = rootOffset:Dot(geometry.NormalAxis)
+	if rootLateral > 0.75
+		or math.abs(rootNormal) < geometry.MinimumDistance - 0.15
+		or math.abs(rootNormal) > geometry.MaximumDistance + 0.15 then
+		return false, geometry, root
+	end
+	local facing = Vector3.new(
+		root.CFrame.LookVector.X,
+		0,
+		root.CFrame.LookVector.Z
+	)
+	local expectedFacing = geometry.NormalAxis * (rootNormal > 0 and -1 or 1)
+	return facing.Magnitude >= 0.05
+		and facing.Unit:Dot(expectedFacing) >= 0.92,
+		geometry,
+		root
+end
+
 local placementPreviewIsAligned: any = function(toolName, target)
 	local camera = workspace.CurrentCamera
 	local previewName = toolName == "Salt Canister" and "SaltLine" or "HolyOil"
 	local partName = toolName == "Salt Canister" and "Salt" or "Center"
 	local preview = camera and camera:FindFirstChild(previewName)
 	local previewPart = preview and preview:FindFirstChild(partName, true)
-	local targetFrame, targetSize = roundTargetCFrame(target)
-	local root = player.Character
-		and player.Character:FindFirstChild("HumanoidRootPart")
+	local playerAligned, geometry, root =
+		playerHasDoorPlacementGeometry(target)
 	if not previewPart or not previewPart:IsA("BasePart")
-		or not targetFrame or not root then
+		or not playerAligned or not geometry or not root then
 		return false
 	end
-	local planarOffset = Vector3.new(
-		previewPart.Position.X - targetFrame.Position.X,
+	local previewOffset = Vector3.new(
+		previewPart.Position.X - geometry.Center.X,
 		0,
-		previewPart.Position.Z - targetFrame.Position.Z
+		previewPart.Position.Z - geometry.Center.Z
 	)
-	if planarOffset.Magnitude > 4.25 then
-		return false
-	end
-	local toTarget = Vector3.new(
-		targetFrame.Position.X - root.Position.X,
-		0,
-		targetFrame.Position.Z - root.Position.Z
-	)
-	local facing = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
-	if toTarget.Magnitude < 0.05 or facing.Magnitude < 0.05
-		or facing.Unit:Dot(toTarget.Unit) < 0.72 then
+	if math.abs(previewOffset:Dot(geometry.WideAxis)) > 0.9
+		or math.abs(previewOffset:Dot(geometry.NormalAxis)) > 2.5 then
 		return false
 	end
 	if toolName == "Salt Canister" then
 		local previewAxis = previewMajorAxis(previewPart)
-		local doorAxis = targetSize and (
-			targetSize.X >= targetSize.Z
-				and targetFrame.RightVector
-				or targetFrame.LookVector
-		) or targetFrame.RightVector
-		doorAxis = Vector3.new(doorAxis.X, 0, doorAxis.Z)
-		if previewAxis and doorAxis.Magnitude >= 0.05
-			and math.abs(previewAxis:Dot(doorAxis.Unit)) < 0.7 then
+		if not previewAxis
+			or math.abs(previewAxis:Dot(geometry.WideAxis)) < 0.9 then
 			return false
 		end
 	end
@@ -383,7 +521,7 @@ local placementPreviewIsAligned: any = function(toolName, target)
 end
 
 local waitForRoundPreview: any = function(toolName, target, generation)
-	local deadline = os.clock() + 1.4
+	local deadline = os.clock() + 2.5
 	repeat
 		if not roundActionIsSafe(generation) then
 			return false, roundUnsafeReason(generation)
@@ -393,6 +531,9 @@ local waitForRoundPreview: any = function(toolName, target, generation)
 		end
 		doRoundWait(generation, 0.05)
 	until os.clock() >= deadline
+	if playerHasDoorPlacementGeometry(target) then
+		return true
+	end
 	return false, "placement preview did not align with the doorway"
 end
 
@@ -413,8 +554,8 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 	if equipped:GetAttribute("EquipDisabled") == true then
 		return false, toolName .. " is still on placement cooldown"
 	end
-	local uses = tonumber(equipped:GetAttribute("Uses")) or 0
-	if uses <= 0 then
+	local uses = tonumber(equipped:GetAttribute("Uses"))
+	if uses ~= nil and uses <= 0 then
 		return false, toolName .. " has no uses remaining"
 	end
 	local aligned, alignReason = waitForRoundPreview(
@@ -436,6 +577,15 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 	if not roundActionIsSafe(generation) then
 		return false, roundUnsafeReason(generation)
 	end
+	local folderName = toolName == "Salt Canister" and "SaltPiles" or "HolyOil"
+	local placementFolder = workspace:FindFirstChild(folderName)
+	local existingPlacements = setmetatable({}, {__mode = "k"})
+	if placementFolder then
+		for _, child in ipairs(placementFolder:GetChildren()) do
+			existingPlacements[child] = true
+		end
+	end
+	local targetFrame = roundTargetCFrame(target)
 	beginAutomationMutation(2.5)
 	local fired = pcall(remote.FireServer, remote)
 	if not fired then
@@ -445,32 +595,42 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 	local confirmed = false
 	repeat
 		if not doRoundOperationActive(generation) then
-			return false, "Do-Round cancelled"
+			return false, "Do-Round cancelled", true
 		end
 		if not roundActionIsSafe(generation) then
-			return false, roundUnsafeReason(generation)
+			return false, roundUnsafeReason(generation), true
 		end
-		local currentUses = tonumber(equipped:GetAttribute("Uses")) or uses
-		if currentUses < uses then
+		local currentEquipped = getRoundEquippedItem(toolName) or equipped
+		local currentUses = tonumber(currentEquipped:GetAttribute("Uses"))
+		if uses ~= nil and currentUses ~= nil and currentUses < uses then
 			confirmed = true
 			break
+		end
+		placementFolder = workspace:FindFirstChild(folderName)
+		if placementFolder then
+			for _, child in ipairs(placementFolder:GetChildren()) do
+				if not existingPlacements[child] then
+					local position = getInstanceWorldPosition(child)
+					if position and targetFrame
+						and (Vector3.new(position.X, 0, position.Z)
+							- Vector3.new(
+								targetFrame.Position.X,
+								0,
+								targetFrame.Position.Z
+							)).Magnitude <= 5 then
+						confirmed = true
+						break
+					end
+				end
+			end
+			if confirmed then
+				break
+			end
 		end
 		task.wait(0.05)
 	until os.clock() >= deadline
 	if not confirmed then
-		return false, toolName .. " placement was not confirmed"
-	end
-	local equipDeadline = os.clock() + 6
-	while equipped.Parent
-		and equipped:GetAttribute("EquipDisabled") == true
-		and os.clock() < equipDeadline do
-		if not roundActionIsSafe(generation) then
-			return false, roundUnsafeReason(generation)
-		end
-		doRoundWait(generation, 0.05)
-	end
-	if equipped.Parent and equipped:GetAttribute("EquipDisabled") == true then
-		return false, toolName .. " placement cooldown did not clear"
+		return false, toolName .. " was dispatched but not confirmed", true
 	end
 	return true
 end
@@ -483,7 +643,10 @@ end
 		FindHotbarSlot = findRoundHotbarSlot,
 		EquipItem = equipRoundItem,
 		ApproachPositions = roundApproachPositions,
+		DoorGeometry = roundDoorGeometry,
+		DoorApproaches = roundDoorApproaches,
 		TeleportNearTarget = teleportNearRoundTarget,
+		TeleportToDoorFace = teleportToRoundDoorFace,
 		Shuffle = shuffleRoundList,
 		IsHunting = roundIsHunting,
 		IdentityIsCurrent = roundIdentityIsCurrent,
@@ -505,7 +668,9 @@ local setDoRoundEnabled = (function()
 	local findRoundHotbarSlot = roundUtilities.FindHotbarSlot
 	local equipRoundItem = roundUtilities.EquipItem
 	local roundApproachPositions = roundUtilities.ApproachPositions
+	local roundDoorApproaches = roundUtilities.DoorApproaches
 	local teleportNearRoundTarget = roundUtilities.TeleportNearTarget
+	local teleportToRoundDoorFace = roundUtilities.TeleportToDoorFace
 	local shuffleRoundList = roundUtilities.Shuffle
 	local roundIsHunting = roundUtilities.IsHunting
 	local roundIdentityIsCurrent = roundUtilities.IdentityIsCurrent
@@ -561,21 +726,26 @@ end
 
 local function placeRoundToolsAtDoors(generation)
 	local rejectedDoorNames = {}
+	local warnings = {}
 	for _, toolName in ipairs(ROUND_HELD_ITEMS) do
-		local placementCount = 0
-		local maximumPlacements
+		local toolKey = normalizeRoundItemName(toolName)
+		if doRoundState.completedDoorTools[toolKey] then
+			continue
+		end
+		local placementCount =
+			doRoundState.doorToolPlacements[toolKey] or 0
+		local maximumPlacements = doRoundState.doorToolMaximums[toolKey]
 		while doRoundOperationActive(generation) do
 			if not roundActionIsSafe(generation) then
 				return false, roundUnsafeReason(generation)
 			end
 			local equipped, reason = equipRoundItem(toolName, 1.5, generation)
 			if not equipped then
-				if presenter and presenter.Notify then
-					presenter:Notify(reason)
-				end
+				table.insert(warnings, reason)
+				doRoundState.completedDoorTools[toolKey] = true
 				break
 			end
-			local uses = tonumber(equipped:GetAttribute("Uses")) or 0
+			local uses = tonumber(equipped:GetAttribute("Uses"))
 			local configuredMaximum =
 				tonumber(equipped:GetAttribute("MaxUses"))
 			if configuredMaximum and configuredMaximum <= 0 then
@@ -584,7 +754,11 @@ local function placeRoundToolsAtDoors(generation)
 			maximumPlacements = maximumPlacements
 				or configuredMaximum
 				or uses
-			if uses <= 0 or placementCount >= maximumPlacements then
+				or 1
+			doRoundState.doorToolMaximums[toolKey] = maximumPlacements
+			if (uses ~= nil and uses <= 0)
+				or placementCount >= maximumPlacements then
+				doRoundState.completedDoorTools[toolKey] = true
 				break
 			end
 			local selectedDoor
@@ -599,14 +773,20 @@ local function placeRoundToolsAtDoors(generation)
 				end
 			end
 			if not selectedDoor then
-				return false,
+				table.insert(
+					warnings,
 					toolName
-						.. " still has uses, but no unused non-exit door names remain"
+						.. " still has uses, but no additional safe non-exit door names remain"
+				)
+				doRoundState.completedDoorTools[toolKey] = true
+				break
 			end
 			setDoRoundStatus("Laying " .. toolName)
 			local door = selectedDoor:FindFirstChild("Door") or selectedDoor
-			local approaches = roundApproachPositions(door)
+			local approaches = roundDoorApproaches(door)
 			local placed = false
+			local placementReason
+			local dispatched = false
 			local teleportedToDoor = false
 			for _, approach in ipairs(shuffleRoundList(approaches)) do
 				if not roundActionIsSafe(generation) then
@@ -617,32 +797,41 @@ local function placeRoundToolsAtDoors(generation)
 				if not equipped then
 					break
 				end
-				local teleported = teleportNearRoundTarget(door, approach, generation)
+				local teleported = teleportToRoundDoorFace(
+					door,
+					approach,
+					generation
+				)
 				if teleported then
 					teleportedToDoor = true
 					doRoundState.usedDoorNames[selectedKey] = true
 					doRoundWait(generation, 0.2)
-					placed = fireRoundPlaceable(
+					placed, placementReason, dispatched = fireRoundPlaceable(
 						toolName,
 						door,
 						generation
 					)
-					if placed then
+					if placed or dispatched then
 						break
 					end
 				end
 			end
-			if not placed then
+			if dispatched and not placed then
+				table.insert(warnings, placementReason)
+				doRoundState.completedDoorTools[toolKey] = true
+				break
+			elseif not placed then
 				if not teleportedToDoor then
 					rejectedDoorNames[selectedKey] = true
 				end
 				doRoundWait(generation, 0.15)
 			else
 				placementCount = placementCount + 1
+				doRoundState.doorToolPlacements[toolKey] = placementCount
 			end
 		end
 	end
-	return true
+	return true, #warnings > 0 and table.concat(warnings, "; ") or nil
 end
 
 local function openRoundExitDoor(generation)
@@ -661,12 +850,16 @@ local function openRoundExitDoor(generation)
 		end
 		local door = exitModel:FindFirstChild("Door")
 		if door then
-			local approaches, center = roundApproachPositions(door)
+			local approaches, center = roundDoorApproaches(door)
 			for _, approach in ipairs(shuffleRoundList(approaches)) do
 				if not roundActionIsSafe(generation) then
 					return false, roundUnsafeReason(generation)
 				end
-				local teleported = teleportNearRoundTarget(door, approach, generation)
+				local teleported = teleportToRoundDoorFace(
+					door,
+					approach,
+					generation
+				)
 				local root = player.Character
 					and player.Character:FindFirstChild("HumanoidRootPart")
 				if teleported and root and center
@@ -1030,25 +1223,43 @@ local function runDoRound(generation)
 
 		waitForRoundHuntEnd(generation)
 		setDoRoundStatus("Placing room items")
+		while roomItemPlacementState.busy
+			and doRoundOperationActive(generation) do
+			setDoRoundStatus("Waiting for room item setup")
+			doRoundWait(generation, 0.15)
+		end
 		local started, placementGeneration =
 			placeItemsInFavouriteRoom("DoRound")
-		if not started then
-			error(tostring(placementGeneration), 0)
-		end
-		repeat
-			if roundIsHunting() then
-				setDoRoundStatus("Waiting for hunt")
-			else
-				setDoRoundStatus("Placing room items")
+		if started then
+			repeat
+				if roundIsHunting() then
+					setDoRoundStatus("Waiting for hunt")
+				else
+					setDoRoundStatus("Placing room items")
+				end
+				doRoundWait(generation, 0.15)
+				local currentGhost = getGhostModel()
+				if not roundIdentityIsCurrent()
+					or (currentGhost and currentGhost ~= doRoundState.roundGhost) then
+					error("the round changed during room item setup", 0)
+				end
+				if not currentGhost then
+					setDoRoundStatus("Waiting for ghost")
+				end
+			until roomItemPlacementState.lastCompletedGeneration
+				>= placementGeneration
+			if roomItemPlacementState.lastResult == false
+				and presenter and presenter.Notify then
+				presenter:Notify(
+					roomItemPlacementState.lastError
+						or "Room item setup failed; continuing with available items"
+				)
 			end
-			doRoundWait(generation, 0.15)
-			if not roundIdentityIsCurrent() then
-				error("the round changed during room item setup", 0)
-			end
-		until roomItemPlacementState.lastCompletedGeneration
-			>= placementGeneration
-		if roomItemPlacementState.lastResult == false then
-			error(roomItemPlacementState.lastError or "room item setup failed", 0)
+		elseif presenter and presenter.Notify then
+			presenter:Notify(
+				tostring(placementGeneration)
+					.. "; continuing with available items"
+			)
 		end
 		captureRoundRoomItems(favouriteRoom)
 		local missingRoomItems = {}
@@ -1061,11 +1272,13 @@ local function runDoRound(generation)
 			end
 		end
 		if #missingRoomItems > 0 then
-			error(
-				"required room items were not found: "
-					.. table.concat(missingRoomItems, ", "),
-				0
-			)
+			if presenter and presenter.Notify then
+				presenter:Notify(
+					"Missing room items: "
+						.. table.concat(missingRoomItems, ", ")
+						.. "; continuing"
+				)
+			end
 		end
 		local missingHeldItems = {}
 		for _, itemName in ipairs(ROUND_HELD_ITEMS) do
@@ -1074,11 +1287,13 @@ local function runDoRound(generation)
 			end
 		end
 		if #missingHeldItems > 0 then
-			error(
-				"required held items were not found: "
-					.. table.concat(missingHeldItems, ", "),
-				0
-			)
+			if presenter and presenter.Notify then
+				presenter:Notify(
+					"Missing held items: "
+						.. table.concat(missingHeldItems, ", ")
+						.. "; continuing"
+				)
+			end
 		end
 
 		local toolsDone = false
@@ -1087,7 +1302,11 @@ local function runDoRound(generation)
 			local completed, reason = placeRoundToolsAtDoors(generation)
 			if completed then
 				toolsDone = true
-			elseif reason ~= "hunt started" then
+				if reason and presenter and presenter.Notify then
+					presenter:Notify(reason)
+				end
+			elseif reason ~= "hunt started"
+				and reason ~= "ghost unavailable" then
 				error(reason or "door placeables failed", 0)
 			end
 		until toolsDone
@@ -1099,8 +1318,17 @@ local function runDoRound(generation)
 			local opened, reason = openRoundExitDoor(generation)
 			if opened then
 				exitOpened = true
-			elseif reason ~= "hunt started" then
-				error(reason or "exit door failed", 0)
+			elseif reason == "hunt started"
+				or reason == "ghost unavailable" then
+				-- Wait for the temporary interruption, then retry the exit door.
+			else
+				exitOpened = true
+				if presenter and presenter.Notify then
+					presenter:Notify(
+						(reason or "Exit door failed")
+							.. "; continuing the round"
+					)
+				end
 			end
 		until exitOpened
 
@@ -1286,6 +1514,9 @@ setEnabled = function(enabled, finalPhase)
 		doRoundState.roundMap = nil
 		doRoundState.roundGhost = nil
 		doRoundState.usedDoorNames = {}
+		doRoundState.completedDoorTools = {}
+		doRoundState.doorToolPlacements = {}
+		doRoundState.doorToolMaximums = {}
 		doRoundState.roomItems = {}
 		doRoundState.itemPower = setmetatable({}, {__mode = "k"})
 		doRoundState.outsideSince = setmetatable({}, {__mode = "k"})
