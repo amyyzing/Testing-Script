@@ -164,6 +164,7 @@ local perkTrackerState = {
 	speedForceAccumulator = 0,
 	visualModelChecked = false,
 	sampleAccumulator = 0,
+	objectMotionAccumulator = 0,
 	slowScanAccumulator = 0,
 	analysisAccumulator = 0,
 	lastPosition = nil,
@@ -1713,6 +1714,7 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 	perkTrackerState.roundMap = currentMap
 	perkTrackerState.visualModelChecked = false
 	perkTrackerState.sampleAccumulator = 0
+	perkTrackerState.objectMotionAccumulator = 0
 	perkTrackerState.slowScanAccumulator = 0
 	perkTrackerState.analysisAccumulator = 0
 	perkTrackerState.lastPosition = nil
@@ -1939,9 +1941,41 @@ automationHelpers.distanceFromPositionToInstance = function(position, instance)
 	local fallback = getInstanceWorldPosition(instance)
 	return fallback and (position - fallback).Magnitude or math.huge
 end
+local ROOM_BOUNDING_CACHE_MAX_AGE = 5
+local roomBoundingPartsCache = setmetatable({}, {__mode = "k"})
 local function getRoomBoundingParts(room)
 	if not room then
 		return {}
+	end
+	local cache = roomBoundingPartsCache[room]
+	if not cache then
+		cache = {
+			Dirty = true,
+			LastScan = 0,
+			Parts = {},
+		}
+		roomBoundingPartsCache[room] = cache
+		-- Bounds replicate incrementally. Invalidate the complete cached union as
+		-- soon as anything is added to or removed from the room hierarchy.
+		connect(room.DescendantAdded, function()
+			cache.Dirty = true
+		end)
+		connect(room.DescendantRemoving, function()
+			cache.Dirty = true
+		end)
+	end
+	if not cache.Dirty
+		and os.clock() - cache.LastScan < ROOM_BOUNDING_CACHE_MAX_AGE then
+		local valid = true
+		for _, part in ipairs(cache.Parts) do
+			if not part.Parent or not part:IsDescendantOf(room) then
+				valid = false
+				break
+			end
+		end
+		if valid then
+			return cache.Parts
+		end
 	end
 	local parts = {}
 	local seen = setmetatable({}, {__mode = "k"})
@@ -1951,19 +1985,23 @@ local function getRoomBoundingParts(room)
 			table.insert(parts, part)
 		end
 	end
-	-- Rebuild on every query. Room bounds can replicate incrementally, so a
-	-- cached first part would permanently hide later bounding boxes.
-	for _, boundingBox in ipairs(room:GetDescendants()) do
-		if boundingBox.Name == "BoundingBox" then
-			if boundingBox:IsA("BasePart") then
-				addPart(boundingBox)
-			else
-				for _, descendant in ipairs(boundingBox:GetDescendants()) do
+	-- Rebuild the full union in one hierarchy pass, rather than rescanning every
+	-- BoundingBox subtree or retaining only the first replicated box.
+	for _, descendant in ipairs(room:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			local current = descendant
+			while current and current ~= room do
+				if current.Name == "BoundingBox" then
 					addPart(descendant)
+					break
 				end
+				current = current.Parent
 			end
 		end
 	end
+	cache.Dirty = false
+	cache.LastScan = os.clock()
+	cache.Parts = parts
 	return parts
 end
 automationHelpers.partBelongsToHeldCharacterItem = function(part, character)
@@ -3442,12 +3480,18 @@ local function updateObservablePerkTrackers(deltaTime)
 
 	-- Establish the current ghost/map generation before any observer receives a
 	-- raw frame or Tick, so pending windows from a replaced model cannot resolve.
-	collectObjectMotionFrame(ghost, now)
+	perkTrackerState.objectMotionAccumulator =
+		perkTrackerState.objectMotionAccumulator + deltaTime
+	if perkTrackerState.objectMotionAccumulator >= 0.05 then
+		perkTrackerState.objectMotionAccumulator =
+			perkTrackerState.objectMotionAccumulator % 0.05
+		collectObjectMotionFrame(ghost, now)
+	end
 	perkTrackerState.sampleAccumulator = perkTrackerState.sampleAccumulator + deltaTime
 	perkTrackerState.slowScanAccumulator = perkTrackerState.slowScanAccumulator + deltaTime
 	perkTrackerState.analysisAccumulator = perkTrackerState.analysisAccumulator + deltaTime
 	if perkTrackerState.sampleAccumulator < 0.1 then
-		return true, now
+		return false, now
 	end
 	perkTrackerState.sampleAccumulator =
 		perkTrackerState.sampleAccumulator % 0.1
@@ -3783,6 +3827,11 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any): (boolea
 
 	local boundingPartSet: any = setmetatable({}, {__mode = "k"})
 	local excludedInstances: any = {character}
+	for _, excluded in ipairs(options.ExcludedInstances or {}) do
+		if excluded then
+			table.insert(excludedInstances, excluded)
+		end
+	end
 
 	for _, boundingPart in ipairs(boundingParts) do
 		boundingPartSet[boundingPart] = true
@@ -3847,6 +3896,8 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any): (boolea
 	local targetPosition = options.TargetPosition
 	local maximumTargetDistance = tonumber(options.MaximumTargetDistance)
 	local maximumPreferredDistance = tonumber(options.MaximumPreferredDistance)
+	local allowBoundingUnionBoundary =
+		options.AllowBoundingUnionBoundary == true
 	local candidateValidator = options.CandidateValidator
 	local function candidatePassesCustomValidation(position: any): boolean
 		if type(candidateValidator) ~= "function" then
@@ -4178,7 +4229,7 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any): (boolea
 		if not candidatePassesCustomValidation(candidate.Position) then
 			return false
 		end
-		if not safelyInsideXZ(
+		if not allowBoundingUnionBoundary and not safelyInsideXZ(
 			candidate.Position,
 			candidate.BoundingPart
 		) then
@@ -4229,11 +4280,38 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any): (boolea
 		localX: number,
 		localZ: number,
 		rippleOrder: any
-	): ()
+	): boolean
 		local half = boundingPart.Size * 0.5
 		local origin = boundingPart.CFrame:PointToWorldSpace(
 			Vector3.new(localX, half.Y + 24, localZ)
 		)
+		local columnPosition = boundingPart.CFrame:PointToWorldSpace(
+			Vector3.new(localX, 0, localZ)
+		)
+		if targetPosition and maximumTargetDistance then
+			local targetOffset = Vector2.new(
+				columnPosition.X - targetPosition.X,
+				columnPosition.Z - targetPosition.Z
+			)
+			if targetOffset.Magnitude > maximumTargetDistance + 0.05 then
+				return false
+			end
+		end
+		if maximumPreferredDistance and #preferredPositions > 0 then
+			local preferredDistance = math.huge
+			for _, preferred in ipairs(preferredPositions) do
+				preferredDistance = math.min(
+					preferredDistance,
+					Vector2.new(
+						columnPosition.X - preferred.X,
+						columnPosition.Z - preferred.Z
+					).Magnitude
+				)
+			end
+			if preferredDistance > maximumPreferredDistance + 0.05 then
+				return false
+			end
+		end
 		local direction = Vector3.new(
 			0,
 			-(boundingPart.Size.Y + 72),
@@ -4309,10 +4387,12 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any): (boolea
 			pierced[instance] = true
 			table.insert(columnExcludes, instance)
 		end
+		return true
 	end
 
 	-- Build the original adaptive coverage, but inspect it like a ripple:
 	-- exact center first, then each progressively farther center ring.
+	local probedColumnCount = 0
 	for _, boundingPart in ipairs(boundingParts) do
 		local usableX =
 			math.max(0, boundingPart.Size.X - horizontalInset * 2)
@@ -4348,11 +4428,17 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any): (boolea
 			end
 
 			queueSample(0, 0)
+			local preferredHalfX = allowBoundingUnionBoundary
+				and boundingPart.Size.X * 0.5
+				or usableX * 0.5
+			local preferredHalfZ = allowBoundingUnionBoundary
+				and boundingPart.Size.Z * 0.5
+				or usableZ * 0.5
 			for _, preferred in ipairs(preferredPositions) do
 				local localPreferred =
 					boundingPart.CFrame:PointToObjectSpace(preferred)
-				if math.abs(localPreferred.X) <= usableX * 0.5 + 0.05
-					and math.abs(localPreferred.Z) <= usableZ * 0.5 + 0.05 then
+				if math.abs(localPreferred.X) <= preferredHalfX + 0.05
+					and math.abs(localPreferred.Z) <= preferredHalfZ + 0.05 then
 					queueSample(localPreferred.X, localPreferred.Z)
 				end
 			end
@@ -4373,14 +4459,17 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any): (boolea
 				return left.BuildOrder < right.BuildOrder
 			end)
 			for rippleOrder, point in ipairs(samplePoints) do
-				addColumnCandidates(
+				local probed = addColumnCandidates(
 					boundingPart,
 					point.X,
 					point.Z,
 					rippleOrder
 				)
-				if rippleOrder % 12 == 0 then
-					Services.RunService.Heartbeat:Wait()
+				if probed then
+					probedColumnCount = probedColumnCount + 1
+					if probedColumnCount % 12 == 0 then
+						Services.RunService.Heartbeat:Wait()
+					end
 				end
 			end
 		end
@@ -4723,10 +4812,10 @@ local function teleportToRoomBoundingBoxCenter(room: any, options: any): (boolea
 			settledFloorPosition
 		)
 		if not footprintInspection.CenterSupported
-			or not safelyInsideXZ(
+			or (not allowBoundingUnionBoundary and not safelyInsideXZ(
 				root.Position,
 				candidate.BoundingPart
-			) then
+			)) then
 			return false
 		end
 

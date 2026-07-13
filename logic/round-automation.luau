@@ -727,10 +727,7 @@ local function teleportNearRoundTarget(
 		LookAtPosition = center,
 		RequireStrict = true,
 		IsActive = function()
-			return generation == nil
-				or (runtimeIsActive()
-					and doRoundState.enabled
-					and doRoundState.generation == generation)
+			return generation == nil or roundActionIsSafe(generation)
 		end,
 	})
 end
@@ -745,13 +742,43 @@ local function teleportToRoundDoorFace(target, approach, generation)
 	if not room then
 		return false, "no room bounding box was found at the door face"
 	end
+	local localBounds = {}
+	local nearestBound
+	local nearestDistance = math.huge
+	for _, boundingPart in ipairs(getRoomBoundingParts(room)) do
+		local distance = math.huge
+		for _, position in ipairs(preferred) do
+			local localPosition =
+				boundingPart.CFrame:PointToObjectSpace(position)
+			local half = boundingPart.Size * 0.5
+			local dx = math.max(math.abs(localPosition.X) - half.X, 0)
+			local dz = math.max(math.abs(localPosition.Z) - half.Z, 0)
+			distance = math.min(distance, Vector2.new(dx, dz).Magnitude)
+		end
+		if distance <= 0.05 then
+			table.insert(localBounds, boundingPart)
+		end
+		if distance < nearestDistance then
+			nearestDistance = distance
+			nearestBound = boundingPart
+		end
+	end
+	if #localBounds == 0 and nearestBound then
+		table.insert(localBounds, nearestBound)
+	end
+	if #localBounds == 0 then
+		return false, "no local room bound was found at the door face"
+	end
 	return teleportToRoomBoundingBoxCenter(room, {
+		BoundingParts = localBounds,
+		ExcludedInstances = {geometry.Reference},
 		PreferredPositions = preferred,
 		TargetPosition = geometry.Center,
 		MaximumTargetDistance = ROUND_DOOR_MAX_PLAYER_DISTANCE,
 		MaximumPreferredDistance = 0.95,
 		LookDirection = approach.Facing,
 		RequireStrict = true,
+		AllowBoundingUnionBoundary = true,
 		CandidateValidator = function(position)
 			local relative = Vector3.new(
 				position.X - geometry.Center.X,
@@ -767,10 +794,7 @@ local function teleportToRoundDoorFace(target, approach, generation)
 				and math.abs(signedNormal) <= geometry.MaximumDistance
 		end,
 		IsActive = function()
-			return generation == nil
-				or (runtimeIsActive()
-					and doRoundState.enabled
-					and doRoundState.generation == generation)
+			return generation == nil or roundActionIsSafe(generation)
 		end,
 	})
 end
@@ -1666,13 +1690,30 @@ end
 local function roundDoorClosedState(doorModel, doorContainer)
 	local doors = workspace:FindFirstChild("Doors")
 	local seen = setmetatable({}, {__mode = "k"})
-	for _, start in ipairs({doorContainer, doorModel}) do
-		local current = start
-		while current and current ~= workspace and not seen[current] do
-			seen[current] = true
-			local value = current:GetAttribute("DoorClosed")
-			if typeof(value) == "boolean" then
-				return value, current
+	local function inspect(object)
+		if not object or seen[object] then
+			return nil, nil
+		end
+		seen[object] = true
+		local value = object:GetAttribute("DoorClosed")
+		if typeof(value) == "boolean" then
+			return value, object
+		end
+		return nil, nil
+	end
+	local starts = {doorContainer, doorModel}
+	for _, start in ipairs(starts) do
+		local directValue, directSource = inspect(start)
+		if directValue ~= nil then
+			return directValue, directSource
+		end
+	end
+	for _, start in ipairs(starts) do
+		local current = start and start.Parent
+		while current and current ~= workspace do
+			local value, source = inspect(current)
+			if value ~= nil then
+				return value, source
 			end
 			if current == doors then
 				break
@@ -1680,76 +1721,100 @@ local function roundDoorClosedState(doorModel, doorContainer)
 			current = current.Parent
 		end
 	end
+	-- Some maps replicate the state on DoorUnion rather than its containing
+	-- model. Descendants are a fallback after all authoritative containers.
+	for _, start in ipairs(starts) do
+		if start then
+			for _, descendant in ipairs(start:GetDescendants()) do
+				local value, source = inspect(descendant)
+				if value ~= nil then
+					return value, source
+				end
+			end
+		end
+	end
 	return nil, nil
 end
 
 local function closeRoundDoor(doorModel, generation)
 	local doorContainer = doorModel:FindFirstChild("Door") or doorModel
-	local closed = roundDoorClosedState(doorModel, doorContainer)
+	local closed, stateOwner = roundDoorClosedState(doorModel, doorContainer)
 	if closed == true then
-		return true
+		return true, nil, false
 	end
 	if closed ~= false then
-		return false, "DoorClosed state was unavailable"
+		-- The game's original controller treats a missing DoorClosed value as the
+		-- closed/default state. It only reports false while the door is open.
+		return true, nil, false
 	end
 	local events = Services.ReplicatedStorage:FindFirstChild("Events")
 	local remote = events and events:FindFirstChild("ClientChangeDoorState")
 	if not remote or not remote:IsA("RemoteEvent") then
-		return false, "ClientChangeDoorState RemoteEvent was not found"
+		return false, "ClientChangeDoorState RemoteEvent was not found", false
 	end
 	local doorReference = roundDoorReference(doorContainer) or doorContainer
-	local approaches, center = roundDoorApproaches(doorReference)
+	local _, center = roundDoorApproaches(doorReference)
+	local root = player.Character
+		and player.Character:FindFirstChild("HumanoidRootPart")
+	if not root or not center or (root.Position - center).Magnitude > 10 then
+		return false, "player was not close enough to close the door", false
+	end
+	if not roundActionIsSafe(generation) then
+		return false, roundUnsafeReason(generation), false
+	end
+	beginAutomationMutation(1.5)
+	local fired, fireReason = fireRoundRemote(
+		remote,
+		generation,
+		doorContainer
+	)
+	if not fired then
+		return false, fireReason or "door close remote failed", false
+	end
+	local deadline = os.clock() + 1.5
+	repeat
+		if not roundActionIsSafe(generation) then
+			return false, roundUnsafeReason(generation), true
+		end
+		if stateOwner and stateOwner.Parent then
+			local value = stateOwner:GetAttribute("DoorClosed")
+			closed = typeof(value) == "boolean" and value or nil
+		else
+			closed, stateOwner = roundDoorClosedState(doorModel, doorContainer)
+		end
+		if closed ~= false then
+			doRoundWait(generation, 0.1)
+			return true, nil, true
+		end
+		doRoundWait(
+			generation,
+			math.min(0.05, math.max(0, deadline - os.clock()))
+		)
+	until os.clock() >= deadline
+	return false, "door did not confirm closed", true
+end
+
+local function teleportToRoundDoorPlacementFace(door, generation)
+	local approaches = roundDoorApproaches(door)
+	local lastReason = "no safe door approach was available"
 	for _, approach in ipairs(shuffleRoundList(approaches)) do
 		if not roundActionIsSafe(generation) then
 			return false, roundUnsafeReason(generation)
 		end
-		local teleported = teleportToRoundDoorFace(
-			doorReference,
+		local teleported, teleportReason = teleportToRoundDoorFace(
+			door,
 			approach,
 			generation
 		)
-		local root = player.Character
-			and player.Character:FindFirstChild("HumanoidRootPart")
-		if teleported and root and center
-			and (root.Position - center).Magnitude <= 10 then
-			closed = roundDoorClosedState(doorModel, doorContainer)
-			if closed == true then
-				return true
-			end
-			if closed ~= false then
-				return false, "DoorClosed state became unavailable"
-			end
-			beginAutomationMutation(1.5)
-			local fired, fireReason = fireRoundRemote(
-				remote,
-				generation,
-				doorContainer
-			)
-			if not fired then
-				return false, fireReason or "door close remote failed"
-			end
-			local deadline = os.clock() + 1.5
-			repeat
-				if not roundActionIsSafe(generation) then
-					return false, roundUnsafeReason(generation)
-				end
-				closed = roundDoorClosedState(doorModel, doorContainer)
-				if closed == true then
-					doRoundWait(generation, 0.1)
-					return true
-				end
-				if closed ~= false then
-					return false, "DoorClosed state became unavailable"
-				end
-				doRoundWait(
-					generation,
-					math.min(0.05, math.max(0, deadline - os.clock()))
-				)
-			until os.clock() >= deadline
-			return false, "door did not confirm closed"
+		if not teleported then
+			lastReason = teleportReason or "door-face teleport failed"
+		elseif facePlayerTowardRoundDoor(door) then
+			return true
+		else
+			lastReason = "player could not face the door after teleport"
 		end
 	end
-	return false, "no safe door approach was available for closing"
+	return false, lastReason
 end
 
 local function placeRoundToolsAtDoors(generation)
@@ -1859,12 +1924,13 @@ local function placeRoundToolsAtDoors(generation)
 			local selectedDoor, selectedKey = selectDoor(toolKey, rejectedDoors)
 			if not selectedDoor then
 				doRoundState.completedDoorTools[toolKey] = true
+				local exhaustionReason = toolName
+					.. " still has Uses="
+					.. tostring(uses)
+					.. ", but every distinct non-exit door was already used or rejected"
 				addWarning(
 					toolKey .. ":doors",
-					toolName
-						.. " still has Uses="
-						.. tostring(uses)
-						.. ", but every distinct non-exit door was already used or rejected"
+					exhaustionReason
 				)
 				return true
 			end
@@ -1872,50 +1938,43 @@ local function placeRoundToolsAtDoors(generation)
 			setDoRoundStatus(
 				"Laying " .. toolName .. " (" .. tostring(uses) .. " left)"
 			)
-			local closed, closeReason = closeRoundDoor(selectedDoor, generation)
-			if not closed then
-				if closeReason == "hunt started"
-					or closeReason == "ghost unavailable"
-					or closeReason == "Do-Round cancelled" then
-					return false, closeReason
-				end
-				rejectedDoors[selectedDoor] = true
-				addWarning(
-					toolKey .. ":close:" .. selectedKey,
-					selectedDoor.Name .. " was skipped: " .. tostring(closeReason)
-				)
-				continue
-			end
-			-- Closing can rotate the DoorUnion; resolve all placement geometry again.
 			local doorContainer =
 				selectedDoor:FindFirstChild("Door") or selectedDoor
 			local door = roundDoorReference(doorContainer) or doorContainer
-			local approaches = roundDoorApproaches(door)
 			local placed = false
 			local placementReason
 			local dispatched = false
 			local observedUses
-			for _, approach in ipairs(shuffleRoundList(approaches)) do
-				if not roundActionIsSafe(generation) then
-					return false, roundUnsafeReason(generation)
-				end
-				local teleported, teleportReason = teleportToRoundDoorFace(
-					door,
-					approach,
-					generation
-				)
-				if not teleported then
-					placementReason = teleportReason
-						or "door-face teleport failed"
-				elseif not facePlayerTowardRoundDoor(door) then
-					placementReason =
-						"player could not face the door after teleport"
+			-- Restore the working order: reach and face the door before any optional
+			-- close-state gate can reject it.
+			local approached
+			approached, placementReason =
+				teleportToRoundDoorPlacementFace(door, generation)
+			if approached then
+				local closed, closeReason, geometryChanged =
+					closeRoundDoor(selectedDoor, generation)
+				if not closed then
+					placementReason = closeReason
 				else
-					doRoundWait(generation, 0.1)
-					placed, placementReason, dispatched, observedUses =
-						fireRoundPlaceable(toolName, door, generation)
-					if placed or dispatched then
-						break
+					if closeReason then
+						addWarning(
+							toolKey .. ":close-state:" .. selectedKey,
+							selectedDoor.Name .. ": " .. tostring(closeReason)
+						)
+					end
+					if geometryChanged then
+						-- Closing may rotate DoorUnion. Recalculate and perform one
+						-- local placement-face reposition against the closed door.
+						doorContainer =
+							selectedDoor:FindFirstChild("Door") or selectedDoor
+						door = roundDoorReference(doorContainer) or doorContainer
+						approached, placementReason =
+							teleportToRoundDoorPlacementFace(door, generation)
+					end
+					if approached then
+						doRoundWait(generation, 0.1)
+						placed, placementReason, dispatched, observedUses =
+							fireRoundPlaceable(toolName, door, generation)
 					end
 				end
 			end
