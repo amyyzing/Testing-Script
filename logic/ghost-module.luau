@@ -262,9 +262,9 @@ local Profiles = {
 		note("A feminine model or Spirit Box voice only narrows the ghost to Keres or Siren.", SOURCE.Keres, "wiki-documented", false, "Model"),
 	})),
 	profile("Leviathan", {"GhostOrb", "GhostWriting", "Handprints"}, "wiki-stub", perks({
-		note("Both nearby-equipment flicker and actual light-switch shutoff outside hunts were observed.", SOURCE.Leviathan, "wiki-stub", true, "Ability", "The current wiki recommends observing both because Skinwalker may copy one."),
+		note("A room's light switch shut the lights off while the ghost was not hunting, with no player, automation, or fuse-box outage responsible.", SOURCE.Leviathan, "wiki-stub", true, "Ability"),
 	}, {
-		note("Either nearby-equipment flicker or a light switch turning off outside a hunt was observed.", SOURCE.Leviathan, "wiki-stub", true, "Ability"),
+		note("Nearby equipment produced a clean rapid flicker outside a hunt; by itself this can overlap with Skinwalker mimicry.", SOURCE.Leviathan, "wiki-stub", true, "Ability"),
 	}, {
 		note("A broken fuse box or general power outage is explicitly not the Leviathan tell.", SOURCE.Leviathan, "wiki-stub", true, "Caveat"),
 	})),
@@ -276,7 +276,7 @@ local Profiles = {
 		note("An unexplained noise or general activity in darkness is not enough by itself.", SOURCE.Nightmare, "wiki-documented", true, "Caveat"),
 	})),
 	profile("Oni", {"FreezingTemperatures", "LaserProjector", "SpiritBox"}, "wiki-documented", perks({
-		note("Across repeated hunts it consistently moves at a sprinting player's speed.", SOURCE.Oni, "wiki-documented", false, "Trait", "Speed estimates are safer when compared with a known baseline."),
+		note("Visible hunting WalkSpeed resolves to base 13.5 after removing the map bonus and one valid 50%, 75%, 100%, 125%, 150%, or 200% difficulty multiplier; ordinary ghosts resolve to base 11.", SOURCE.Oni, "wiki-documented", false, "Trait"),
 	}, {
 		note("Rapid or high-pitched footsteps accompany unusually frequent visible manifestations.", SOURCE.Oni, "wiki-documented", false, "Trait"),
 	}, {
