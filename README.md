@@ -38,7 +38,7 @@ from at most eight studs away.
 
 Door placeables use the nearest distinct non-exit door names. Each door is closed
 and allowed to settle before its `DoorUnion` wide face is recalculated. The player
-is held two to three studs in front of that face, looking toward its centre, while
+is held two studs in front of that face, looking toward its centre, while
 the camera and placement preview settle. Salt continues across unique doors until
 `Uses` reaches zero; Holy Oil dispatches once at a different door. Both placement
 previews must remain within two studs of the player, touch valid room bounds, and

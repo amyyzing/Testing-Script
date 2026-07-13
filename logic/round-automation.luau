@@ -43,9 +43,9 @@ local POWERED_ROOM_ITEMS = {
 	["emf reader"] = true,
 }
 local ROUND_HELD_ITEMS = {"Salt Canister", "Holy Oil"}
-local ROUND_DOOR_MAX_PLAYER_DISTANCE = 3
+local ROUND_DOOR_MAX_PLAYER_DISTANCE = 2
 local ROUND_DOOR_MIN_PLAYER_DISTANCE = 2
-local ROUND_DOOR_STAND_DISTANCE = 2.45
+local ROUND_DOOR_STAND_DISTANCE = 2
 local ROUND_PLACEMENT_MAX_PLAYER_DISTANCE = 2
 local ROUND_PICKUP_MAX_DISTANCE = 8
 local ROUND_REMOTE_SAFETY_DELAY = 0.1
@@ -536,7 +536,7 @@ local function roundDoorGeometry(target)
 		thickness = size.X
 	end
 	local maximumDistance = math.min(
-		thickness * 0.5 + 3,
+		thickness * 0.5 + ROUND_DOOR_STAND_DISTANCE,
 		ROUND_DOOR_MAX_PLAYER_DISTANCE
 	)
 	local minimumDistance = math.min(
