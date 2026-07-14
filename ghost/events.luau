@@ -29,7 +29,6 @@ Events.Types = {
 Events.CompatibilityAliases = {
 	DullahanPattern = {"HuntSpeedSteps"},
 	DullahanPatternAbsent = {"HuntSpeedStepsAbsent"},
-	PhantomPattern = {"BlinkSpeedPattern"},
 	FlatHuntSpeed = {"StableHuntSpeed"},
 	HuntSpeedMathResult = {"HuntingSpeedMath"},
 	WendigoCurveResult = {"SanitySpeedCurve"},

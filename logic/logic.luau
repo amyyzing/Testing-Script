@@ -148,7 +148,6 @@ local ghostProxyDirty = false
 local ghostProxyAddedConnection
 local ghostProxyRemovingConnection
 local observeWalkSpeedChange = function() end
-local analyzePhantom = function() end
 local SALT_PLACEMENT_GRACE = 4
 local perkTrackerState = {
 	ghost = nil,
@@ -175,18 +174,6 @@ local perkTrackerState = {
 	motionSamples = {},
 	losSamples = {},
 	energySamples = {},
-	transparencyTransitions = {},
-	transparencyIntervals = {},
-	lastTransparencyState = nil,
-	lastTransparencyTransitionTime = nil,
-	phantomPatternHunts = 0,
-	phantomNoPatternHunts = 0,
-	phantomPatternRecordedThisHunt = false,
-	phantomQualifiedCyclesThisHunt = 0,
-	phantomMatchedCyclesThisHunt = 0,
-	phantomContradictoryCyclesThisHunt = 0,
-	phantomMimicrySkinwalkerClue = false,
-	phantomMimicryPreviousSkinwalkerDetection = nil,
 	vexLastValue = nil,
 	updateVexState = function() end,
 	wendigoSnapshots = {},
@@ -199,7 +186,6 @@ local perkTrackerState = {
 	wispRoomMismatchSamples = 0,
 	wispRoomNegativeRecordedThisHunt = false,
 	nonHuntWalkSpeedSamples = {},
-	transparencyAttributeConnection = nil,
 	specterInitialized = false,
 	specterInFavourite = false,
 	specterEntryAt = nil,
@@ -2902,29 +2888,6 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 	perkTrackerState.motionSamples = {}
 	perkTrackerState.losSamples = {}
 	perkTrackerState.energySamples = {}
-	if perkTrackerState.transparencyAttributeConnection then
-		local connection = perkTrackerState.transparencyAttributeConnection
-		connection:Disconnect()
-		local index = table.find(connections, connection)
-		if index then
-			table.remove(connections, index)
-		end
-		perkTrackerState.transparencyAttributeConnection = nil
-	end
-	perkTrackerState.transparencyTransitions = {}
-	perkTrackerState.transparencyIntervals = {}
-	perkTrackerState.lastTransparencyState = nil
-	perkTrackerState.lastTransparencyTransitionTime = nil
-	if not preserveFindings then
-		perkTrackerState.phantomPatternHunts = 0
-		perkTrackerState.phantomNoPatternHunts = 0
-		perkTrackerState.phantomMimicrySkinwalkerClue = false
-		perkTrackerState.phantomMimicryPreviousSkinwalkerDetection = nil
-		perkTrackerState.phantomPatternRecordedThisHunt = false
-	end
-	perkTrackerState.phantomQualifiedCyclesThisHunt = 0
-	perkTrackerState.phantomMatchedCyclesThisHunt = 0
-	perkTrackerState.phantomContradictoryCyclesThisHunt = 0
 	perkTrackerState.vexLastValue = nil
 	perkTrackerState.wendigoSnapshots = {}
 	perkTrackerState.wendigoPendingTransitions = {}
@@ -2961,47 +2924,6 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 						os.clock()
 					)
 				end
-			end
-		)
-		local initialTransparency = ghost:GetAttribute("Transparency")
-		if typeof(initialTransparency) == "boolean" then
-			perkTrackerState.lastTransparencyState = initialTransparency
-		elseif typeof(initialTransparency) == "number" then
-			perkTrackerState.lastTransparencyState = initialTransparency >= 0.5
-		end
-		perkTrackerState.transparencyAttributeConnection = connect(
-			ghost:GetAttributeChangedSignal("Transparency"),
-			function()
-				if closed or perkTrackerState.ghost ~= ghost then
-					return
-				end
-				local value = ghost:GetAttribute("Transparency")
-				local invisible
-				if typeof(value) == "boolean" then
-					invisible = value
-				elseif typeof(value) == "number" then
-					invisible = value >= 0.5
-				else
-					return
-				end
-				if perkTrackerState.lastTransparencyState == nil then
-					perkTrackerState.lastTransparencyState = invisible
-					return
-				end
-				if invisible == perkTrackerState.lastTransparencyState then
-					return
-				end
-				local transitionTime = os.clock()
-				local previousTime = perkTrackerState.lastTransparencyTransitionTime
-				if previousTime and transitionTime - previousTime > 0.03 then
-					table.insert(perkTrackerState.transparencyIntervals, {
-						Time = transitionTime,
-						Interval = transitionTime - previousTime,
-					})
-				end
-				table.insert(perkTrackerState.transparencyTransitions, transitionTime)
-				perkTrackerState.lastTransparencyTransitionTime = transitionTime
-				perkTrackerState.lastTransparencyState = invisible
 			end
 		)
 		task.defer(function()
@@ -4078,17 +4000,7 @@ local function handleHuntTransition(ghost, hunting, now)
 		perkTrackerState.sirenLosExposure = 0
 		perkTrackerState.sirenSlowObservedThisHunt = false
 		perkTrackerState.motionSamples = {}
-		perkTrackerState.transparencyTransitions = {}
-		perkTrackerState.transparencyIntervals = {}
-		perkTrackerState.lastTransparencyTransitionTime = nil
-		perkTrackerState.phantomPatternRecordedThisHunt = false
-		perkTrackerState.phantomQualifiedCyclesThisHunt = 0
-		perkTrackerState.phantomMatchedCyclesThisHunt = 0
-		perkTrackerState.phantomContradictoryCyclesThisHunt = 0
 	elseif not hunting and previous then
-		if not ghostCoordinator then
-			analyzePhantom(now, true)
-		end
 		perkTrackerState.huntStartedAt = nil
 		if not ghostCoordinator then
 			if perkTrackerState.dullahanPatternDetected
@@ -4236,300 +4148,6 @@ local function updateWispOffFavouriteNegative(ghost, hunting, now)
 			CurrentRoom = currentRoom.Name,
 			Source = "RoomBoundsCollector",
 		})
-	end
-end
-analyzePhantom = function(now, huntEnded)
-	local ghost = perkTrackerState.ghost
-	if not ghost then
-		return
-	end
-	local function recordPattern(reason, confidence)
-		local previousPhantom = perkDetections.Phantom
-		local previousPhantomConfidence = previousPhantom
-			and previousPhantom.Confidence
-		local previousPhantomReason = previousPhantom
-			and previousPhantom.Reason
-		local previousSkinwalker = perkDetections.Skinwalker
-		local previousSkinwalkerConfidence = previousSkinwalker
-			and previousSkinwalker.Confidence
-		local previousSkinwalkerReason = previousSkinwalker
-			and previousSkinwalker.Reason
-		perkTrackerState.clearGhostRuleOut("Phantom")
-		recordPerkDetection("Phantom", reason, confidence)
-		if perkTrackerState.evidenceMode == "Mimicry"
-			and not perkTrackerState.isGhostRuledOut("Skinwalker") then
-			local mimicReason =
-				"Mimicry mode: Skinwalker can copy the observed Phantom blinking and invisible-speed trait"
-			if previousSkinwalker
-				and previousSkinwalkerReason ~= mimicReason
-				and confidence > (previousSkinwalkerConfidence or 0)
-				and not perkTrackerState.phantomMimicryPreviousSkinwalkerDetection then
-				perkTrackerState.phantomMimicryPreviousSkinwalkerDetection =
-					table.clone(previousSkinwalker)
-			end
-			if not previousSkinwalker
-				or previousSkinwalkerReason == mimicReason
-				or confidence > (previousSkinwalkerConfidence or 0) then
-				recordPerkDetection(
-					"Skinwalker",
-					mimicReason,
-					confidence
-				)
-			end
-			local mimicDetection = perkDetections.Skinwalker
-			if mimicDetection and mimicDetection.Reason == mimicReason then
-				perkTrackerState.phantomMimicrySkinwalkerClue = true
-			end
-		end
-		local currentPhantom = perkDetections.Phantom
-		local currentSkinwalker = perkDetections.Skinwalker
-		if (currentPhantom and (
-			currentPhantom.Confidence ~= previousPhantomConfidence
-				or currentPhantom.Reason ~= previousPhantomReason
-		)) or (currentSkinwalker and (
-			currentSkinwalker.Confidence ~= previousSkinwalkerConfidence
-				or currentSkinwalker.Reason ~= previousSkinwalkerReason
-		)) then
-			updateGhostIdentification(ghost)
-		end
-	end
-
-	local replicatedBlinkSpeed = readReplicatedGhostValue(
-		ghost,
-		"WalkSpeedWhileBlinking"
-	)
-	if typeof(replicatedBlinkSpeed) == "number"
-		and math.abs(replicatedBlinkSpeed - 13.5) <= 0.05 then
-		recordPattern(
-			"the replicated WalkSpeedWhileBlinking flag was exactly 13.5",
-			99
-		)
-		return
-	end
-
-	local samples = {}
-	for _, sample in ipairs(perkTrackerState.motionSamples) do
-		if sample.Hunting
-			and typeof(sample.GhostWalkSpeed) == "number"
-			and sample.GhostWalkSpeed > 0
-			and typeof(sample.Invisible) == "boolean" then
-			table.insert(samples, sample)
-		end
-	end
-	if #samples < 4 then
-		return
-	end
-
-	local runs = {}
-	for _, sample in ipairs(samples) do
-		local run = runs[#runs]
-		if not run or run.Invisible ~= sample.Invisible then
-			if run then
-				run.EndTime = sample.Time
-			end
-			run = {
-				Invisible = sample.Invisible,
-				StartTime = sample.Time,
-				EndTime = nil,
-				Samples = {},
-			}
-			table.insert(runs, run)
-		end
-		table.insert(run.Samples, sample)
-	end
-	local lastRun = runs[#runs]
-	if lastRun and now - lastRun.StartTime >= 0.18 then
-		lastRun.EndTime = now
-	end
-
-	local function stablePhaseSpeed(run)
-		if not run or not run.EndTime
-			or run.EndTime - run.StartTime < 0.15 then
-			return nil
-		end
-		local speeds = {}
-		for _, sample in ipairs(run.Samples) do
-			if sample.Time >= run.StartTime
-				and sample.Time <= run.EndTime then
-				table.insert(speeds, sample.GhostWalkSpeed)
-			end
-		end
-		if #speeds < 2 then
-			return nil
-		end
-		local phaseMedian = median(speeds)
-		if not phaseMedian
-			or standardDeviation(speeds)
-				> math.max(0.12, phaseMedian * 0.02) then
-			return nil
-		end
-		return phaseMedian
-	end
-
-	local absoluteQualified = 0
-	local absoluteMatched = 0
-	local matchedVisibleSpeed
-	local matchedInvisibleSpeed
-	local matchedMultiplier
-	local mapFactor = getMapSizeSpeedFactor()
-	for index, invisibleRun in ipairs(runs) do
-		if not invisibleRun.Invisible then
-			continue
-		end
-		local invisibleSpeed = stablePhaseSpeed(invisibleRun)
-		local adjacentVisibleSpeeds = {}
-		for _, adjacentIndex in ipairs({index - 1, index + 1}) do
-			local visibleRun = runs[adjacentIndex]
-			if visibleRun and not visibleRun.Invisible then
-				local visibleSpeed = stablePhaseSpeed(visibleRun)
-				if visibleSpeed then
-					table.insert(adjacentVisibleSpeeds, visibleSpeed)
-				end
-			end
-		end
-		local visibleSpeed = median(adjacentVisibleSpeeds)
-		if not visibleSpeed or not invisibleSpeed then
-			continue
-		end
-		absoluteQualified = absoluteQualified + 1
-		local expectedVisible, visibleError, multiplier =
-			closestConfiguredBaseSpeed(visibleSpeed, 11)
-		local expectedInvisible = multiplier
-			and 13.5 * mapFactor * multiplier
-		local ratio = invisibleSpeed / visibleSpeed
-		if expectedVisible and expectedInvisible and multiplier
-			and visibleError <= math.max(0.15, expectedVisible * 0.025)
-			and math.abs(invisibleSpeed - expectedInvisible)
-				<= math.max(0.18, expectedInvisible * 0.025)
-			and math.abs(ratio - (13.5 / 11)) <= 0.04 then
-			absoluteMatched = absoluteMatched + 1
-			matchedVisibleSpeed = visibleSpeed
-			matchedInvisibleSpeed = invisibleSpeed
-			matchedMultiplier = multiplier
-		end
-	end
-	if absoluteMatched >= 1 then
-		perkTrackerState.phantomQualifiedCyclesThisHunt = absoluteQualified
-		perkTrackerState.phantomMatchedCyclesThisHunt = absoluteMatched
-		perkTrackerState.phantomContradictoryCyclesThisHunt = 0
-		if not perkTrackerState.phantomPatternRecordedThisHunt then
-			perkTrackerState.phantomPatternRecordedThisHunt = true
-			perkTrackerState.phantomPatternHunts =
-				perkTrackerState.phantomPatternHunts + 1
-		end
-		local confidence = perkTrackerState.phantomPatternHunts >= 2
-			and 99
-			or 95
-		recordPattern(
-			"a stable visible/invisible hunt pair matched the map-scaled Phantom speeds ("
-				.. string.format("%.2f", matchedVisibleSpeed)
-				.. " visible, "
-				.. string.format("%.2f", matchedInvisibleSpeed)
-				.. " invisible, "
-				.. string.format("%.2fx", matchedMultiplier)
-				.. " configured speed)",
-			confidence
-		)
-		return
-	end
-	if #runs < 3 then
-		return
-	end
-
-	local function stableRunSpeed(run)
-		if not run or not run.EndTime
-			or run.EndTime - run.StartTime < 0.35 then
-			return nil
-		end
-		local speeds = {}
-		for _, sample in ipairs(run.Samples) do
-			if sample.Time >= run.StartTime + 0.12
-				and sample.Time <= run.EndTime - 0.08 then
-				table.insert(speeds, sample.GhostWalkSpeed)
-			end
-		end
-		if #speeds < 2 then
-			return nil
-		end
-		return median(speeds)
-	end
-
-	local qualified = 0
-	local matched = 0
-	local contradictory = 0
-	local matchedRatios = {}
-	local invisibleDurations = {}
-	for index = 2, #runs - 1 do
-		local invisibleRun = runs[index]
-		local beforeRun = runs[index - 1]
-		local afterRun = runs[index + 1]
-		if invisibleRun.Invisible
-			and not beforeRun.Invisible
-			and not afterRun.Invisible then
-			local beforeSpeed = stableRunSpeed(beforeRun)
-			local invisibleSpeed = stableRunSpeed(invisibleRun)
-			local afterSpeed = stableRunSpeed(afterRun)
-			if beforeSpeed and invisibleSpeed and afterSpeed then
-				local visibleBaseline = median({beforeSpeed, afterSpeed})
-				if visibleBaseline and visibleBaseline > 0 then
-					local ratio = invisibleSpeed / visibleBaseline
-					qualified = qualified + 1
-					table.insert(
-						invisibleDurations,
-						invisibleRun.EndTime - invisibleRun.StartTime
-					)
-					if ratio >= 1.15 and ratio <= 1.4 then
-						matched = matched + 1
-						table.insert(matchedRatios, ratio)
-					elseif ratio <= 1.06 then
-						contradictory = contradictory + 1
-					end
-				end
-			end
-		end
-	end
-	perkTrackerState.phantomQualifiedCyclesThisHunt = qualified
-	perkTrackerState.phantomMatchedCyclesThisHunt = matched
-	perkTrackerState.phantomContradictoryCyclesThisHunt = contradictory
-
-	if matched >= 3
-		and matched / math.max(qualified, 1) >= 0.75
-		and contradictory <= 1 then
-		if not perkTrackerState.phantomPatternRecordedThisHunt then
-			perkTrackerState.phantomPatternRecordedThisHunt = true
-			perkTrackerState.phantomPatternHunts =
-				perkTrackerState.phantomPatternHunts + 1
-		end
-		local ratio = median(matchedRatios) or (13.5 / 11)
-		local invisibleDuration = median(invisibleDurations)
-		local confidence = perkTrackerState.phantomPatternHunts >= 2
-			and 99
-			or 95
-		recordPattern(
-			"three complete visible-invisible-visible hunt cycles showed invisible WalkSpeed about "
-				.. tostring(math.floor((ratio - 1) * 100 + 0.5))
-				.. "% faster than the adjacent visible baseline"
-				.. (invisibleDuration
-					and (", with a median invisible interval of "
-						.. string.format("%.2f", invisibleDuration)
-						.. "s")
-					or ""),
-			confidence
-		)
-	elseif huntEnded and qualified >= 3
-		and contradictory == qualified then
-		perkTrackerState.phantomNoPatternHunts =
-			perkTrackerState.phantomNoPatternHunts + 1
-		if perkTrackerState.phantomNoPatternHunts >= 2
-			and perkTrackerState.phantomPatternHunts == 0 then
-			clearPerkDetection("Phantom")
-			perkTrackerState.ruleOutGhost(
-				"Phantom",
-				"two completed hunts each contained three mature blink cycles with no invisible-linked WalkSpeed increase",
-				90
-			)
-			updateGhostIdentification(ghost)
-		end
 	end
 end
 perkTrackerState.analyzeSpecter = function(
@@ -6826,24 +6444,6 @@ local function updateObservablePerkTrackers(deltaTime)
 		roomLit, roomName = getGhostRoomLightingState(ghost)
 	end
 	local lightingKey = lightingContextKey(roomName, roomLit)
-	if invisible ~= nil then
-		if perkTrackerState.lastTransparencyState == nil then
-			perkTrackerState.lastTransparencyState = invisible
-		elseif invisible ~= perkTrackerState.lastTransparencyState then
-			local previousTransition = perkTrackerState.lastTransparencyTransitionTime
-			if not previousTransition or now - previousTransition > 0.03 then
-				if previousTransition then
-					table.insert(perkTrackerState.transparencyIntervals, {
-						Time = now,
-						Interval = now - previousTransition,
-					})
-				end
-				table.insert(perkTrackerState.transparencyTransitions, now)
-				perkTrackerState.lastTransparencyTransitionTime = now
-			end
-			perkTrackerState.lastTransparencyState = invisible
-		end
-	end
 	local ghostHumanoid = ghost:FindFirstChildOfClass("Humanoid")
 	local sample = {
 		Time = now,
@@ -6885,7 +6485,6 @@ local function updateObservablePerkTrackers(deltaTime)
 		perkTrackerState.analysisAccumulator = 0
 		perkTrackerState.analyzeSpecter(ghost, hunting, measuredSpeed, now)
 		if hunting and not ghostCoordinator then
-			analyzePhantom(now)
 			analyzeOni(now)
 		end
 		if not ghostCoordinator then
@@ -9995,21 +9594,6 @@ function Controller:SetEvidenceMode(mode)
 	end
 	perkTrackerState.evidenceMode = mode
 	if mode == "Normal" then
-		local skinwalkerDetection = perkDetections.Skinwalker
-		if skinwalkerDetection
-			and skinwalkerDetection.Reason
-				== "Mimicry mode: Skinwalker can copy the observed Phantom blinking and invisible-speed trait" then
-			local previous =
-				perkTrackerState.phantomMimicryPreviousSkinwalkerDetection
-			if previous then
-				perkDetections.Skinwalker = previous
-				refreshPerkLogs()
-			else
-				clearPerkDetection("Skinwalker")
-			end
-		end
-		perkTrackerState.phantomMimicrySkinwalkerClue = false
-		perkTrackerState.phantomMimicryPreviousSkinwalkerDetection = nil
 		perkTrackerState.updateOrbEvidence()
 	end
 	updateGhostIdentification(getGhostModel())

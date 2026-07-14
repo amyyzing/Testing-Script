@@ -15,7 +15,7 @@ local function createObserver(api)
 	function observer:OnEvent(event)
 		if state.Destroyed or type(event) ~= "table" then return false end
 		local kind = event.Type or event.Kind
-		if kind ~= "HuntSpeedSteps" and kind ~= "BlinkSpeedPattern"
+		if kind ~= "HuntSpeedSteps"
 			and kind ~= "DullahanPattern" and kind ~= "DullahanPatternAbsent" then return false end
 		if api and type(api.Record) == "function" then api:Record(NAME, event) end
 		if kind ~= "DullahanPatternAbsent"
@@ -36,7 +36,7 @@ local function createObserver(api)
 		if kind == "DullahanPatternAbsent" then
 			if state.Matched then return true end
 			state.Matched = false
-			conclude("RuleOut", event.Reason or "the seven unequal values formed a stable Phantom/flat phase pattern, or one pair repeated", 99, event)
+			conclude("RuleOut", event.Reason or "the seven local pairs matched Phantom, were flat, or included an equal pair", 99, event)
 		elseif kind == "DullahanPattern" or different >= minimum then
 			state.Matched = true
 			conclude("Positive", event.Reason or "all seven settled hunt-speed pairs contained two different values", 99, event)
@@ -56,7 +56,7 @@ end
 return {
 	Name = NAME,
 	Evidence = {"FreezingTemperatures", "LaserProjector", "Wither"},
-	ObservationEvents = {"HuntSpeedSteps", "BlinkSpeedPattern", "DullahanPattern", "DullahanPatternAbsent"},
-	Perks = { ["Pretty Sure"] = {"Both values differ in every one of seven settled visible/invisible pairs; direction and difference size do not matter."}, Maybe = {}, Idk = {"A repeating seven-pair Phantom or flat Normal/Oni pattern rules Dullahan out immediately; fewer than seven pairs are insufficient."} },
+	ObservationEvents = {"HuntSpeedSteps", "DullahanPattern", "DullahanPatternAbsent"},
+	Perks = { ["Pretty Sure"] = {"Both values differ in every one of seven settled visible/invisible pairs; direction and difference size do not matter."}, Maybe = {}, Idk = {"Seven local Phantom-ratio pairs or seven equal Normal/Oni pairs rule Dullahan out immediately; fewer than seven pairs are insufficient."} },
 	CreateObserver = createObserver,
 }

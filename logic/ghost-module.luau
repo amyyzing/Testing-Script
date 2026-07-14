@@ -228,7 +228,7 @@ local Profiles = {
 		note("A clear Photo Camera image shows it without a head.", SOURCE.Dullahan, "wiki-documented", false, "Weakness"),
 		note("Across seven settled visible/invisible pairs during one hunt, both WalkSpeed values differ in every pair; direction and difference size do not matter.", SOURCE.Dullahan, "user-observed", false, "Trait"),
 	}, {
-		note("Seven stable repeating phase pairs instead resolve through Phantom or flat Normal/Oni math and rule Dullahan out immediately.", SOURCE.Dullahan, "user-observed", false, "RuleOut"),
+		note("Seven local pairs matching the Phantom ratio, or seven equal pairs matching flat Normal/Oni math, rule Dullahan out immediately.", SOURCE.Dullahan, "user-observed", false, "RuleOut"),
 	}, {
 		note("Fewer than seven complete settled pairs are insufficient; an incomplete hunt does not create a Dullahan negative.", SOURCE.Dullahan, "user-observed", false, "Caveat"),
 	})),
