@@ -3114,6 +3114,19 @@ local function finishRoundWithGhost(
 	generation,
 	finalPhase
 )
+	if doRoundState.completionGhost then
+		ghostName = doRoundState.completionGhost
+		confidence = doRoundState.completionScore or confidence
+		certain = doRoundState.completionCertain == true
+	else
+		doRoundState.completionGhost = ghostName
+		doRoundState.completionScore = confidence
+		doRoundState.completionCertain = certain == true
+	end
+	-- Lock the final choice before any journal or tracker yield. Background
+	-- identification refreshes must not replace a low-confidence timeout choice
+	-- with the earlier multi-candidate label while completion is in progress.
+	perkTrackerState.journalForcedGhost = ghostName
 	perkTrackerState.currentGhostGuess = ghostName
 	perkTrackerState.currentGhostGuessScore = confidence
 	perkTrackerState.currentGhostGuessCertain = certain == true
@@ -3133,6 +3146,21 @@ local function finishRoundWithGhost(
 		task.wait(0.2)
 	end
 	return false, "Do-Round cancelled before lobby return"
+end
+
+local function cancelDoRoundSetupWork()
+	if roomItemPlacementState.busy
+		and roomItemPlacementState.owner == "DoRound" then
+		roomItemPlacementState.generation =
+			roomItemPlacementState.generation + 1
+		roomItemPlacementState.busy = false
+		roomItemPlacementState.thread = nil
+		roomItemPlacementState.owner = nil
+		placeRoomItemsButton.Text = COPY.Controls.PlaceRoomItems
+		placeRoomItemsButton.BackgroundColor3 = COLORS.cardHover
+	end
+	doRoundState.questionsActive = false
+	releaseRoundMovement()
 end
 
 local function finishTimedRound(generation)
@@ -3380,8 +3408,8 @@ local function startRoundIdentificationWatchdog(generation)
 				local completionGeneration = doRoundState.generation
 				doRoundState.identificationThread = nil
 				doRoundState.timeoutThread = nil
-				doRoundState.questionsActive = false
-				releaseRoundMovement()
+				cancelDoRoundSetupWork()
+				setDoRoundStatus("Identified; skipping setup")
 				while doRoundOperationActive(completionGeneration) do
 					local completedCall, completed, completionFailure = xpcall(
 						function()
@@ -3430,8 +3458,7 @@ local function startRoundTimeoutWatchdog(generation)
 		doRoundState.generation = doRoundState.generation + 1
 		local completionGeneration = doRoundState.generation
 		doRoundState.timeoutThread = nil
-		doRoundState.questionsActive = false
-		releaseRoundMovement()
+		cancelDoRoundSetupWork()
 		while doRoundOperationActive(completionGeneration) do
 			local completedCall, completed, completionFailure = xpcall(
 				function()
@@ -3484,6 +3511,9 @@ setEnabled = function(enabled, finalPhase)
 		doRoundState.startedAt = os.clock()
 		doRoundState.exitOpenedAt = nil
 		doRoundState.completionClaimed = false
+		doRoundState.completionGhost = nil
+		doRoundState.completionScore = nil
+		doRoundState.completionCertain = nil
 		doRoundState.lastElapsed = 0
 		doRoundState.phase = "Checking ghost room"
 		doRoundState.roundMap = nil
@@ -3571,6 +3601,9 @@ setEnabled = function(enabled, finalPhase)
 		doRoundState.timeoutThread = nil
 		doRoundState.identificationThread = nil
 		doRoundState.completionClaimed = false
+		doRoundState.completionGhost = nil
+		doRoundState.completionScore = nil
+		doRoundState.completionCertain = nil
 		doRoundState.startedAt = nil
 		doRoundState.exitOpenedAt = nil
 		doRoundState.roundMap = nil

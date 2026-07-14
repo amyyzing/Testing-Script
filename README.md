@@ -118,14 +118,18 @@ distance reference.
 The rest of the d906 flow remains recognizable: prepare configured room items,
 open an exit, ask Spirit Box questions from the favourite room, escape active
 hunts, and maintain displaced or stably-disabled equipment. A Pretty Sure/Certain
-single-ghost identification is selected immediately regardless of hunt state;
-automation teleports to and verifies Base Camp, then fires `RequestReturnToLobby`
-without waiting for the hunt to end. Otherwise, after three minutes the timer
+single-ghost identification is selected immediately regardless of hunt state. If
+it arrives during setup, the room-item worker, door work, and remaining pre-round
+steps are cancelled before automation moves directly to the end path. Automation
+teleports to and verifies Base Camp, then fires `RequestReturnToLobby` without
+waiting for the hunt to end. Otherwise, after three minutes the timer
 watchdog cancels any unfinished setup or maintenance work, selects a
 highest-confidence ghost, performs the same verified Base Camp return, and keeps
 firing `RequestReturnToLobby` once every four seconds until `LocalPlayer.OnTeleport`
 confirms the lobby teleport has begun. Neither completion path waits for a hunt
-to end.
+to end. A final low-confidence timeout choice is locked while returning, so normal
+tracker refreshes cannot flicker the label between that choice and its earlier
+multi-ghost `Idk` candidate list.
 
 Modules are plain remote chunks: each returns a table or factory, and the bootstrap injects dependencies explicitly. The ghost catalog never deletes its source records; candidate lists are derived so a reset or evidence-mode change can restore ruled-out ghosts.
 

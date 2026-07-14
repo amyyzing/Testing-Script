@@ -98,6 +98,9 @@ local doRoundState = {
 	timeoutThread = nil,
 	identificationThread = nil,
 	completionClaimed = false,
+	completionGhost = nil,
+	completionScore = nil,
+	completionCertain = nil,
 	startedAt = nil,
 	exitOpenedAt = nil,
 	lastElapsed = 0,
@@ -1123,6 +1126,26 @@ perkTrackerState.resolveTeleportEvidence = function(confirmed)
 	return nil
 end
 local function updateGhostIdentification(ghost)
+	local forcedGhost = perkTrackerState.journalForcedGhost
+	if type(forcedGhost) == "string"
+		and forcedGhost ~= ""
+		and not string.find(forcedGhost, "/", 1, true)
+		and findGhostProfile(forcedGhost) then
+		local forcedScore = math.max(
+			1,
+			tonumber(perkTrackerState.currentGhostGuessScore) or 0
+		)
+		perkTrackerState.currentGhostGuess = forcedGhost
+		perkTrackerState.currentGhostGuessScore = forcedScore
+		setGhostIdentificationLabel(
+			forcedGhost,
+			forcedScore,
+			perkTrackerState.currentGhostGuessCertain == true
+		)
+		perkTrackerState.updateEvidenceStatuses()
+		perkTrackerState.syncJournal()
+		return
+	end
 	local evidenceGhost = identifyGhostFromEvidence()
 	if evidenceGhost then
 		perkTrackerState.currentGhostGuess = evidenceGhost
