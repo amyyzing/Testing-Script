@@ -3130,6 +3130,14 @@ local function finishRoundWithGhost(
 	perkTrackerState.currentGhostGuess = ghostName
 	perkTrackerState.currentGhostGuessScore = confidence
 	perkTrackerState.currentGhostGuessCertain = certain == true
+	if presenter and presenter.SetGhostIdentificationLock then
+		local _, tierName = GhostModule.ConfidenceTier(confidence)
+		presenter:SetGhostIdentificationLock(
+			ghostName,
+			tierName,
+			certain == true
+		)
+	end
 	setGhostIdentificationLabel(ghostName, confidence, certain == true)
 	while doRoundOperationActive(generation) do
 		setDoRoundStatus("Selecting ghost guess")
@@ -3498,6 +3506,9 @@ setEnabled = function(enabled, finalPhase)
 	doRoundState.enabled = enabled
 	if enabled then
 		perkTrackerState.journalForcedGhost = nil
+		if presenter and presenter.SetGhostIdentificationLock then
+			presenter:SetGhostIdentificationLock(nil)
+		end
 		for _, power in pairs(doRoundState.itemPower) do
 			if power.Connection and power.Connection.Connected then
 				power.Connection:Disconnect()
@@ -3566,6 +3577,9 @@ setEnabled = function(enabled, finalPhase)
 			runDoRound(generation)
 		end)
 	else
+		if presenter and presenter.SetGhostIdentificationLock then
+			presenter:SetGhostIdentificationLock(nil)
+		end
 		for _, power in pairs(doRoundState.itemPower) do
 			if power.Connection and power.Connection.Connected then
 				power.Connection:Disconnect()

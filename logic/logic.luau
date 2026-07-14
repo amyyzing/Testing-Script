@@ -98,9 +98,6 @@ local doRoundState = {
 	timeoutThread = nil,
 	identificationThread = nil,
 	completionClaimed = false,
-	completionGhost = nil,
-	completionScore = nil,
-	completionCertain = nil,
 	startedAt = nil,
 	exitOpenedAt = nil,
 	lastElapsed = 0,
@@ -1126,12 +1123,6 @@ perkTrackerState.resolveTeleportEvidence = function(confirmed)
 	return nil
 end
 local function updateGhostIdentification(ghost)
-	-- Completion owns the displayed and journal-selected ghost. Tracker events can
-	-- still arrive while the lobby-return path is yielding, but they must not
-	-- rebuild a lower-confidence or multi-candidate guess during that interval.
-	if doRoundState.completionClaimed and doRoundState.completionGhost then
-		return
-	end
 	local evidenceGhost = identifyGhostFromEvidence()
 	if evidenceGhost then
 		perkTrackerState.currentGhostGuess = evidenceGhost

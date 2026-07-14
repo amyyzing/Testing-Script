@@ -30,6 +30,7 @@ function GuiLogic.new(dependencies)
 	self.PerkLogOpen = false
 	self.PerkLogDrawerTween = nil
 	self.PerkLogTabTween = nil
+	self.GhostIdentificationLock = nil
 	return self
 end
 
@@ -108,6 +109,12 @@ function GuiLogic:SetSpeed(value)
 end
 
 function GuiLogic:SetGhostIdentification(ghostName, tier, certain)
+	local locked = self.GhostIdentificationLock
+	if locked then
+		ghostName = locked.GhostName
+		tier = locked.Tier
+		certain = locked.Certain
+	end
 	local label = self.View.EvidenceLabels.Ghost
 	if not ghostName then
 		label.Text = self.View.Copy.Evidence.Ghost .. ": Unknown (" .. self.View.Copy.States.Idk .. ")"
@@ -136,6 +143,19 @@ function GuiLogic:SetGhostIdentification(ghostName, tier, certain)
 		.. tostring(tier or self.View.Copy.States.Idk)
 		.. ")"
 	label.TextColor3 = colorsByTier[tier] or self.View.Colors.muted
+end
+
+function GuiLogic:SetGhostIdentificationLock(ghostName, tier, certain)
+	if type(ghostName) == "string" and ghostName ~= "" then
+		self.GhostIdentificationLock = {
+			GhostName = ghostName,
+			Tier = tier,
+			Certain = certain == true,
+		}
+		self:SetGhostIdentification(ghostName, tier, certain)
+	else
+		self.GhostIdentificationLock = nil
+	end
 end
 
 function GuiLogic:SetFavouriteRoom(roomName)
