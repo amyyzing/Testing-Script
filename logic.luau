@@ -7,9 +7,77 @@ end
 local BASE_URL = "https://raw.githubusercontent.com/amyyzing/Testing-Script/main/"
 local RUN_VERSION = tostring(os.time())
 local environment = (getgenv and getgenv()) or _G
-local rememberedLobbySettings = type(environment.DemonologyLobbySettings) == "table"
+local HttpService = game:GetService("HttpService")
+local SETTINGS_DIRECTORY = "DemonologyAssistant"
+local SETTINGS_FILE = SETTINGS_DIRECTORY .. "/Settings.json"
+
+local function executorApi(name)
+	if type(environment[name]) == "function" then
+		return environment[name]
+	end
+	for _, namespaceName in ipairs({"syn", "fluxus", "krnl"}) do
+		local namespace = environment[namespaceName]
+		if type(namespace) == "table" and type(namespace[name]) == "function" then
+			return namespace[name]
+		end
+	end
+	return nil
+end
+
+local executorFiles = {
+	IsFile = executorApi("isfile"),
+	IsFolder = executorApi("isfolder"),
+	MakeFolder = executorApi("makefolder"),
+	ReadFile = executorApi("readfile"),
+	WriteFile = executorApi("writefile"),
+}
+
+local function readSettingsFile()
+	if type(executorFiles.ReadFile) ~= "function" then
+		return nil
+	end
+	if type(executorFiles.IsFile) == "function" then
+		local checked, exists = pcall(executorFiles.IsFile, SETTINGS_FILE)
+		if not checked or not exists then
+			return nil
+		end
+	end
+	local read, source = pcall(executorFiles.ReadFile, SETTINGS_FILE)
+	if not read or type(source) ~= "string" or source == "" then
+		return nil
+	end
+	local decoded, settings = pcall(HttpService.JSONDecode, HttpService, source)
+	if decoded and type(settings) == "table" then
+		return settings
+	end
+	return nil
+end
+
+local fileLobbySettings = readSettingsFile()
+local memoryLobbySettings = type(environment.DemonologyLobbySettings) == "table"
 	and environment.DemonologyLobbySettings
-	or {}
+	or nil
+local rememberedLobbySettings = {}
+for key, value in pairs(fileLobbySettings or {}) do
+	rememberedLobbySettings[key] = value
+end
+for key, value in pairs(memoryLobbySettings or {}) do
+	rememberedLobbySettings[key] = value
+end
+if type(fileLobbySettings) == "table"
+	and type(fileLobbySettings.Challenges) == "table"
+	and type(memoryLobbySettings) == "table"
+	and type(memoryLobbySettings.Challenges) == "table" then
+	rememberedLobbySettings.Challenges = {}
+	for index = 1, 3 do
+		local memoryValue = memoryLobbySettings.Challenges[index]
+		if type(memoryValue) == "boolean" then
+			rememberedLobbySettings.Challenges[index] = memoryValue
+		else
+			rememberedLobbySettings.Challenges[index] = fileLobbySettings.Challenges[index]
+		end
+	end
+end
 local autoEnabled
 if type(requestedAuto) == "boolean" then
 	autoEnabled = requestedAuto
@@ -62,6 +130,7 @@ local Services = {
 	CoreGui = game:GetService("CoreGui"),
 	ReplicatedStorage = game:GetService("ReplicatedStorage"),
 	CollectionService = game:GetService("CollectionService"),
+	HttpService = HttpService,
 }
 local player = Services.Players.LocalPlayer
 local SUPERSEDED = "__DEMONOLOGY_SUPERSEDED__"
@@ -135,6 +204,7 @@ local session = {
 	Destroyed = false,
 	Generation = generation,
 	LobbySettings = lobbySettings,
+	AutoRevision = 0,
 }
 environment.DemonologySession = session
 
@@ -176,6 +246,9 @@ function session:Destroy(keepLoader)
 	end
 	if self.IdleConnection and self.IdleConnection.Connected then
 		self.IdleConnection:Disconnect()
+	end
+	if self.LobbyReadyConnection and self.LobbyReadyConnection.Connected then
+		self.LobbyReadyConnection:Disconnect()
 	end
 
 	if ownsSession then
@@ -310,7 +383,7 @@ end
 local LOBBY_MACRO_DELAY = 0.75
 local LOBBY_DATA_LOAD_GRACE = 4
 
-local function waitForLobbyDataLoad()
+local function waitForLobbyDataLoad(cancellationReason)
 	-- game:IsLoaded() only confirms that the place replicated. The game's
 	-- server-side player profile can still be loading, and sending
 	-- LoadingFinished/AttemptStart during that window can trigger the
@@ -318,10 +391,17 @@ local function waitForLobbyDataLoad()
 	-- 0.75-second spacing between macro remotes.
 	local deadline = os.clock() + LOBBY_DATA_LOAD_GRACE
 	while os.clock() < deadline do
+		if type(cancellationReason) == "function" then
+			local reason = cancellationReason()
+			if reason then
+				return false, reason
+			end
+		end
 		assertCurrent()
-		task.wait(math.min(0.1, math.max(0, deadline - os.clock())))
+		task.wait(math.min(0.05, math.max(0, deadline - os.clock())))
 	end
 	assertCurrent()
+	return true
 end
 
 local function runLobbyStartMacro(
@@ -329,11 +409,34 @@ local function runLobbyStartMacro(
 	automatic,
 	customPresetExists,
 	equipmentPresetExists,
-	readChallengeStates
+	readChallengeStates,
+	readyRevision,
+	autoRevision
 )
-	waitForLobbyDataLoad()
-	if automatic and not session.Auto then
-		return false, "Automatic start cancelled; choose settings and press Start Round."
+	local monitoredReadyRevision = tonumber(readyRevision)
+		or tonumber(session.LobbyReadyRevision)
+		or 0
+	local monitoredAutoRevision = tonumber(autoRevision)
+		or tonumber(session.AutoRevision)
+		or 0
+	local function cancellationReason()
+		if not automatic then
+			return nil
+		end
+		if not session.Auto then
+			return "Automatic start cancelled because Auto was switched off."
+		end
+		if session.AutoRevision ~= monitoredAutoRevision then
+			return "Automatic start cancelled because Auto was changed."
+		end
+		if session.LobbyReadyRevision ~= monitoredReadyRevision then
+			return "Automatic start cancelled because the ready state changed."
+		end
+		return nil
+	end
+	local waitedForData, initialCancellation = waitForLobbyDataLoad(cancellationReason)
+	if not waitedForData then
+		return false, initialCancellation
 	end
 	local events = Services.ReplicatedStorage:FindFirstChild("Events")
 	if not events then
@@ -347,15 +450,29 @@ local function runLobbyStartMacro(
 		return remote
 	end
 	local function waitForDispatch()
+		local reason = cancellationReason()
+		if reason then
+			return false, reason
+		end
 		assertCurrent()
-		task.wait(LOBBY_MACRO_DELAY)
+		local deadline = os.clock() + LOBBY_MACRO_DELAY
+		while os.clock() < deadline do
+			task.wait(math.min(0.05, math.max(0, deadline - os.clock())))
+			reason = cancellationReason()
+			if reason then
+				return false, reason
+			end
+			assertCurrent()
+		end
 		assertCurrent()
+		return true
 	end
 	local loadingFinished = arrivalContext == "ReturnToLobby"
 		and requireRemote("LoadingFinished")
 		or nil
 	if loadingFinished and not session.LobbyLoadingFinished then
-		waitForDispatch()
+		local continued, cancelReason = waitForDispatch()
+		if not continued then return false, cancelReason end
 		loadingFinished:FireServer()
 		session.LobbyLoadingFinished = true
 	end
@@ -399,6 +516,10 @@ local function runLobbyStartMacro(
 		if complete then
 			break
 		end
+		local cancelReason = cancellationReason()
+		if cancelReason then
+			return false, cancelReason
+		end
 		assertCurrent()
 		task.wait(0.1)
 	until os.clock() >= challengeDeadline
@@ -428,6 +549,10 @@ local function runLobbyStartMacro(
 	local readyState = player:GetAttribute("IsReady")
 	local readyDeadline = os.clock() + 2
 	while type(readyState) ~= "boolean" and os.clock() < readyDeadline do
+		local cancelReason = cancellationReason()
+		if cancelReason then
+			return false, cancelReason
+		end
 		assertCurrent()
 		task.wait(0.1)
 		readyState = player:GetAttribute("IsReady")
@@ -458,31 +583,60 @@ local function runLobbyStartMacro(
 			or "AttemptStart teleport execution was not prepared"
 	end
 
-	waitForDispatch()
+	local continued, cancelReason = waitForDispatch()
+	if not continued then return false, cancelReason end
 	changeJobSite:FireServer(selectedJobSite)
 
-	waitForDispatch()
+	continued, cancelReason = waitForDispatch()
+	if not continued then return false, cancelReason end
 	fireSignal(updateDifficulty.OnClientEvent, selectedDifficulty)
 
 	if applyDifficultyPreset then
-		waitForDispatch()
+		continued, cancelReason = waitForDispatch()
+		if not continued then return false, cancelReason end
 		applyDifficultyPreset:FireServer(selectedCustomPreset)
 	end
 
-	waitForDispatch()
+	continued, cancelReason = waitForDispatch()
+	if not continued then return false, cancelReason end
 	applyEquipmentPreset:FireServer(selectedEquipmentPreset)
 
 	for _, challengeIndex in ipairs(challengeChanges) do
-		waitForDispatch()
+		continued, cancelReason = waitForDispatch()
+		if not continued then return false, cancelReason end
 		toggleChallenge:FireServer(challengeIndex)
 	end
 
 	if changeStatus then
-		waitForDispatch()
+		continued, cancelReason = waitForDispatch()
+		if not continued then return false, cancelReason end
+		local readyRevisionBeforeDispatch = session.LobbyReadyRevision
 		changeStatus:FireServer()
+		local readyDeadline = os.clock() + 2
+		while player:GetAttribute("IsReady") ~= true
+			and os.clock() < readyDeadline do
+			if automatic and (not session.Auto
+				or session.AutoRevision ~= monitoredAutoRevision) then
+				return false, "Automatic start cancelled because Auto was changed."
+			end
+			assertCurrent()
+			task.wait(0.05)
+		end
+		if player:GetAttribute("IsReady") ~= true then
+			return false, "ChangeStatus did not confirm the ready state."
+		end
+		if automatic
+			and session.LobbyReadyRevision > readyRevisionBeforeDispatch + 1 then
+			return false, "Automatic start cancelled because the ready state changed again."
+		end
+		-- Absorb only the transition produced by the remote above. Any later
+		-- player-driven ready-state change cancels at the next dispatch gate.
+		monitoredReadyRevision = tonumber(session.LobbyReadyRevision)
+			or monitoredReadyRevision
 	end
 
-	waitForDispatch()
+	continued, cancelReason = waitForDispatch()
+	if not continued then return false, cancelReason end
 	attemptStart:FireServer()
 	return true
 end
@@ -617,12 +771,98 @@ if not shouldLoadRoundGui then
 		error(LobbySettings, 0)
 	end
 
+	local function settingsFileSnapshot(settings)
+		local challenges = type(settings.Challenges) == "table"
+			and settings.Challenges
+			or {}
+		return {
+			Version = 1,
+			Auto = settings.Auto == true,
+			JobSite = type(settings.JobSite) == "string" and settings.JobSite or "School",
+			Difficulty = type(settings.Difficulty) == "string"
+				and settings.Difficulty
+				or "Nightmare",
+			CustomPreset = type(settings.CustomPreset) == "string"
+				and settings.CustomPreset
+				or "",
+			EquipmentPreset = type(settings.EquipmentPreset) == "string"
+				and settings.EquipmentPreset
+				or "green",
+			Challenges = {
+				challenges[1] == true,
+				challenges[2] == true,
+				challenges[3] == true,
+			},
+			ChallengesConfigured = settings.ChallengesConfigured == true,
+		}
+	end
+
+	local function writeSettingsFile(settings)
+		if type(executorFiles.WriteFile) ~= "function" then
+			session.SettingsPersistence = "memory-only"
+			return true
+		end
+		if type(executorFiles.MakeFolder) == "function" then
+			local shouldCreate = true
+			if type(executorFiles.IsFolder) == "function" then
+				local checked, exists = pcall(executorFiles.IsFolder, SETTINGS_DIRECTORY)
+				shouldCreate = not checked or not exists
+			end
+			if shouldCreate then
+				pcall(executorFiles.MakeFolder, SETTINGS_DIRECTORY)
+			end
+		end
+		local encoded, source = pcall(
+			Services.HttpService.JSONEncode,
+			Services.HttpService,
+			settingsFileSnapshot(settings)
+		)
+		if not encoded then
+			session.SettingsFileFailure = tostring(source)
+			return false
+		end
+		local written, failure = pcall(executorFiles.WriteFile, SETTINGS_FILE, source)
+		if not written then
+			session.SettingsFileFailure = tostring(failure)
+			return false
+		end
+		session.SettingsPersistence = SETTINGS_FILE
+		session.SettingsFileFailure = nil
+		return true
+	end
+
 	local function persistSettings(settings)
 		settings.Auto = settings.Auto == true
+		if session.Auto ~= settings.Auto then
+			session.AutoRevision = (tonumber(session.AutoRevision) or 0) + 1
+		end
 		session.Auto = settings.Auto
 		environment.DemonologyAuto = settings.Auto
 		environment.DemonologyLobbySettings = settings
 		session.LobbySettings = settings
+		writeSettingsFile(settings)
+	end
+
+	session.LobbyReadyRevision = 0
+	local lastReadyState = player:GetAttribute("IsReady")
+	local readyConnected, readyConnection = pcall(function()
+		return player:GetAttributeChangedSignal("IsReady"):Connect(function()
+			if not isCurrent() then
+				return
+			end
+			local currentReadyState = player:GetAttribute("IsReady")
+			if type(lastReadyState) == "boolean"
+				and type(currentReadyState) == "boolean"
+				and currentReadyState ~= lastReadyState then
+				session.LobbyReadyRevision = session.LobbyReadyRevision + 1
+			end
+			lastReadyState = currentReadyState
+		end)
+	end)
+	if readyConnected then
+		session.LobbyReadyConnection = readyConnection
+	else
+		session.LobbyReadyConnectionFailure = tostring(readyConnection)
 	end
 
 	local function customPresetExists(name)
@@ -643,6 +883,8 @@ if not shouldLoadRoundGui then
 		end
 		session.LobbyStarting = true
 		persistSettings(lobbySettings)
+		local startReadyRevision = session.LobbyReadyRevision
+		local startAutoRevision = session.AutoRevision
 		view:SetBusy(true, automatic)
 		view:SetStatus(
 			automatic
@@ -656,7 +898,9 @@ if not shouldLoadRoundGui then
 					automatic,
 					customPresetExists,
 					equipmentPresetExists,
-					readChallengeStates
+					readChallengeStates,
+					startReadyRevision,
+					startAutoRevision
 				)
 			end, debug.traceback)
 			if not isCurrent() then
@@ -667,10 +911,12 @@ if not shouldLoadRoundGui then
 				view:SetBusy(false)
 				view:SetStatus(started, true)
 			elseif started ~= true then
+				persistSettings(lobbySettings)
 				session.LobbyStarting = false
 				view:SetBusy(false)
 				view:SetStatus(startFailure or "The lobby start was cancelled.", false)
 			else
+				persistSettings(lobbySettings)
 				view:SetStatus("Settings applied; waiting for the round teleport...", false)
 			end
 		end)

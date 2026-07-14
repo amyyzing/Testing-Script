@@ -10,9 +10,12 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/amyyzing/Testing-Scri
 
 When run in the lobby, the loader opens a settings window for Job Site,
 difficulty, saved Custom preset, saved equipment preset, three independent daily
-challenge toggles, and Auto. The selections are retained in
+challenge toggles, and Auto. When executor file APIs are available, the
+selections are stored in `DemonologyAssistant/Settings.json`, following the same
+folder-plus-JSON pattern used by Cobalt. They are also retained in
 `getgenv().DemonologyLobbySettings` and serialized into the queued teleport
-loader, so `local Auto = true` is no longer needed. Passing a boolean argument is
+loader, so executors without file APIs still work and `local Auto = true` is no
+longer needed. Passing a boolean argument is
 still supported as a one-time override. With Auto enabled, the loader queues a
 guarded self-loader through
 `queue_on_teleport`/`queueonteleport` whenever `AttemptStart` or
@@ -46,7 +49,10 @@ before attempting to start the round: `ChangeStatus` fires only when
 player cannot be toggled back to unready. Every macro dispatch has its own
 0.75-second safety delay. The first run adopts the live challenge states when no
 challenge preference has been saved, preventing an untouched default from
-inverting an existing selection.
+inverting an existing selection. During an automatic start, switching Auto off
+or manually changing the player's ready state cancels the remaining macro
+dispatches; the macro's own expected `ChangeStatus` transition is not treated as
+a cancellation.
 
 ## Layout
 
