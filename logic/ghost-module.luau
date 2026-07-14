@@ -369,11 +369,12 @@ local Profiles = {
 		note("Cutting a corner or missing from one scan without confirmed range is weak evidence.", SOURCE.Vex, "wiki-documented", true, "Caveat"),
 	})),
 	profile("Wendigo", {"GhostOrb", "GhostWriting", "LaserProjector"}, "wiki-documented", perks({
-		note("Controlled energy changes correlate with hunt speed, and it refuses to begin a hunt near a lit candle or lantern.", SOURCE.Wendigo, "wiki-documented", false, "Trait"),
+		note("Seven flat hunting pairs uniquely match the speed expected from average player Energy captured at the hunt-state switch, or three alternating transitions match that curve after at least two Energy points of change.", SOURCE.Wendigo, "user-observed", false, "Trait"),
+		note("It refuses to begin a hunt near a lit candle or lantern.", SOURCE.Wendigo, "wiki-documented", false, "Trait"),
 	}, {
-		note("It becomes very fast at low average energy or repeatedly avoids starting near lit flames.", SOURCE.Wendigo, "wiki-documented", false, "Trait"),
+		note("A mathematically impossible three-transition curve rules Wendigo out even when the Energy spread is small; overlapping Normal/Oni/Wendigo pair fits remain inconclusive.", SOURCE.Wendigo, "user-observed", false, "RuleOut"),
 	}, {
-		note("One fast hunt or a hunt starting away from fire is not distinctive.", SOURCE.Wendigo, "wiki-documented", false, "Caveat"),
+		note("Live Energy changes do not alter its current speed; compare the average Energy captured when hunting switches on or off.", SOURCE.Wendigo, "user-observed", false, "Caveat"),
 	})),
 	profile("Wisp", {"GhostOrb", "LaserProjector", "Wither"}, "wiki-documented", perks({
 		note("It crosses ignited Holy Oil and visibly catches fire; a mimicking Skinwalker does not ignite.", SOURCE.Wisp, "wiki-documented", false, "Ability"),

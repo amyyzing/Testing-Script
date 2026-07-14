@@ -8,6 +8,7 @@ local SpeedProbe = require("../trackers/dormant/speed-probe")({Events = Events})
 local SpeedPattern = require("../analyzers/speed-pattern")({Events = Events})
 local SpeedMath = require("../analyzers/speed-math")({Events = Events})
 local DullahanProfile = require("../Dullahan")
+local WendigoProfile = require("../Wendigo")
 
 local function expect(condition, message)
 	if not condition then error(message, 2) end
@@ -169,6 +170,98 @@ expect(findEvent(coordinator, Events.Types.DullahanPatternAbsent) == nil,
 coordinator:Emit({Type = Events.Types.HuntEnded, HuntId = 1, Hunting = false})
 expect(findEvent(coordinator, Events.Types.DullahanPatternAbsent) == nil,
 	"HuntEnded must not turn an incomplete six-pair window into a negative")
+
+local wendigoMath = SpeedMath.new()
+local wendigoCoordinator = Coordinator.new({
+	Clock = function() return now end,
+	Analyzers = {wendigoMath},
+	Definitions = {WendigoProfile},
+})
+wendigoCoordinator:Start({Clock = function() return now end})
+
+wendigoCoordinator:Emit({
+	Type = Events.Types.FlatHuntSpeed,
+	Hunting = true,
+	Payload = {
+		Speed = 11.65,
+		AverageSanity = 47,
+		MapFactor = 1,
+		PairCount = 7,
+		RequiredPairs = 7,
+		Qualified = true,
+		ValidMultipliers = {0.5, 0.75, 1, 1.25, 1.5, 2},
+	},
+})
+local wendigoPairMath = findEvent(wendigoCoordinator, Events.Types.HuntSpeedMathResult)
+expect(wendigoPairMath and wendigoPairMath.Best == "Wendigo",
+	"seven flat pairs should expose a unique switch-time Wendigo speed fit")
+expect(wendigoCoordinator:Resolve({"Wendigo"}).Wendigo.Status == "Supported",
+	"a unique seven-pair Wendigo fit should select Wendigo")
+
+wendigoCoordinator:Reset()
+wendigoCoordinator:Emit({
+	Type = Events.Types.FlatHuntSpeed,
+	Hunting = true,
+	Payload = {
+		Speed = 11,
+		AverageSanity = 47,
+		MapFactor = 1,
+		PairCount = 7,
+		RequiredPairs = 7,
+		Qualified = true,
+		ValidMultipliers = {0.5, 0.75, 1, 1.25, 1.5, 2},
+	},
+})
+expect(wendigoCoordinator:Resolve({"Wendigo"}).Wendigo.RuledOut == true,
+	"a unique Normal fit that excludes the sanity curve should rule Wendigo out")
+
+local function emitWendigoTransition(hunting, sanity, speed, time)
+	wendigoCoordinator:Emit({
+		Type = Events.Types.HuntTransitionSettled,
+		Time = time,
+		HuntId = hunting and 2 or 1,
+		Hunting = hunting,
+		Payload = {
+			AverageSanity = sanity,
+			Speed = speed,
+			MapFactor = 1,
+			ValidMultipliers = {0.5, 0.75, 1, 1.25, 1.5, 2},
+		},
+	})
+end
+
+wendigoCoordinator:Reset()
+emitWendigoTransition(true, 60, 11, 1)
+emitWendigoTransition(false, 59.5, 5, 2)
+emitWendigoTransition(true, 59, 11.05, 3)
+local lowSpreadReject = findEvent(wendigoCoordinator, Events.Types.WendigoCurveResult)
+expect(lowSpreadReject and lowSpreadReject.Qualified == true
+	and lowSpreadReject.Outcome == "Rejected",
+	"a mathematically invalid curve must be a qualified negative despite low sanity spread")
+expect(wendigoCoordinator:Resolve({"Wendigo"}).Wendigo.RuledOut == true,
+	"the Wendigo observer must consume a low-spread mathematical rejection")
+
+wendigoCoordinator:Reset()
+emitWendigoTransition(true, 60, 11, 1)
+emitWendigoTransition(false, 59, 11.05 * 1.75, 2)
+emitWendigoTransition(true, 58, 11.1, 3)
+local matchedCurve = findEvent(wendigoCoordinator, Events.Types.WendigoCurveResult)
+expect(matchedCurve and matchedCurve.Qualified == true
+	and matchedCurve.Outcome == "Matched",
+	"a valid two-sanity-point transition curve should identify Wendigo")
+expect(wendigoCoordinator:Resolve({"Wendigo"}).Wendigo.Status == "Supported",
+	"the Wendigo observer must select a matched transition curve")
+
+wendigoCoordinator:Reset()
+emitWendigoTransition(true, 60, 11, 1)
+emitWendigoTransition(false, 59.5, 11.025 * 1.75, 2)
+emitWendigoTransition(true, 59, 11.05, 3)
+local inconclusiveCurve = findEvent(wendigoCoordinator, Events.Types.WendigoCurveResult)
+expect(inconclusiveCurve and inconclusiveCurve.Qualified == false
+	and inconclusiveCurve.Outcome == "Inconclusive",
+	"a curve fit with less than two sanity points of change must remain inconclusive")
+expect(wendigoCoordinator:Resolve({"Wendigo"}).Wendigo.Status == "Unknown",
+	"an inconclusive curve must neither select nor rule Wendigo out")
 
 local probe = SpeedProbe.new()
 local probeCoordinator = Coordinator.new({

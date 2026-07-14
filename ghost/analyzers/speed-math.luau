@@ -67,7 +67,7 @@ return function(dependencies)
 			Name = options.Name or "SpeedMath",
 			Category = "Analyzer",
 			Status = "Idle",
-			MinimumSanitySpread = tonumber(options.MinimumSanitySpread) or 8,
+			MinimumSanitySpread = tonumber(options.MinimumSanitySpread) or 2,
 			_context = nil,
 			transitionSnapshots = {},
 			lastMath = nil,
@@ -199,9 +199,18 @@ return function(dependencies)
 			end
 		end
 		local spread = highest - lowest
-		if spread < self.MinimumSanitySpread then
-			matched = false
-			reason = "transition sanity spread was too small to qualify the Wendigo curve"
+		local discriminated = spread + 1e-6 >= self.MinimumSanitySpread
+		local qualified = not matched or discriminated
+		local outcome
+		if not matched then
+			-- A mathematically impossible curve is a qualified negative even when
+			-- sanity barely moved. Sanity spread is only needed to prove a match.
+			outcome = "Rejected"
+		elseif discriminated then
+			outcome = "Matched"
+		else
+			outcome = "Inconclusive"
+			reason = "the curve fit, but transition sanity had not changed enough to distinguish Wendigo"
 		end
 		local signature = tostring(self.transitionSnapshots[1].Time)
 			.. ":" .. tostring(self.transitionSnapshots[3].Time)
@@ -215,14 +224,16 @@ return function(dependencies)
 			Hunting = event.Hunting,
 			Source = self.Name,
 			Payload = {
-				Matched = matched,
-				Outcome = matched and "Matched" or "Rejected",
-				Qualified = spread >= self.MinimumSanitySpread,
+				Matched = matched and discriminated,
+				CurveFit = matched,
+				Outcome = outcome,
+				Qualified = qualified,
 				Completed = true,
 				Snapshots = copyArray(self.transitionSnapshots),
 				Multiplier = matchedMultiplier,
 				NonHuntMultiplier = 1.75,
 				SanitySpread = spread,
+				MinimumSanitySpread = self.MinimumSanitySpread,
 				Reason = reason,
 			},
 		})

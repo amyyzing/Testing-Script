@@ -154,7 +154,11 @@ pairs. Seven repeating phase pairs classify Phantom, seven flat pairs feed
 Normal/Oni speed math, and seven differing pairs with an upward step inside every
 pair classify Dullahan; resets or decreases between pairs are ignored. A complete
 non-Dullahan window rules Dullahan out immediately instead of waiting for the hunt
-to end. Hunting speed math uses the Small/Medium/Large map factors. Per-ghost files
+to end. The same flat-pair result compares Normal, Oni, and the Wendigo speed
+expected from average Energy captured at the hunt-state switch. Three alternating
+transitions can corroborate Wendigo after two Energy points of change, while a
+mathematically impossible curve is a qualified rule-out regardless of that spread.
+Hunting speed math uses the Small/Medium/Large map factors. Per-ghost files
 own conclusions and supersession rules; `logic/logic.luau` only collects game state
 and emits the qualified observations while the coordinator is active. The ledger
 retains both positive and negative history, but ranking uses only effective,
