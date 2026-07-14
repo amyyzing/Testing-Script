@@ -25,6 +25,9 @@ end
 local arrivalContext = type(requestedArrivalContext) == "string"
 	and requestedArrivalContext
 	or nil
+local rememberedChallenges = type(rememberedLobbySettings.Challenges) == "table"
+	and rememberedLobbySettings.Challenges
+	or {}
 local lobbySettings = {
 	Auto = autoEnabled,
 	JobSite = type(rememberedLobbySettings.JobSite) == "string"
@@ -41,6 +44,12 @@ local lobbySettings = {
 		and rememberedLobbySettings.EquipmentPreset ~= ""
 		and rememberedLobbySettings.EquipmentPreset
 		or "green",
+	Challenges = {
+		[1] = rememberedChallenges[1] == true,
+		[2] = rememberedChallenges[2] == true,
+		[3] = rememberedChallenges[3] == true,
+	},
+	ChallengesConfigured = rememberedLobbySettings.ChallengesConfigured == true,
 }
 environment.DemonologyAuto = autoEnabled
 environment.DemonologyLobbySettings = lobbySettings
@@ -206,6 +215,8 @@ environment.DemonologyLobbySettings = {
 	Difficulty = %q,
 	CustomPreset = %q,
 	EquipmentPreset = %q,
+	Challenges = {%s, %s, %s},
+	ChallengesConfigured = %s,
 }
 if not game:IsLoaded() then
 	game.Loaded:Wait()
@@ -224,6 +235,10 @@ chunk(%s, %q)
 		tostring(saved.Difficulty or "Nightmare"),
 		tostring(saved.CustomPreset or ""),
 		tostring(saved.EquipmentPreset or "green"),
+		tostring(type(saved.Challenges) == "table" and saved.Challenges[1] == true),
+		tostring(type(saved.Challenges) == "table" and saved.Challenges[2] == true),
+		tostring(type(saved.Challenges) == "table" and saved.Challenges[3] == true),
+		tostring(saved.ChallengesConfigured == true),
 		BASE_URL .. "logic.luau",
 		tostring(session.Auto == true),
 		tostring(context or "Teleport")
@@ -313,7 +328,8 @@ local function runLobbyStartMacro(
 	settings,
 	automatic,
 	customPresetExists,
-	equipmentPresetExists
+	equipmentPresetExists,
+	readChallengeStates
 )
 	waitForLobbyDataLoad()
 	if automatic and not session.Auto then
@@ -330,9 +346,22 @@ local function runLobbyStartMacro(
 		end
 		return remote
 	end
+	local function waitForDispatch()
+		assertCurrent()
+		task.wait(LOBBY_MACRO_DELAY)
+		assertCurrent()
+	end
+	local loadingFinished = arrivalContext == "ReturnToLobby"
+		and requireRemote("LoadingFinished")
+		or nil
+	if loadingFinished and not session.LobbyLoadingFinished then
+		waitForDispatch()
+		loadingFinished:FireServer()
+		session.LobbyLoadingFinished = true
+	end
 
-	-- Resolve everything before dispatch so a missing endpoint cannot leave the
-	-- lobby only partially configured.
+	-- Snapshot and validate every selection before dispatching configuration
+	-- remotes. LoadingFinished above is the returning-lobby handshake.
 	local selectedJobSite = tostring(settings.JobSite or "School")
 	local selectedDifficulty = tostring(settings.Difficulty or "Nightmare")
 	local selectedCustomPreset = type(settings.CustomPreset) == "string"
@@ -354,36 +383,67 @@ local function runLobbyStartMacro(
 			and not equipmentPresetExists(selectedEquipmentPreset) then
 		return false, "Select a saved equipment preset before starting."
 	end
+	local currentChallenges = {}
+	local challengeDeadline = os.clock() + 2
+	repeat
+		currentChallenges = type(readChallengeStates) == "function"
+			and readChallengeStates()
+			or {}
+		local complete = true
+		for index = 1, 3 do
+			if type(currentChallenges[index]) ~= "boolean" then
+				complete = false
+				break
+			end
+		end
+		if complete then
+			break
+		end
+		assertCurrent()
+		task.wait(0.1)
+	until os.clock() >= challengeDeadline
+	for index = 1, 3 do
+		if type(currentChallenges[index]) ~= "boolean" then
+			return false, "Challenge " .. tostring(index)
+				.. " has not reported its current ON/OFF state yet."
+		end
+	end
+	local desiredChallenges = type(settings.Challenges) == "table"
+		and settings.Challenges
+		or {}
+	if settings.ChallengesConfigured ~= true then
+		desiredChallenges = {}
+		for index = 1, 3 do
+			desiredChallenges[index] = currentChallenges[index] == true
+		end
+		settings.Challenges = desiredChallenges
+		settings.ChallengesConfigured = true
+	end
+	local challengeChanges = {}
+	for index = 1, 3 do
+		if currentChallenges[index] ~= (desiredChallenges[index] == true) then
+			table.insert(challengeChanges, index)
+		end
+	end
 	local fireSignal = environment.firesignal or firesignal
 	if type(fireSignal) ~= "function" then
 		error("this executor does not provide firesignal for UpdateDifficulty", 0)
 	end
-	local loadingFinished = arrivalContext == "ReturnToLobby"
-		and requireRemote("LoadingFinished")
-		or nil
 	local changeJobSite = requireRemote("ChangeJobSite")
 	local updateDifficulty = requireRemote("UpdateDifficulty")
 	local applyDifficultyPreset = selectedDifficulty == "Custom"
 		and requireRemote("ApplyDifficultyPreset")
 		or nil
 	local applyEquipmentPreset = requireRemote("ApplyEquipmentPreset")
+	local toggleChallenge = #challengeChanges > 0
+		and requireRemote("ToggleChallenge")
+		or nil
 	local changeStatus = requireRemote("ChangeStatus")
 	local attemptStart = requireRemote("AttemptStart")
 	local prepared, prepareFailure = session:PrepareTeleport("AttemptStart")
 	if not prepared then
 		session.TeleportQueueFailure = prepareFailure
 			or "AttemptStart teleport execution was not prepared"
-	end
-
-	local function waitForDispatch()
-		assertCurrent()
-		task.wait(LOBBY_MACRO_DELAY)
-		assertCurrent()
-	end
-
-	if loadingFinished then
-		waitForDispatch()
-		loadingFinished:FireServer()
 	end
 
 	waitForDispatch()
@@ -399,6 +459,11 @@ local function runLobbyStartMacro(
 
 	waitForDispatch()
 	applyEquipmentPreset:FireServer(selectedEquipmentPreset)
+
+	for _, challengeIndex in ipairs(challengeChanges) do
+		waitForDispatch()
+		toggleChallenge:FireServer(challengeIndex)
+	end
 
 	waitForDispatch()
 	changeStatus:FireServer()
@@ -552,6 +617,9 @@ if not shouldLoadRoundGui then
 	local function equipmentPresetExists(name)
 		return table.find(LobbySettings.ReadEquipmentPresets(player), name) ~= nil
 	end
+	local function readChallengeStates()
+		return LobbySettings.ReadChallengeStates(player)
+	end
 
 	local beginLobbyStart
 	local view
@@ -573,7 +641,8 @@ if not shouldLoadRoundGui then
 					lobbySettings,
 					automatic,
 					customPresetExists,
-					equipmentPresetExists
+					equipmentPresetExists,
+					readChallengeStates
 				)
 			end, debug.traceback)
 			if not isCurrent() then

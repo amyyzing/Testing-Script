@@ -119,6 +119,30 @@ function LobbySettings.ReadEquipmentPresets(player)
 	})
 end
 
+function LobbySettings.ReadChallengeStates(player)
+	local playerGui = player and player:FindFirstChild("PlayerGui")
+	local challengeList = findPath(playerGui, {
+		"ComputerScreen",
+		"JobSite",
+		"Challenges",
+		"Content",
+		"ChallengeList",
+	})
+	local states = {}
+	for index = 1, 3 do
+		local challenge = challengeList
+			and challengeList:FindFirstChild("Challenge" .. tostring(index))
+		local stateLabel = findPath(challenge, {"Toggle", "TextLabel"})
+		local text = stateLabel and string.upper(tostring(stateLabel.Text or ""))
+		if text == "ON" then
+			states[index] = true
+		elseif text == "OFF" then
+			states[index] = false
+		end
+	end
+	return states
+end
+
 local function new(className, properties)
 	local object = Instance.new(className)
 	for property, value in pairs(properties or {}) do
@@ -176,6 +200,27 @@ function LobbySettings.Create(options)
 	if type(settings.EquipmentPreset) ~= "string" or settings.EquipmentPreset == "" then
 		settings.EquipmentPreset = "green"
 	end
+	local rememberedChallenges = type(settings.Challenges) == "table"
+		and settings.Challenges
+		or {}
+	local liveChallenges = settings.ChallengesConfigured ~= true
+		and LobbySettings.ReadChallengeStates(player)
+		or {}
+	local function initialChallengeState(index)
+		if type(liveChallenges[index]) == "boolean" then
+			return liveChallenges[index]
+		end
+		return rememberedChallenges[index] == true
+	end
+	settings.Challenges = {
+		[1] = initialChallengeState(1),
+		[2] = initialChallengeState(2),
+		[3] = initialChallengeState(3),
+	}
+	settings.ChallengesConfigured = settings.ChallengesConfigured == true
+		or type(liveChallenges[1]) == "boolean"
+			and type(liveChallenges[2]) == "boolean"
+			and type(liveChallenges[3]) == "boolean"
 
 	local gui = new("ScreenGui", {
 		Name = "DemonologyLobbySettings",
@@ -195,7 +240,7 @@ function LobbySettings.Create(options)
 		Name = "Window",
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(480, 620),
+		Size = UDim2.fromOffset(480, 680),
 		BackgroundColor3 = COLORS.Background,
 		BorderColor3 = COLORS.Border,
 		BorderSizePixel = 1,
@@ -525,9 +570,45 @@ function LobbySettings.Create(options)
 		end,
 	})
 
+	label("Daily Challenges", 466)
+	local challengeButtons = {}
+	local function renderChallenge(index)
+		local enabled = settings.Challenges[index] == true
+		local button = challengeButtons[index]
+		button.Text = ("Challenge %d: %s"):format(index, enabled and "ON" or "OFF")
+		button.BackgroundColor3 = enabled and COLORS.Positive or COLORS.Control
+	end
+	for index = 1, 3 do
+		local button = new("TextButton", {
+			Name = "Challenge" .. tostring(index),
+			Position = UDim2.fromOffset(18 + (index - 1) * 152, 488),
+			Size = UDim2.fromOffset(140, 34),
+			BackgroundColor3 = COLORS.Control,
+			BorderColor3 = COLORS.Border,
+			BorderSizePixel = 1,
+			AutoButtonColor = false,
+			Font = Enum.Font.GothamMedium,
+			Text = "",
+			TextColor3 = COLORS.Text,
+			TextSize = 11,
+			Parent = root,
+		})
+		challengeButtons[index] = button
+		renderChallenge(index)
+		connect(button.Activated, function()
+			if busy then
+				return
+			end
+			settings.Challenges[index] = not settings.Challenges[index]
+			settings.ChallengesConfigured = true
+			renderChallenge(index)
+			persist()
+		end)
+	end
+
 	local autoButton = new("TextButton", {
 		Name = "AutoToggle",
-		Position = UDim2.fromOffset(18, 466),
+		Position = UDim2.fromOffset(18, 536),
 		Size = UDim2.new(1, -36, 0, 38),
 		BackgroundColor3 = COLORS.Control,
 		BorderColor3 = COLORS.Border,
@@ -554,7 +635,7 @@ function LobbySettings.Create(options)
 
 	local status = new("TextLabel", {
 		Name = "Status",
-		Position = UDim2.fromOffset(18, 516),
+		Position = UDim2.fromOffset(18, 586),
 		Size = UDim2.new(1, -36, 0, 38),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.Gotham,
@@ -569,7 +650,7 @@ function LobbySettings.Create(options)
 
 	local startButton = new("TextButton", {
 		Name = "StartRound",
-		Position = UDim2.fromOffset(18, 570),
+		Position = UDim2.fromOffset(18, 634),
 		Size = UDim2.new(1, -36, 0, 34),
 		BackgroundColor3 = COLORS.Accent,
 		BorderColor3 = COLORS.Border,

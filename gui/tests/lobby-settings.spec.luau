@@ -89,11 +89,26 @@ local equipmentPresetList = node("PresetList", "Frame", {
 	node("green", "Frame", {delete}),
 	node("EvidenceRun", "Frame", {node("Footer", "Frame", {delete})}),
 })
+local function challenge(index, text)
+	local stateLabel = node("TextLabel", "TextLabel")
+	stateLabel.Text = text
+	return node("Challenge" .. tostring(index), "Frame", {
+		node("Toggle", "TextButton", {stateLabel}),
+	})
+end
+local challengeList = node("ChallengeList", "Frame", {
+	challenge(1, "ON"),
+	challenge(2, "OFF"),
+	challenge(3, "ON"),
+})
 local player = node("Player", "Player", {
 	node("PlayerGui", "PlayerGui", {
 		node("ComputerScreen", "ScreenGui", {
 			node("JobSite", "Frame", {
 				node("DifficultySettings", "Frame", {presetList}),
+				node("Challenges", "Frame", {
+					node("Content", "Frame", {challengeList}),
+				}),
 			}),
 			node("Equipment", "Frame", {
 				node("PartyLog", "Frame", {equipmentPresetList}),
@@ -110,4 +125,9 @@ local equipmentPresets = LobbySettings.ReadEquipmentPresets(player)
 expect(#equipmentPresets == 2, "equipment presets must use the PartyLog preset list")
 expect(equipmentPresets[1] == "EvidenceRun" and equipmentPresets[2] == "green", "equipment presets should sort case-insensitively")
 
-print("lobby-settings.spec: maps, difficulties, and both saved-preset filters passed")
+local challengeStates = LobbySettings.ReadChallengeStates(player)
+expect(challengeStates[1] == true, "Challenge1 ON label should read true")
+expect(challengeStates[2] == false, "Challenge2 OFF label should read false")
+expect(challengeStates[3] == true, "Challenge3 ON label should read true")
+
+print("lobby-settings.spec: maps, presets, and challenge-state reading passed")

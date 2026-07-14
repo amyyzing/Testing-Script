@@ -9,11 +9,12 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/amyyzing/Testing-Scri
 ```
 
 When run in the lobby, the loader opens a settings window for Job Site,
-difficulty, saved Custom preset, saved equipment preset, and Auto. The selections
-are retained in `getgenv().DemonologyLobbySettings` and serialized into the
-queued teleport loader, so `local Auto = true` is no longer needed. Passing a
-boolean argument is still supported as a one-time override. With Auto enabled,
-the loader queues a guarded self-loader through
+difficulty, saved Custom preset, saved equipment preset, three independent daily
+challenge toggles, and Auto. The selections are retained in
+`getgenv().DemonologyLobbySettings` and serialized into the queued teleport
+loader, so `local Auto = true` is no longer needed. Passing a boolean argument is
+still supported as a one-time override. With Auto enabled, the loader queues a
+guarded self-loader through
 `queue_on_teleport`/`queueonteleport` whenever `AttemptStart` or
 `RequestReturnToLobby` initiates a teleport. A round arrival loads the GUI and
 turns on Do-Round automatically after the character, map, ghost, doors, and door
@@ -38,8 +39,12 @@ only when Custom is selected. Difficulty preset names come from
 `ComputerScreen.JobSite.DifficultySettings.PresetList`; equipment preset names
 come from `ComputerScreen.Equipment.PartyLog.PresetList`. Both lists include only
 Frame entries containing a `Delete` descendant. The selected equipment preset
-and player status are then applied before attempting to start the round. Every
-macro dispatch has its own 0.75-second safety delay.
+is applied, then Challenge 1-3 are compared with their live ON/OFF labels and
+`ToggleChallenge` is fired only for mismatches. Player status is then applied
+before attempting to start the round. Every macro dispatch has its own
+0.75-second safety delay. The first run adopts the live challenge states when no
+challenge preference has been saved, preventing an untouched default from
+inverting an existing selection.
 
 ## Layout
 
