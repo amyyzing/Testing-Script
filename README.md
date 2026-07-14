@@ -38,9 +38,11 @@ for the `Workspace.Ghost` model. When it exists, the normal in-round GUI loads.
 When it does not exist, only the lobby settings GUI loads. Starting applies the
 selected Job Site only when it differs from the live location frame carrying the
 `Selected` attribute, preventing `ChangeJobSite` from toggling an already-selected
-site back off. It then fires the selected Easy/Medium/Hard/Nightmare/Custom value
-through `UpdateDifficulty.OnClientEvent`, and applies a named difficulty preset
-only when Custom is selected. Difficulty preset names come from
+site back off. It reads the live difficulty label and cycles the server through
+`ChangeDifficulty` until Easy/Medium/Hard/Nightmare/Custom matches. When Custom
+is selected, it waits for the saved preset list to populate, applies the named
+preset once, and waits for `UpdateAllCustomDifficultySettings` to confirm it
+before continuing. Difficulty preset names come from
 `ComputerScreen.JobSite.DifficultySettings.PresetList`; equipment preset names
 come from `ComputerScreen.Equipment.PartyLog.PresetList`. Both lists include only
 Frame entries containing a `Delete` descendant. The selected equipment preset

@@ -147,6 +147,23 @@ function LobbySettings.ReadSelectedJobSite(player)
 	return selected, locationCount > 0
 end
 
+function LobbySettings.ReadSelectedDifficulty(player)
+	local playerGui = player and player:FindFirstChild("PlayerGui")
+	local label = findPath(playerGui, {
+		"ComputerScreen",
+		"JobSite",
+		"Content",
+		"BottomBar",
+		"DifficultyLabel",
+	})
+	local text = label and tostring(label.Text or "") or ""
+	local selected = string.match(text, "^%s*Difficulty%s*%-%s*(.-)%s*$")
+	if selected and table.find(LobbySettings.Difficulties, selected) then
+		return selected, true
+	end
+	return nil, false
+end
+
 function LobbySettings.ReadChallengeStates(player)
 	local playerGui = player and player:FindFirstChild("PlayerGui")
 	local challengeList = findPath(playerGui, {
@@ -574,6 +591,22 @@ function LobbySettings.Create(options)
 		end,
 	})
 	updateCustomVisibility()
+	task.spawn(function()
+		local previousSignature
+		local deadline = os.clock() + 10
+		while not destroyed and os.clock() < deadline do
+			local names = LobbySettings.ReadCustomPresets(player)
+			local signature = table.concat(names, "\0")
+			if signature ~= previousSignature then
+				previousSignature = signature
+				presetDropdown:Refresh()
+			end
+			if #names > 0 then
+				break
+			end
+			task.wait(0.25)
+		end
+	end)
 
 	local equipmentDropdown
 	equipmentDropdown = createDropdown({
@@ -731,14 +764,6 @@ function LobbySettings.Create(options)
 	connect(startButton.Activated, function()
 		if busy then
 			return
-		end
-		if settings.Difficulty == "Custom" then
-			local presets = LobbySettings.ReadCustomPresets(player)
-			if not settings.CustomPreset or not table.find(presets, settings.CustomPreset) then
-				view:SetStatus("Select a saved custom preset before starting.", true)
-				presetDropdown:Refresh()
-				return
-			end
 		end
 		local equipmentPresets = LobbySettings.ReadEquipmentPresets(player)
 		if not settings.EquipmentPreset

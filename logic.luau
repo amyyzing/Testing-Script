@@ -382,6 +382,8 @@ end
 
 local LOBBY_MACRO_DELAY = 0.75
 local LOBBY_DATA_LOAD_GRACE = 4
+local LOBBY_PRESET_LOAD_TIMEOUT = 10
+local LOBBY_STATE_UPDATE_TIMEOUT = 4
 
 local function waitForLobbyDataLoad(cancellationReason)
 	-- game:IsLoaded() only confirms that the place replicated. The game's
@@ -410,6 +412,7 @@ local function runLobbyStartMacro(
 	customPresetExists,
 	equipmentPresetExists,
 	readSelectedJobSite,
+	readSelectedDifficulty,
 	readChallengeStates,
 	readyRevision,
 	autoRevision
@@ -488,12 +491,31 @@ local function runLobbyStartMacro(
 	local selectedEquipmentPreset = type(settings.EquipmentPreset) == "string"
 		and settings.EquipmentPreset
 		or nil
-	if selectedDifficulty == "Custom"
-		and (not selectedCustomPreset
-			or selectedCustomPreset == ""
-			or type(customPresetExists) == "function"
-				and not customPresetExists(selectedCustomPreset)) then
-		return false, "Select a saved custom difficulty preset before starting."
+	if selectedDifficulty == "Custom" then
+		if not selectedCustomPreset or selectedCustomPreset == "" then
+			return false, "Select a saved custom difficulty preset before starting."
+		end
+		local presetDeadline = os.clock() + LOBBY_PRESET_LOAD_TIMEOUT
+		local presetExists = false
+		repeat
+			presetExists = type(customPresetExists) == "function"
+				and customPresetExists(selectedCustomPreset)
+				or false
+			if presetExists then
+				break
+			end
+			local cancelReason = cancellationReason()
+			if cancelReason then
+				return false, cancelReason
+			end
+			assertCurrent()
+			task.wait(0.1)
+		until os.clock() >= presetDeadline
+		if not presetExists then
+			return false, "Saved custom difficulty preset '"
+				.. selectedCustomPreset
+				.. "' did not load in the lobby preset list."
+		end
 	end
 	if not selectedEquipmentPreset
 		or selectedEquipmentPreset == ""
@@ -522,6 +544,26 @@ local function runLobbyStartMacro(
 		return false, "The lobby has not reported its selected Job Site yet."
 	end
 	local shouldChangeJobSite = currentJobSite ~= selectedJobSite
+	local currentDifficulty
+	local difficultyStateReady = false
+	local difficultyDeadline = os.clock() + LOBBY_STATE_UPDATE_TIMEOUT
+	repeat
+		if type(readSelectedDifficulty) == "function" then
+			currentDifficulty, difficultyStateReady = readSelectedDifficulty()
+		end
+		if difficultyStateReady then
+			break
+		end
+		local cancelReason = cancellationReason()
+		if cancelReason then
+			return false, cancelReason
+		end
+		assertCurrent()
+		task.wait(0.1)
+	until os.clock() >= difficultyDeadline
+	if not difficultyStateReady then
+		return false, "The lobby has not reported its current difficulty yet."
+	end
 	local currentChallenges = {}
 	local challengeDeadline = os.clock() + 2
 	repeat
@@ -582,16 +624,17 @@ local function runLobbyStartMacro(
 	if type(readyState) ~= "boolean" then
 		return false, "The lobby has not reported the player's ready state yet."
 	end
-	local fireSignal = environment.firesignal or firesignal
-	if type(fireSignal) ~= "function" then
-		error("this executor does not provide firesignal for UpdateDifficulty", 0)
-	end
 	local changeJobSite = shouldChangeJobSite
 		and requireRemote("ChangeJobSite")
 		or nil
-	local updateDifficulty = requireRemote("UpdateDifficulty")
+	local changeDifficulty = currentDifficulty ~= selectedDifficulty
+		and requireRemote("ChangeDifficulty")
+		or nil
 	local applyDifficultyPreset = selectedDifficulty == "Custom"
 		and requireRemote("ApplyDifficultyPreset")
+		or nil
+	local updateAllCustomDifficultySettings = selectedDifficulty == "Custom"
+		and requireRemote("UpdateAllCustomDifficultySettings")
 		or nil
 	local applyEquipmentPreset = requireRemote("ApplyEquipmentPreset")
 	local toggleChallenge = #challengeChanges > 0
@@ -614,14 +657,67 @@ local function runLobbyStartMacro(
 		changeJobSite:FireServer(selectedJobSite)
 	end
 
-	continued, cancelReason = waitForDispatch()
-	if not continued then return false, cancelReason end
-	fireSignal(updateDifficulty.OnClientEvent, selectedDifficulty)
+	if changeDifficulty then
+		local difficultyAttempts = 0
+		while currentDifficulty ~= selectedDifficulty
+			and difficultyAttempts < 6 do
+			difficultyAttempts = difficultyAttempts + 1
+			continued, cancelReason = waitForDispatch()
+			if not continued then return false, cancelReason end
+			local previousDifficulty = currentDifficulty
+			changeDifficulty:FireServer("Plus")
+			local updateDeadline = os.clock() + LOBBY_STATE_UPDATE_TIMEOUT
+			repeat
+				local reportedDifficulty, reported = readSelectedDifficulty()
+				if reported and reportedDifficulty ~= previousDifficulty then
+					currentDifficulty = reportedDifficulty
+					break
+				end
+				local reason = cancellationReason()
+				if reason then
+					return false, reason
+				end
+				assertCurrent()
+				task.wait(0.05)
+			until os.clock() >= updateDeadline
+			if currentDifficulty == previousDifficulty then
+				return false, "ChangeDifficulty did not produce a server difficulty update."
+			end
+		end
+		if currentDifficulty ~= selectedDifficulty then
+			return false, "Could not cycle the server difficulty to " .. selectedDifficulty .. "."
+		end
+	end
 
 	if applyDifficultyPreset then
+		local presetConfirmed = false
+		local presetDispatched = false
+		local presetConfirmation = updateAllCustomDifficultySettings.OnClientEvent:Connect(function()
+			if presetDispatched then
+				presetConfirmed = true
+			end
+		end)
 		continued, cancelReason = waitForDispatch()
-		if not continued then return false, cancelReason end
+		if not continued then
+			presetConfirmation:Disconnect()
+			return false, cancelReason
+		end
+		presetDispatched = true
 		applyDifficultyPreset:FireServer(selectedCustomPreset)
+		local confirmationDeadline = os.clock() + LOBBY_STATE_UPDATE_TIMEOUT
+		while not presetConfirmed and os.clock() < confirmationDeadline do
+			local reason = cancellationReason()
+			if reason then
+				presetConfirmation:Disconnect()
+				return false, reason
+			end
+			assertCurrent()
+			task.wait(0.05)
+		end
+		presetConfirmation:Disconnect()
+		if not presetConfirmed then
+			return false, "ApplyDifficultyPreset was not confirmed by UpdateAllCustomDifficultySettings."
+		end
 	end
 
 	continued, cancelReason = waitForDispatch()
@@ -901,6 +997,9 @@ if not shouldLoadRoundGui then
 	local function readSelectedJobSite()
 		return LobbySettings.ReadSelectedJobSite(player)
 	end
+	local function readSelectedDifficulty()
+		return LobbySettings.ReadSelectedDifficulty(player)
+	end
 	local function readChallengeStates()
 		return LobbySettings.ReadChallengeStates(player)
 	end
@@ -929,6 +1028,7 @@ if not shouldLoadRoundGui then
 					customPresetExists,
 					equipmentPresetExists,
 					readSelectedJobSite,
+					readSelectedDifficulty,
 					readChallengeStates,
 					startReadyRevision,
 					startAutoRevision

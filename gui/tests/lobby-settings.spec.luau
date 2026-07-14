@@ -109,12 +109,15 @@ local locations = node("Locations", "Frame", {
 	node("School", "Frame", {}, {Selected = true}),
 	node("Prison", "Frame"),
 })
+local difficultyLabel = node("DifficultyLabel", "TextLabel")
+difficultyLabel.Text = "Difficulty - Custom"
 local player = node("Player", "Player", {
 	node("PlayerGui", "PlayerGui", {
 		node("ComputerScreen", "ScreenGui", {
 			node("JobSite", "Frame", {
 				node("Content", "Frame", {
 					node("MapContainer", "Frame", {locations}),
+					node("BottomBar", "Frame", {difficultyLabel}),
 				}),
 				node("DifficultySettings", "Frame", {presetList}),
 				node("Challenges", "Frame", {
@@ -142,9 +145,16 @@ expect(selectedJobSite == "School", "the Selected attribute should identify the 
 local missingJobSite, missingJobSitesReady = LobbySettings.ReadSelectedJobSite(node("Player", "Player"))
 expect(missingJobSite == nil and missingJobSitesReady == false, "missing job-site GUI should not report ready")
 
+local selectedDifficulty, difficultyReady = LobbySettings.ReadSelectedDifficulty(player)
+expect(difficultyReady == true and selectedDifficulty == "Custom", "difficulty label should identify the live difficulty")
+difficultyLabel.Text = "Loading..."
+local missingDifficulty, missingDifficultyReady = LobbySettings.ReadSelectedDifficulty(player)
+expect(missingDifficulty == nil and missingDifficultyReady == false, "uninitialized difficulty label should not report ready")
+difficultyLabel.Text = "Difficulty - Custom"
+
 local challengeStates = LobbySettings.ReadChallengeStates(player)
 expect(challengeStates[1] == true, "Challenge1 ON label should read true")
 expect(challengeStates[2] == false, "Challenge2 OFF label should read false")
 expect(challengeStates[3] == true, "Challenge3 ON label should read true")
 
-print("lobby-settings.spec: maps, presets, selected job site, and challenge-state reading passed")
+print("lobby-settings.spec: maps, presets, live lobby state, and challenge-state reading passed")
