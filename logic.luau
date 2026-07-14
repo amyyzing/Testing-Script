@@ -409,6 +409,7 @@ local function runLobbyStartMacro(
 	automatic,
 	customPresetExists,
 	equipmentPresetExists,
+	readSelectedJobSite,
 	readChallengeStates,
 	readyRevision,
 	autoRevision
@@ -500,6 +501,27 @@ local function runLobbyStartMacro(
 			and not equipmentPresetExists(selectedEquipmentPreset) then
 		return false, "Select a saved equipment preset before starting."
 	end
+	local currentJobSite
+	local jobSiteStateReady = false
+	local jobSiteDeadline = os.clock() + 2
+	repeat
+		if type(readSelectedJobSite) == "function" then
+			currentJobSite, jobSiteStateReady = readSelectedJobSite()
+		end
+		if jobSiteStateReady then
+			break
+		end
+		local cancelReason = cancellationReason()
+		if cancelReason then
+			return false, cancelReason
+		end
+		assertCurrent()
+		task.wait(0.1)
+	until os.clock() >= jobSiteDeadline
+	if not jobSiteStateReady then
+		return false, "The lobby has not reported its selected Job Site yet."
+	end
+	local shouldChangeJobSite = currentJobSite ~= selectedJobSite
 	local currentChallenges = {}
 	local challengeDeadline = os.clock() + 2
 	repeat
@@ -564,7 +586,9 @@ local function runLobbyStartMacro(
 	if type(fireSignal) ~= "function" then
 		error("this executor does not provide firesignal for UpdateDifficulty", 0)
 	end
-	local changeJobSite = requireRemote("ChangeJobSite")
+	local changeJobSite = shouldChangeJobSite
+		and requireRemote("ChangeJobSite")
+		or nil
 	local updateDifficulty = requireRemote("UpdateDifficulty")
 	local applyDifficultyPreset = selectedDifficulty == "Custom"
 		and requireRemote("ApplyDifficultyPreset")
@@ -583,9 +607,12 @@ local function runLobbyStartMacro(
 			or "AttemptStart teleport execution was not prepared"
 	end
 
-	local continued, cancelReason = waitForDispatch()
-	if not continued then return false, cancelReason end
-	changeJobSite:FireServer(selectedJobSite)
+	local continued, cancelReason
+	if changeJobSite then
+		continued, cancelReason = waitForDispatch()
+		if not continued then return false, cancelReason end
+		changeJobSite:FireServer(selectedJobSite)
+	end
 
 	continued, cancelReason = waitForDispatch()
 	if not continued then return false, cancelReason end
@@ -871,6 +898,9 @@ if not shouldLoadRoundGui then
 	local function equipmentPresetExists(name)
 		return table.find(LobbySettings.ReadEquipmentPresets(player), name) ~= nil
 	end
+	local function readSelectedJobSite()
+		return LobbySettings.ReadSelectedJobSite(player)
+	end
 	local function readChallengeStates()
 		return LobbySettings.ReadChallengeStates(player)
 	end
@@ -898,6 +928,7 @@ if not shouldLoadRoundGui then
 					automatic,
 					customPresetExists,
 					equipmentPresetExists,
+					readSelectedJobSite,
 					readChallengeStates,
 					startReadyRevision,
 					startAutoRevision

@@ -36,7 +36,9 @@ Remote code is fetched at run time. Review the repository before executing it, a
 Before fetching GUI modules, the bootstrap performs a discardable one-shot check
 for the `Workspace.Ghost` model. When it exists, the normal in-round GUI loads.
 When it does not exist, only the lobby settings GUI loads. Starting applies the
-selected Job Site, fires the selected Easy/Medium/Hard/Nightmare/Custom value
+selected Job Site only when it differs from the live location frame carrying the
+`Selected` attribute, preventing `ChangeJobSite` from toggling an already-selected
+site back off. It then fires the selected Easy/Medium/Hard/Nightmare/Custom value
 through `UpdateDifficulty.OnClientEvent`, and applies a named difficulty preset
 only when Custom is selected. Difficulty preset names come from
 `ComputerScreen.JobSite.DifficultySettings.PresetList`; equipment preset names

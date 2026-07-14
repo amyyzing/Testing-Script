@@ -119,6 +119,34 @@ function LobbySettings.ReadEquipmentPresets(player)
 	})
 end
 
+function LobbySettings.ReadSelectedJobSite(player)
+	local playerGui = player and player:FindFirstChild("PlayerGui")
+	local locations = findPath(playerGui, {
+		"ComputerScreen",
+		"JobSite",
+		"Content",
+		"MapContainer",
+		"Locations",
+	})
+	if not locations then
+		return nil, false
+	end
+	local selected
+	local locationCount = 0
+	for _, location in ipairs(locations:GetChildren()) do
+		if location:IsA("Frame") then
+			locationCount = locationCount + 1
+			if location:GetAttribute("Selected") == true then
+				if selected then
+					return nil, false
+				end
+				selected = location.Name
+			end
+		end
+	end
+	return selected, locationCount > 0
+end
+
 function LobbySettings.ReadChallengeStates(player)
 	local playerGui = player and player:FindFirstChild("PlayerGui")
 	local challengeList = findPath(playerGui, {

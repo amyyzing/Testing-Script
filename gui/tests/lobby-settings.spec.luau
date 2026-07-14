@@ -46,17 +46,21 @@ for index, name in ipairs(expectedDifficulties) do
 	expect(LobbySettings.Difficulties[index] == name, "difficulty order must remain stable")
 end
 
-local function node(name, className, children)
+local function node(name, className, children, attributes)
 	local object = {
 		Name = name,
 		ClassName = className or "Folder",
 		Children = children or {},
+		Attributes = attributes or {},
 	}
 	function object:IsA(expected)
 		return self.ClassName == expected
 	end
 	function object:GetChildren()
 		return self.Children
+	end
+	function object:GetAttribute(attributeName)
+		return self.Attributes[attributeName]
 	end
 	function object:FindFirstChild(childName, recursive)
 		for _, child in ipairs(self.Children) do
@@ -101,10 +105,17 @@ local challengeList = node("ChallengeList", "Frame", {
 	challenge(2, "OFF"),
 	challenge(3, "ON"),
 })
+local locations = node("Locations", "Frame", {
+	node("School", "Frame", {}, {Selected = true}),
+	node("Prison", "Frame"),
+})
 local player = node("Player", "Player", {
 	node("PlayerGui", "PlayerGui", {
 		node("ComputerScreen", "ScreenGui", {
 			node("JobSite", "Frame", {
+				node("Content", "Frame", {
+					node("MapContainer", "Frame", {locations}),
+				}),
 				node("DifficultySettings", "Frame", {presetList}),
 				node("Challenges", "Frame", {
 					node("Content", "Frame", {challengeList}),
@@ -125,9 +136,15 @@ local equipmentPresets = LobbySettings.ReadEquipmentPresets(player)
 expect(#equipmentPresets == 2, "equipment presets must use the PartyLog preset list")
 expect(equipmentPresets[1] == "EvidenceRun" and equipmentPresets[2] == "green", "equipment presets should sort case-insensitively")
 
+local selectedJobSite, jobSitesReady = LobbySettings.ReadSelectedJobSite(player)
+expect(jobSitesReady == true, "loaded job-site frames should report ready")
+expect(selectedJobSite == "School", "the Selected attribute should identify the current job site")
+local missingJobSite, missingJobSitesReady = LobbySettings.ReadSelectedJobSite(node("Player", "Player"))
+expect(missingJobSite == nil and missingJobSitesReady == false, "missing job-site GUI should not report ready")
+
 local challengeStates = LobbySettings.ReadChallengeStates(player)
 expect(challengeStates[1] == true, "Challenge1 ON label should read true")
 expect(challengeStates[2] == false, "Challenge2 OFF label should read false")
 expect(challengeStates[3] == true, "Challenge3 ON label should read true")
 
-print("lobby-settings.spec: maps, presets, and challenge-state reading passed")
+print("lobby-settings.spec: maps, presets, selected job site, and challenge-state reading passed")
