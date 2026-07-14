@@ -1126,24 +1126,10 @@ perkTrackerState.resolveTeleportEvidence = function(confirmed)
 	return nil
 end
 local function updateGhostIdentification(ghost)
-	local forcedGhost = perkTrackerState.journalForcedGhost
-	if type(forcedGhost) == "string"
-		and forcedGhost ~= ""
-		and not string.find(forcedGhost, "/", 1, true)
-		and findGhostProfile(forcedGhost) then
-		local forcedScore = math.max(
-			1,
-			tonumber(perkTrackerState.currentGhostGuessScore) or 0
-		)
-		perkTrackerState.currentGhostGuess = forcedGhost
-		perkTrackerState.currentGhostGuessScore = forcedScore
-		setGhostIdentificationLabel(
-			forcedGhost,
-			forcedScore,
-			perkTrackerState.currentGhostGuessCertain == true
-		)
-		perkTrackerState.updateEvidenceStatuses()
-		perkTrackerState.syncJournal()
+	-- Completion owns the displayed and journal-selected ghost. Tracker events can
+	-- still arrive while the lobby-return path is yielding, but they must not
+	-- rebuild a lower-confidence or multi-candidate guess during that interval.
+	if doRoundState.completionClaimed and doRoundState.completionGhost then
 		return
 	end
 	local evidenceGhost = identifyGhostFromEvidence()
