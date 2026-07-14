@@ -12,7 +12,7 @@ local function createObserver(api)
 		Outcome = nil,
 		LastRoom = nil,
 		LastAverageDecrease = nil,
-		LastMinimumDecrease = nil,
+		LastDecreaseCount = 0,
 		LastSampleCount = 0,
 	}
 	local observer = {}
@@ -22,7 +22,7 @@ local function createObserver(api)
 		if (event.Type or event.Kind) ~= "RoomTemperatureWindow" then return false end
 		state.LastRoom = read(event, "RoomName")
 		state.LastAverageDecrease = tonumber(read(event, "AverageDecrease"))
-		state.LastMinimumDecrease = tonumber(read(event, "MinimumDecrease"))
+		state.LastDecreaseCount = tonumber(read(event, "DecreaseCount")) or 0
 		state.LastSampleCount = tonumber(read(event, "SampleCount")) or 0
 		if state.Outcome
 			or read(event, "Qualified") ~= true
@@ -31,19 +31,17 @@ local function createObserver(api)
 			or state.LastSampleCount < 20
 			or not state.LastAverageDecrease then return true end
 
+		local minimumCoolingChanges = math.max(
+			3,
+			math.floor(tonumber(read(event, "MinimumCoolingChanges")) or 3)
+		)
+		if state.LastDecreaseCount < minimumCoolingChanges
+			or read(event, "SufficientCoolingChanges") ~= true then return true end
+		local outcome = tostring(read(event, "Outcome") or "Inconclusive")
 		local shadowThreshold = tonumber(read(event, "ShadowAverageThreshold")) or 0.05
 		local ruleOutThreshold = tonumber(read(event, "RuleOutAverageThreshold")) or 0.06
-		local minimumRuleOutDecrease = tonumber(read(event, "MinimumRuleOutDecrease")) or 0.05
-		local shadowObserved = read(event, "ShadowPatternObserved") == true
-			or state.LastAverageDecrease < shadowThreshold - 1e-9
-		local noSmallDecrease = read(event, "NoDecreaseBelowMinimum") == true
-			or (state.LastMinimumDecrease ~= nil
-				and state.LastMinimumDecrease + 1e-9 >= minimumRuleOutDecrease)
-		local ruleOutObserved = read(event, "RuleOutPatternObserved") == true
-			or (state.LastAverageDecrease > ruleOutThreshold + 1e-9
-				and noSmallDecrease)
 
-		if shadowObserved then
+		if outcome == "Shadow" then
 			state.Outcome = "Matched"
 			if api and type(api.Positive) == "function" then
 				api:Positive(
@@ -60,7 +58,7 @@ local function createObserver(api)
 					event
 				)
 			end
-		elseif ruleOutObserved and noSmallDecrease then
+		elseif outcome == "RuleOut" then
 			state.Outcome = "Rejected"
 			if api and type(api.RuleOut) == "function" then
 				api:RuleOut(
@@ -70,9 +68,9 @@ local function createObserver(api)
 							.. tostring(state.LastRoom or "one room")
 							.. ", its exact average cooling change was "
 							.. tostring(state.LastAverageDecrease)
-							.. "°C per sample, and no cooling sample was below "
-							.. tostring(minimumRuleOutDecrease)
-							.. "°C"),
+							.. "°C per sample (Shadow is above "
+							.. tostring(ruleOutThreshold)
+							.. "°C)"),
 					99,
 					event
 				)
@@ -85,7 +83,7 @@ local function createObserver(api)
 		state.Outcome = nil
 		state.LastRoom = nil
 		state.LastAverageDecrease = nil
-		state.LastMinimumDecrease = nil
+		state.LastDecreaseCount = 0
 		state.LastSampleCount = 0
 	end
 
@@ -95,7 +93,7 @@ local function createObserver(api)
 			Outcome = state.Outcome,
 			LastRoom = state.LastRoom,
 			LastAverageDecrease = state.LastAverageDecrease,
-			LastMinimumDecrease = state.LastMinimumDecrease,
+			LastDecreaseCount = state.LastDecreaseCount,
 			LastSampleCount = state.LastSampleCount,
 		}
 	end
@@ -111,12 +109,12 @@ return {
 	ObservationEvents = {"RoomTemperatureWindow"},
 	Perks = {
 		["Pretty Sure"] = {
-			"After 20 samples in the ghost's current room, an exact strict-decrease average below 0.05°C identifies Shadow at 99%.",
+			"After 20 readings in the ghost's current room, at least three strict cooling changes with an exact average below 0.05°C identify Shadow at 99%.",
 		},
 		Maybe = {},
 		Idk = {
-			"An exact strict-decrease average above 0.06°C rules Shadow out only when no cooling sample in the set is below 0.05°C; averages from 0.05°C through 0.06°C are inconclusive.",
-			"Temperature increases and unchanged pairs are excluded from the cooling average; samples from any room the ghost is not currently in are discarded.",
+			"With at least three cooling changes, an exact average above 0.06°C rules Shadow out; averages from 0.05°C through 0.06°C are inconclusive.",
+			"Every decreasing change, including outliers, stays in the average. Increases and unchanged pairs are excluded, and temperatures from other rooms are discarded.",
 		},
 	},
 	CreateObserver = createObserver,

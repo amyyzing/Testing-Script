@@ -51,6 +51,8 @@ expect(shadow.AverageDecrease < 0.05 and shadow.AverageDecrease > 0.049,
 	"the exact unrounded average below 0.05 should be retained")
 expect(shadow.ShadowPatternObserved == true and shadow.RuleOutPatternObserved == false,
 	"an exact strict-decrease average below 0.05 must identify Shadow")
+expect(shadow.SufficientCoolingChanges == true and shadow.Outcome == "Shadow",
+	"the tracker should authoritatively classify a sufficiently populated average")
 expect(shadow.IgnoredIncreaseCount == 1 and shadow.IncreasesIgnored == true,
 	"temperature increases must be excluded from the cooling average")
 expect(shadow.Unrounded == true, "the event must explicitly retain unrounded statistics")
@@ -106,10 +108,9 @@ end
 local normal = emitted[1].Payload
 expect(normal.AverageDecrease > 0.06 and normal.AverageDecrease < 0.061,
 	"the exact unrounded average above 0.06 should be retained")
-expect(normal.MinimumDecrease + 1e-9 >= 0.05,
-	"every normal-ghost cooling sample must satisfy the 0.05 minimum guard")
 expect(normal.RuleOutPatternObserved == true and normal.ShadowPatternObserved == false,
-	"an average above 0.06 with no sub-0.05 sample must rule Shadow out")
+	"a sufficiently populated average above 0.06 must rule Shadow out")
+expect(normal.Outcome == "RuleOut", "the tracker should authoritatively emit the average outcome")
 
 reset("Library", 40)
 for index = 1, 20 do
@@ -119,9 +120,31 @@ for index = 1, 20 do
 end
 local guarded = emitted[1].Payload
 expect(guarded.AverageDecrease > 0.06 and guarded.MinimumDecrease < 0.05,
-	"the guard window should preserve both its high average and exact small sample")
-expect(guarded.RuleOutPatternObserved == false and guarded.ShadowPatternObserved == false,
-	"one cooling sample below 0.05 must block a Shadow rule-out")
+	"the outlier window should preserve both its high average and exact small value")
+expect(guarded.RuleOutPatternObserved == true and guarded.ShadowPatternObserved == false,
+	"one low cooling outlier must not veto an average-based Shadow rule-out")
+
+reset("Library", 45)
+for index = 1, 20 do
+	temperatures.Library = temperatures.Library - (index == 10 and 0.07 or 0)
+	tick(0.25)
+end
+local singleHighOutlier = emitted[1].Payload
+expect(singleHighOutlier.DecreaseCount == 1
+	and singleHighOutlier.SufficientCoolingChanges == false
+	and singleHighOutlier.Outcome == "Inconclusive",
+	"one high cooling outlier must not rule Shadow out without an average set")
+
+reset("Library", 55)
+for index = 1, 20 do
+	temperatures.Library = temperatures.Library - (index == 10 and 0.04 or 0)
+	tick(0.25)
+end
+local singleLowOutlier = emitted[1].Payload
+expect(singleLowOutlier.DecreaseCount == 1
+	and singleLowOutlier.SufficientCoolingChanges == false
+	and singleLowOutlier.Outcome == "Inconclusive",
+	"one low cooling outlier must not identify Shadow without an average set")
 
 reset("Library", 50)
 for _ = 1, 20 do

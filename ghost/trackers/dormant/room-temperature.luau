@@ -65,9 +65,9 @@ function RoomTemperature.new(options)
 		SampleInterval = tonumber(options.SampleInterval) or 0.25,
 		ResidenceSeconds = tonumber(options.ResidenceSeconds) or 5,
 		RequiredSamples = math.max(2, math.floor(tonumber(options.RequiredSamples) or 20)),
+		MinimumCoolingChanges = math.max(3, math.floor(tonumber(options.MinimumCoolingChanges) or 3)),
 		ShadowAverageThreshold = tonumber(options.ShadowAverageThreshold) or 0.05,
 		RuleOutAverageThreshold = tonumber(options.RuleOutAverageThreshold) or 0.06,
-		MinimumRuleOutDecrease = tonumber(options.MinimumRuleOutDecrease) or 0.05,
 		_context = nil,
 		_roomName = nil,
 		_enteredAt = nil,
@@ -143,19 +143,22 @@ function RoomTemperature:_emitWindow(now)
 	local residence = math.max(0, now - (self._enteredAt or now))
 	local stats = windowStats(self._samples)
 	local average = stats.AverageDecrease
-	local minimum = stats.MinimumDecrease
 	-- Keep the full floating-point values. The epsilon only absorbs binary
 	-- representation noise at the exact decimal boundaries; nothing is rounded.
-	local shadowObserved = average ~= nil
+	-- Decisions use only a sufficiently populated average. Individual cooling
+	-- outliers remain in that average and cannot independently force or veto it.
+	local sufficientCoolingChanges =
+		stats.DecreaseCount >= self.MinimumCoolingChanges
+	local shadowObserved = sufficientCoolingChanges and average ~= nil
 		and average < self.ShadowAverageThreshold - 1e-9
-	local noSmallDecrease = minimum ~= nil
-		and minimum + 1e-9 >= self.MinimumRuleOutDecrease
-	local ruleOutObserved = average ~= nil
+	local ruleOutObserved = sufficientCoolingChanges and average ~= nil
 		and average > self.RuleOutAverageThreshold + 1e-9
-		and noSmallDecrease
+	local outcome = shadowObserved and "Shadow"
+		or (ruleOutObserved and "RuleOut" or "Inconclusive")
 	stats.ShadowPatternObserved = shadowObserved
 	stats.RuleOutPatternObserved = ruleOutObserved
-	stats.NoDecreaseBelowMinimum = noSmallDecrease
+	stats.SufficientCoolingChanges = sufficientCoolingChanges
+	stats.Outcome = outcome
 	self._lastStats = stats
 	self._windowCount = self._windowCount + 1
 	self:_emit({
@@ -178,10 +181,11 @@ function RoomTemperature:_emitWindow(now)
 			IgnoredUnchangedCount = stats.IgnoredUnchangedCount,
 			ShadowAverageThreshold = self.ShadowAverageThreshold,
 			RuleOutAverageThreshold = self.RuleOutAverageThreshold,
-			MinimumRuleOutDecrease = self.MinimumRuleOutDecrease,
+			MinimumCoolingChanges = self.MinimumCoolingChanges,
+			SufficientCoolingChanges = sufficientCoolingChanges,
+			Outcome = outcome,
 			ShadowPatternObserved = shadowObserved,
 			RuleOutPatternObserved = ruleOutObserved,
-			NoDecreaseBelowMinimum = noSmallDecrease,
 			IncreasesIgnored = true,
 			UnchangedIgnored = true,
 			Unrounded = true,
@@ -256,7 +260,7 @@ function RoomTemperature:Snapshot()
 		LastStats = copyStats(self._lastStats),
 		ShadowAverageThreshold = self.ShadowAverageThreshold,
 		RuleOutAverageThreshold = self.RuleOutAverageThreshold,
-		MinimumRuleOutDecrease = self.MinimumRuleOutDecrease,
+		MinimumCoolingChanges = self.MinimumCoolingChanges,
 		Resolved = self._resolved,
 	}
 end

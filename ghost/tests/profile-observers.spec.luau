@@ -256,8 +256,12 @@ do
 		RoomName = "Library",
 		ResidenceSeconds = 5,
 		SampleCount = 20,
+		DecreaseCount = 3,
 		AverageDecrease = 0.049999,
 		MinimumDecrease = 0.049999,
+		MinimumCoolingChanges = 3,
+		SufficientCoolingChanges = true,
+		Outcome = "Shadow",
 		ShadowAverageThreshold = 0.05,
 		ShadowPatternObserved = true,
 	})
@@ -276,11 +280,14 @@ do
 		RoomName = "Library",
 		ResidenceSeconds = 5,
 		SampleCount = 20,
+		DecreaseCount = 3,
 		AverageDecrease = 0.06,
 		MinimumDecrease = 0.06,
+		MinimumCoolingChanges = 3,
+		SufficientCoolingChanges = true,
+		Outcome = "Inconclusive",
 		ShadowAverageThreshold = 0.05,
 		RuleOutAverageThreshold = 0.06,
-		MinimumRuleOutDecrease = 0.05,
 	})
 	expect(last(api, "Positive") == nil and last(api, "RuleOut") == nil,
 		"the exact 0.06 boundary must remain inconclusive")
@@ -291,11 +298,14 @@ do
 		RoomName = "Library",
 		ResidenceSeconds = 5.1,
 		SampleCount = 20,
+		DecreaseCount = 3,
 		AverageDecrease = (0.072 + 0.054 + 0.053) / 3,
 		MinimumDecrease = 0.053,
+		MinimumCoolingChanges = 3,
+		SufficientCoolingChanges = true,
+		Outcome = "Inconclusive",
 		ShadowAverageThreshold = 0.05,
 		RuleOutAverageThreshold = 0.06,
-		MinimumRuleOutDecrease = 0.05,
 	})
 	expect(last(api, "Positive") == nil and last(api, "RuleOut") == nil,
 		"the reproduced 0.059666 middle-band average must remain inconclusive")
@@ -306,17 +316,40 @@ do
 		RoomName = "Library",
 		ResidenceSeconds = 5.25,
 		SampleCount = 20,
+		DecreaseCount = 3,
 		AverageDecrease = 0.060001,
 		MinimumDecrease = 0.05,
+		MinimumCoolingChanges = 3,
+		SufficientCoolingChanges = true,
+		Outcome = "RuleOut",
 		ShadowAverageThreshold = 0.05,
 		RuleOutAverageThreshold = 0.06,
-		MinimumRuleOutDecrease = 0.05,
-		NoDecreaseBelowMinimum = true,
 		RuleOutPatternObserved = true,
 	})
 	local ruledOut = last(api, "RuleOut")
 	expect(ruledOut ~= nil and ruledOut.Confidence == 99,
-		"an exact above-0.06 same-room average with no sub-0.05 sample must rule Shadow out")
+		"an authoritative above-0.06 same-room average must rule Shadow out")
+end
+
+do
+	local api = newApi()
+	local observer = byName.Shadow.CreateObserver(api)
+	observer:OnEvent({
+		Type = "RoomTemperatureWindow",
+		Qualified = true,
+		SameRoom = true,
+		RoomName = "Library",
+		ResidenceSeconds = 5,
+		SampleCount = 20,
+		DecreaseCount = 3,
+		MinimumCoolingChanges = 3,
+		SufficientCoolingChanges = true,
+		AverageDecrease = 0.07,
+		Outcome = "Inconclusive",
+		RuleOutPatternObserved = true,
+	})
+	expect(last(api, "Positive") == nil and last(api, "RuleOut") == nil,
+		"the Shadow observer must consume the tracker's outcome without re-deriving stale flags")
 end
 
 
@@ -330,16 +363,18 @@ do
 		RoomName = "Library",
 		ResidenceSeconds = 5,
 		SampleCount = 20,
+		DecreaseCount = 20,
 		AverageDecrease = 0.07,
 		MinimumDecrease = 0.049999,
+		MinimumCoolingChanges = 3,
+		SufficientCoolingChanges = true,
+		Outcome = "RuleOut",
 		ShadowAverageThreshold = 0.05,
 		RuleOutAverageThreshold = 0.06,
-		MinimumRuleOutDecrease = 0.05,
-		NoDecreaseBelowMinimum = false,
-		RuleOutPatternObserved = false,
+		RuleOutPatternObserved = true,
 	})
-	expect(last(api, "Positive") == nil and last(api, "RuleOut") == nil,
-		"a sub-0.05 cooling sample must block the high-average Shadow rule-out")
+	expect(last(api, "Positive") == nil and last(api, "RuleOut") ~= nil,
+		"one low outlier must not veto the authoritative average-based Shadow rule-out")
 end
 
 for _, name in ipairs({"Dybbuk", "Nightmare", "Vesper"}) do
