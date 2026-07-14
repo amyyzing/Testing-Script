@@ -304,11 +304,12 @@ local Profiles = {
 	}, {
 		note("Frequent hunts alone overlap with Demon behavior and difficulty settings.", SOURCE.Revenant, "wiki-documented", false, "Caveat"),
 	})),
-	profile("Shadow", {"EMFLevel5", "GhostWriting", "LaserProjector"}, "wiki-documented", perks({}, {
-		note("After the ghost remains in the same current room for five seconds, about 20 room-temperature samples showing any one-step drop of at least 0.20°C rule Shadow out at 99%; increases are ignored.", SOURCE.Shadow, "user-observed", false, "RuleOut"),
-		note("A slow temperature window alone is not enough to identify Shadow.", SOURCE.Shadow, "user-observed", false, "Caveat"),
+	profile("Shadow", {"EMFLevel5", "GhostWriting", "LaserProjector"}, "wiki-documented", perks({
+		note("After the ghost remains in its current room for five seconds, 20 unrounded samples with an exact average cooling change below 0.06°C identify Shadow at 99%.", SOURCE.Shadow, "user-observed", false, "Trait"),
+	}, {
 		note("A controlled light-on versus light-off comparison shows reduced activity in the lit room.", SOURCE.Shadow, "wiki-documented", false, "Weakness"),
 	}, {
+		note("An exact average above 0.06°C rules Shadow out only when no cooling sample in the set is below 0.05°C; exactly 0.06°C is inconclusive and increases are ignored.", SOURCE.Shadow, "user-observed", false, "RuleOut"),
 		note("A quiet ghost or a room that is difficult to locate is only absence-based evidence.", SOURCE.Shadow, "wiki-documented", false, "Caveat"),
 	})),
 	profile("Siren", {"EMFLevel5", "SpiritBox", "Wither"}, "wiki-documented", perks({

@@ -256,10 +256,34 @@ do
 		RoomName = "Library",
 		ResidenceSeconds = 5,
 		SampleCount = 20,
-		MaxDecreaseStep = 0.19,
-		NormalDropObserved = false,
+		AverageDecrease = 0.059999,
+		MinimumDecrease = 0.059999,
+		ShadowAverageThreshold = 0.06,
+		ShadowPatternObserved = true,
 	})
-	expect(last(api, "RuleOut") == nil, "a slow qualified room window must not prove or rule out Shadow")
+	local matched = last(api, "Positive")
+	expect(matched ~= nil and matched.Confidence == 99,
+		"an exact sub-0.06 same-room average must identify Shadow at 99%")
+end
+
+do
+	local api = newApi()
+	local observer = byName.Shadow.CreateObserver(api)
+	observer:OnEvent({
+		Type = "RoomTemperatureWindow",
+		Qualified = true,
+		SameRoom = true,
+		RoomName = "Library",
+		ResidenceSeconds = 5,
+		SampleCount = 20,
+		AverageDecrease = 0.06,
+		MinimumDecrease = 0.06,
+		ShadowAverageThreshold = 0.06,
+		RuleOutAverageThreshold = 0.06,
+		MinimumRuleOutDecrease = 0.05,
+	})
+	expect(last(api, "Positive") == nil and last(api, "RuleOut") == nil,
+		"the exact 0.06 boundary must remain inconclusive")
 	observer:OnEvent({
 		Type = "RoomTemperatureWindow",
 		Qualified = true,
@@ -267,11 +291,40 @@ do
 		RoomName = "Library",
 		ResidenceSeconds = 5.25,
 		SampleCount = 20,
-		MaxDecreaseStep = 0.2,
-		NormalDropObserved = true,
+		AverageDecrease = 0.060001,
+		MinimumDecrease = 0.05,
+		ShadowAverageThreshold = 0.06,
+		RuleOutAverageThreshold = 0.06,
+		MinimumRuleOutDecrease = 0.05,
+		NoDecreaseBelowMinimum = true,
+		RuleOutPatternObserved = true,
 	})
 	local ruledOut = last(api, "RuleOut")
-	expect(ruledOut ~= nil and ruledOut.Confidence == 99, "a 0.20-degree same-room step must rule Shadow out at 99%")
+	expect(ruledOut ~= nil and ruledOut.Confidence == 99,
+		"an exact above-0.06 same-room average with no sub-0.05 sample must rule Shadow out")
+end
+
+
+do
+	local api = newApi()
+	local observer = byName.Shadow.CreateObserver(api)
+	observer:OnEvent({
+		Type = "RoomTemperatureWindow",
+		Qualified = true,
+		SameRoom = true,
+		RoomName = "Library",
+		ResidenceSeconds = 5,
+		SampleCount = 20,
+		AverageDecrease = 0.07,
+		MinimumDecrease = 0.049999,
+		ShadowAverageThreshold = 0.06,
+		RuleOutAverageThreshold = 0.06,
+		MinimumRuleOutDecrease = 0.05,
+		NoDecreaseBelowMinimum = false,
+		RuleOutPatternObserved = false,
+	})
+	expect(last(api, "Positive") == nil and last(api, "RuleOut") == nil,
+		"a sub-0.05 cooling sample must block the high-average Shadow rule-out")
 end
 
 for _, name in ipairs({"Dybbuk", "Nightmare", "Vesper"}) do

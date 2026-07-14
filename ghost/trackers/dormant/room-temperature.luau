@@ -15,6 +15,43 @@ local function copySamples(samples)
 	return result
 end
 
+local function copyStats(stats)
+	if type(stats) ~= "table" then return nil end
+	local result = {}
+	for key, value in pairs(stats) do result[key] = value end
+	return result
+end
+
+local function windowStats(samples)
+	local sum = 0
+	local count = 0
+	local minimum = nil
+	local maximum = nil
+	local ignoredIncreases = 0
+	for index = 2, #samples do
+		local decrease = samples[index - 1].Temperature - samples[index].Temperature
+		-- A non-negative value is a cooling change. Increases do not subtract
+		-- from the cooling average and cannot manufacture a Shadow result.
+		if decrease >= 0 then
+			sum = sum + decrease
+			count = count + 1
+			minimum = minimum and math.min(minimum, decrease) or decrease
+			maximum = maximum and math.max(maximum, decrease) or decrease
+		else
+			ignoredIncreases = ignoredIncreases + 1
+		end
+	end
+	return {
+		AverageDecrease = count > 0 and sum / count or nil,
+		MinimumDecrease = minimum,
+		MaximumDecrease = maximum,
+		DecreaseSum = sum,
+		DecreaseCount = count,
+		IgnoredIncreaseCount = ignoredIncreases,
+		ChangeCount = math.max(0, #samples - 1),
+	}
+end
+
 function RoomTemperature.new(options)
 	options = type(options) == "table" and options or {}
 	return setmetatable({
@@ -24,15 +61,17 @@ function RoomTemperature.new(options)
 		SampleInterval = tonumber(options.SampleInterval) or 0.25,
 		ResidenceSeconds = tonumber(options.ResidenceSeconds) or 5,
 		RequiredSamples = math.max(2, math.floor(tonumber(options.RequiredSamples) or 20)),
-		DropThreshold = tonumber(options.DropThreshold) or 0.2,
+		ShadowAverageThreshold = tonumber(options.ShadowAverageThreshold) or 0.06,
+		RuleOutAverageThreshold = tonumber(options.RuleOutAverageThreshold) or 0.06,
+		MinimumRuleOutDecrease = tonumber(options.MinimumRuleOutDecrease) or 0.05,
 		_context = nil,
 		_roomName = nil,
 		_enteredAt = nil,
 		_lastSampleAt = nil,
 		_samples = {},
-		_maxDecreaseStep = 0,
-		_windowEmitted = false,
-		_normalDropEmitted = false,
+		_lastStats = nil,
+		_windowCount = 0,
+		_resolved = false,
 	}, RoomTemperature)
 end
 
@@ -49,9 +88,7 @@ function RoomTemperature:_now(event)
 end
 
 function RoomTemperature:_emit(event)
-	if type(self._context.Emit) == "function" then
-		self._context.Emit(event)
-	end
+	if type(self._context.Emit) == "function" then self._context.Emit(event) end
 end
 
 function RoomTemperature:_clearResidence(status)
@@ -59,30 +96,25 @@ function RoomTemperature:_clearResidence(status)
 	self._enteredAt = nil
 	self._lastSampleAt = nil
 	table.clear(self._samples)
-	self._maxDecreaseStep = 0
-	self._windowEmitted = false
-	self._normalDropEmitted = false
+	self._lastStats = nil
+	self._windowCount = 0
+	self._resolved = false
 	self.Status = status or "Dormant"
 end
 
 function RoomTemperature:_beginResidence(roomName, now)
+	self:_clearResidence("Sampling")
 	self._roomName = roomName
 	self._enteredAt = now
-	self._lastSampleAt = nil
-	table.clear(self._samples)
-	self._maxDecreaseStep = 0
-	self._windowEmitted = false
-	self._normalDropEmitted = false
-	self.Status = "Sampling"
 end
 
 function RoomTemperature:_restartForMissingTemperature(now)
 	self._enteredAt = now
 	self._lastSampleAt = nil
 	table.clear(self._samples)
-	self._maxDecreaseStep = 0
-	self._windowEmitted = false
-	self._normalDropEmitted = false
+	self._lastStats = nil
+	self._windowCount = 0
+	self._resolved = false
 	self.Status = "WaitingForTemperature"
 end
 
@@ -91,9 +123,7 @@ function RoomTemperature:_readRoomName(event)
 	if roomName == nil and type(self._context.ReadCurrentRoom) == "function" then
 		roomName = self._context.ReadCurrentRoom()
 	end
-	if roomName == nil or tostring(roomName) == "" then
-		return nil
-	end
+	if roomName == nil or tostring(roomName) == "" then return nil end
 	return tostring(roomName)
 end
 
@@ -107,7 +137,23 @@ end
 
 function RoomTemperature:_emitWindow(now)
 	local residence = math.max(0, now - (self._enteredAt or now))
-	local normalDrop = self._maxDecreaseStep + 1e-6 >= self.DropThreshold
+	local stats = windowStats(self._samples)
+	local average = stats.AverageDecrease
+	local minimum = stats.MinimumDecrease
+	-- Keep the full floating-point values. The epsilon only absorbs binary
+	-- representation noise at the exact decimal boundaries; nothing is rounded.
+	local shadowObserved = average ~= nil
+		and average < self.ShadowAverageThreshold - 1e-9
+	local noSmallDecrease = minimum ~= nil
+		and minimum + 1e-9 >= self.MinimumRuleOutDecrease
+	local ruleOutObserved = average ~= nil
+		and average > self.RuleOutAverageThreshold + 1e-9
+		and noSmallDecrease
+	stats.ShadowPatternObserved = shadowObserved
+	stats.RuleOutPatternObserved = ruleOutObserved
+	stats.NoDecreaseBelowMinimum = noSmallDecrease
+	self._lastStats = stats
+	self._windowCount = self._windowCount + 1
 	self:_emit({
 		Type = Events.Types.RoomTemperatureWindow,
 		Source = self.Name,
@@ -118,71 +164,59 @@ function RoomTemperature:_emitWindow(now)
 			ResidenceSeconds = residence,
 			SampleCount = #self._samples,
 			Samples = copySamples(self._samples),
-			MaxDecreaseStep = self._maxDecreaseStep,
-			DropThreshold = self.DropThreshold,
-			NormalDropObserved = normalDrop,
+			AverageDecrease = stats.AverageDecrease,
+			MinimumDecrease = stats.MinimumDecrease,
+			MaximumDecrease = stats.MaximumDecrease,
+			DecreaseSum = stats.DecreaseSum,
+			DecreaseCount = stats.DecreaseCount,
+			ChangeCount = stats.ChangeCount,
+			IgnoredIncreaseCount = stats.IgnoredIncreaseCount,
+			ShadowAverageThreshold = self.ShadowAverageThreshold,
+			RuleOutAverageThreshold = self.RuleOutAverageThreshold,
+			MinimumRuleOutDecrease = self.MinimumRuleOutDecrease,
+			ShadowPatternObserved = shadowObserved,
+			RuleOutPatternObserved = ruleOutObserved,
+			NoDecreaseBelowMinimum = noSmallDecrease,
 			IncreasesIgnored = true,
+			Unrounded = true,
+			Window = self._windowCount,
 		},
 	})
-	self._windowEmitted = true
-	if normalDrop then
-		self._normalDropEmitted = true
+	self._resolved = shadowObserved or ruleOutObserved
+	if self._resolved then
 		self.Status = "Resolved"
 	else
+		-- Start a fresh independent set instead of emitting a sliding window on
+		-- every quarter-second tick.
+		table.clear(self._samples)
 		self.Status = "Monitoring"
 	end
 end
 
 function RoomTemperature:_sample(now, temperature)
+	if self._resolved then return end
 	if self._lastSampleAt
-		and now - self._lastSampleAt + 1e-6 < self.SampleInterval then
-		return
-	end
+		and now - self._lastSampleAt + 1e-6 < self.SampleInterval then return end
 	self._lastSampleAt = now
-	local previous = self._samples[#self._samples]
-	if previous then
-		local decrease = previous.Temperature - temperature
-		-- Positive values are temperature drops. Increases and unchanged readings
-		-- are deliberately ignored rather than being treated as counter-evidence.
-		if decrease > 0 then
-			self._maxDecreaseStep = math.max(self._maxDecreaseStep, decrease)
-		end
-	end
-	table.insert(self._samples, {
-		Time = now,
-		Temperature = temperature,
-	})
-	while #self._samples > self.RequiredSamples do
-		table.remove(self._samples, 1)
-	end
-
+	table.insert(self._samples, {Time = now, Temperature = temperature})
+	while #self._samples > self.RequiredSamples do table.remove(self._samples, 1) end
 	local residence = now - (self._enteredAt or now)
-	local qualified = residence + 1e-6 >= self.ResidenceSeconds
-		and #self._samples >= self.RequiredSamples
-	if not qualified then
-		return
-	end
-	local normalDrop = self._maxDecreaseStep + 1e-6 >= self.DropThreshold
-	if not self._windowEmitted
-		or (normalDrop and not self._normalDropEmitted) then
+	if residence + 1e-6 >= self.ResidenceSeconds
+		and #self._samples >= self.RequiredSamples then
 		self:_emitWindow(now)
 	end
 end
 
 function RoomTemperature:OnEvent(event)
 	if type(event) ~= "table"
-		or (event.Type or event.Kind) ~= Events.Types.Tick then
-		return false
-	end
+		or (event.Type or event.Kind) ~= Events.Types.Tick then return false end
 	local now = self:_now(event)
 	local roomName = self:_readRoomName(event)
 	if not roomName then
 		self:_clearResidence("Dormant")
 		return true
 	end
-	if roomName ~= self._roomName then
-		self:_beginResidence(roomName, now)
-	end
+	if roomName ~= self._roomName then self:_beginResidence(roomName, now) end
 	local temperature = self:_readTemperature(event, roomName)
 	if temperature == nil then
 		self:_restartForMissingTemperature(now)
@@ -192,13 +226,8 @@ function RoomTemperature:OnEvent(event)
 	return true
 end
 
-function RoomTemperature:Stop()
-	self:_clearResidence("Stopped")
-end
-
-function RoomTemperature:Reset()
-	self:_clearResidence("Idle")
-end
+function RoomTemperature:Stop() self:_clearResidence("Stopped") end
+function RoomTemperature:Reset() self:_clearResidence("Idle") end
 
 function RoomTemperature:Destroy()
 	self:_clearResidence("Destroyed")
@@ -217,9 +246,12 @@ function RoomTemperature:Snapshot()
 				- self._enteredAt
 		) or 0,
 		SampleCount = #self._samples,
-		MaxDecreaseStep = self._maxDecreaseStep,
-		WindowEmitted = self._windowEmitted,
-		NormalDropEmitted = self._normalDropEmitted,
+		WindowCount = self._windowCount,
+		LastStats = copyStats(self._lastStats),
+		ShadowAverageThreshold = self.ShadowAverageThreshold,
+		RuleOutAverageThreshold = self.RuleOutAverageThreshold,
+		MinimumRuleOutDecrease = self.MinimumRuleOutDecrease,
+		Resolved = self._resolved,
 	}
 end
 
