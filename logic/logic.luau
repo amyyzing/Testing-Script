@@ -6948,7 +6948,10 @@ observeWalkSpeedChange = function(humanoid, attemptedSpeed)
 		end
 	end
 end
-local function findBaseCampRoom()
+-- Keep late-stage helpers on existing state tables instead of allocating more
+-- factory locals. Potassium's loadstring compiler rejected this factory when
+-- its generated register use reached R201.
+perkTrackerState.findBaseCampRoom = function()
 	local roomsFolder = findRoomsFolder()
 	if not roomsFolder then
 		return nil
@@ -6957,7 +6960,7 @@ local function findBaseCampRoom()
 		or roomsFolder:FindFirstChild("BaseCamp")
 		or findFavouriteRoom(roomsFolder, "Base Camp")
 end
-local function teleportToRoomBoundingBoxCenter(room, options)
+perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	options = options or {}
 	local function teleportIsActive()
 		if type(options.IsActive) ~= "function" then
@@ -8053,8 +8056,8 @@ local function teleportToRoomBoundingBoxCenter(room, options)
 	return true, nil
 end
 
-local function teleportToBaseCamp(options)
-	local room = findBaseCampRoom()
+perkTrackerState.teleportToBaseCamp = function(options)
+	local room = perkTrackerState.findBaseCampRoom()
 	if not room then
 		return false, "Base Camp room was not found"
 	end
@@ -8115,7 +8118,7 @@ local function teleportToBaseCamp(options)
 				options.PreferredPositions = {preferredPosition}
 			end
 		end
-		return teleportToRoomBoundingBoxCenter(room, options)
+		return perkTrackerState.teleportToRoomBoundingBoxCenter(room, options)
 	end)
 	perkTrackerState.baseCampTeleportBusy = false
 	if not succeeded then
@@ -8123,7 +8126,7 @@ local function teleportToBaseCamp(options)
 	end
 	return teleported, reason
 end
-local function teleportToFavouriteRoom(options)
+perkTrackerState.teleportToFavouriteRoom = function(options)
 	local ghost = getGhostModel()
 	local roomsFolder = findRoomsFolder()
 	local roomName = ghost and ghost:GetAttribute("FavoriteRoom") or nil
@@ -8131,9 +8134,9 @@ local function teleportToFavouriteRoom(options)
 	if not room then
 		return false, "Favourite room was not found: " .. tostring(roomName)
 	end
-	return teleportToRoomBoundingBoxCenter(room, options)
+	return perkTrackerState.teleportToRoomBoundingBoxCenter(room, options)
 end
-local function placeItemsInFavouriteRoom(owner)
+perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 	if roomItemPlacementState.busy or closed then
 		return false, "room item setup is already running"
 	end
@@ -8191,7 +8194,7 @@ local function placeItemsInFavouriteRoom(owner)
 				if not paused then
 					paused = true
 					placeRoomItemsButton.Text = COPY.Actions.WaitingForHunt
-					teleportToBaseCamp()
+					perkTrackerState.teleportToBaseCamp()
 				end
 				guardedWait(0.15)
 			end
@@ -8220,7 +8223,7 @@ local function placeItemsInFavouriteRoom(owner)
 					)
 				if not alreadyInRoom then
 					local teleported, reason =
-						teleportToFavouriteRoom()
+						perkTrackerState.teleportToFavouriteRoom()
 					if not teleported then
 						error(
 							"Favourite-room teleport failed: "
@@ -9241,7 +9244,7 @@ local function placeItemsInFavouriteRoom(owner)
 		local ok, err = xpcall(function()
 			waitForNoHunt(false)
 			local baseTeleported, baseReason =
-				teleportToBaseCamp()
+				perkTrackerState.teleportToBaseCamp()
 			if not baseTeleported then
 				error(
 					"Base Camp teleport failed: "
@@ -9291,7 +9294,7 @@ local function placeItemsInFavouriteRoom(owner)
 			-- Ensure the final three pickups are exactly the retained equipment.
 			waitForNoHunt(false)
 			local returnedToBase, returnReason =
-				teleportToBaseCamp()
+				perkTrackerState.teleportToBaseCamp()
 			if not returnedToBase then
 				error(
 					"Base Camp return failed: "
@@ -9321,7 +9324,7 @@ local function placeItemsInFavouriteRoom(owner)
 		end, debug.traceback)
 
 		if operationIsActive() then
-			teleportToBaseCamp()
+			perkTrackerState.teleportToBaseCamp()
 			roomItemPlacementState.lastCompletedGeneration =
 				operationGeneration
 			roomItemPlacementState.lastResult = ok
@@ -9415,7 +9418,9 @@ doRoundState.releasePlayerMovement = function()
 	end)
 end
 
-local roundAutomation: any = createRoundAutomation({
+-- Continue using state fields here so the factory remains below the executor's
+-- compiler register ceiling as new controller helpers are added.
+doRoundState.roundAutomation = createRoundAutomation({
 	Services = Services,
 	Player = player,
 	RuntimeIsActive = runtimeIsActive,
@@ -9425,10 +9430,10 @@ local roundAutomation: any = createRoundAutomation({
 	GetInstanceWorldPosition = getInstanceWorldPosition,
 	GetRoomBoundingParts = getRoomBoundingParts,
 	PointIsInsidePart = pointIsInsidePart,
-	TeleportToRoom = teleportToRoomBoundingBoxCenter,
-	TeleportToBaseCamp = teleportToBaseCamp,
-	TeleportToFavouriteRoom = teleportToFavouriteRoom,
-	PlaceItemsInFavouriteRoom = placeItemsInFavouriteRoom,
+	TeleportToRoom = perkTrackerState.teleportToRoomBoundingBoxCenter,
+	TeleportToBaseCamp = perkTrackerState.teleportToBaseCamp,
+	TeleportToFavouriteRoom = perkTrackerState.teleportToFavouriteRoom,
+	PlaceItemsInFavouriteRoom = perkTrackerState.placeItemsInFavouriteRoom,
 	InstanceIsInsideRoom = instanceIsInsideRoom,
 	State = doRoundState,
 	PerkTrackerState = perkTrackerState,
@@ -9446,13 +9451,13 @@ local roundAutomation: any = createRoundAutomation({
 	ReleasePlayerMovement = doRoundState.releasePlayerMovement,
 	PrepareTeleport = dependencies.PrepareTeleport,
 })
-local function setDoRoundEnabled(enabled, finalPhase)
-	return roundAutomation.SetEnabled(enabled, finalPhase)
+doRoundState.setEnabled = function(enabled, finalPhase)
+	return doRoundState.roundAutomation.SetEnabled(enabled, finalPhase)
 end
-local function teleportOutside()
-	return teleportToBaseCamp()
+doRoundState.teleportOutside = function()
+	return perkTrackerState.teleportToBaseCamp()
 end
-local function escapeCurrentHunt()
+doRoundState.escapeCurrentHunt = function()
 	local ghost = getGhostModel()
 	if not ghost then
 		return
@@ -9463,12 +9468,12 @@ local function escapeCurrentHunt()
 		return
 	end
 	if huntEscapeEnabled and not huntEscapeTriggered then
-		if teleportOutside() then
+		if doRoundState.teleportOutside() then
 			huntEscapeTriggered = true
 		end
 	end
 end
-local function scanDeepEvidence()
+perkTrackerState.scanDeepEvidence = function()
 	if not perkTrackerState.deepEvidenceWorkspaceBound then
 		perkTrackerState.deepEvidenceWorkspaceBound = true
 		perkTrackerState.observeDeepEvidenceObject = function(object)
@@ -9664,14 +9669,14 @@ local function scanDeepEvidence()
 		end
 	end
 end
-local function normalizeSpiritBoxSubtitle(value)
+perkTrackerState.normalizeSpiritBoxSubtitle = function(value)
 	local text = tostring(value or "")
 	text = string.gsub(text, "^%s+", "")
 	text = string.gsub(text, "%s+$", "")
 	text = string.gsub(text, "%s+", " ")
 	return string.lower(text)
 end
-local function rebuildSpiritBoxVoiceIndex()
+perkTrackerState.rebuildSpiritBoxVoiceIndex = function()
 	local state = perkTrackerState
 	table.clear(state.spiritBoxVoiceSubtitles)
 	local assets = Services.ReplicatedStorage:FindFirstChild("Assets")
@@ -9688,7 +9693,7 @@ local function rebuildSpiritBoxVoiceIndex()
 		if type(subtitle) ~= "string" then
 			return
 		end
-		local key = normalizeSpiritBoxSubtitle(subtitle)
+		local key = perkTrackerState.normalizeSpiritBoxSubtitle(subtitle)
 		if key ~= "" then
 			state.spiritBoxVoiceSubtitles[key] = true
 		end
@@ -9698,18 +9703,18 @@ local function rebuildSpiritBoxVoiceIndex()
 		addVoice(object)
 	end
 end
-local function updateSpiritBoxLabel()
+perkTrackerState.updateSpiritBoxLabel = function()
 	perkTrackerState.updateEvidenceStatuses()
 end
-local function processSpiritBoxRemoteSubtitle(firstArgument)
+perkTrackerState.processSpiritBoxRemoteSubtitle = function(firstArgument)
 	if closed or type(firstArgument) ~= "string" then
 		return
 	end
 	local state = perkTrackerState
 	if next(state.spiritBoxVoiceSubtitles) == nil then
-		rebuildSpiritBoxVoiceIndex()
+		perkTrackerState.rebuildSpiritBoxVoiceIndex()
 	end
-	local key = normalizeSpiritBoxSubtitle(firstArgument)
+	local key = perkTrackerState.normalizeSpiritBoxSubtitle(firstArgument)
 	if key == "" or not state.spiritBoxVoiceSubtitles[key] then
 		return
 	end
@@ -9753,10 +9758,10 @@ local function processSpiritBoxRemoteSubtitle(firstArgument)
 			end
 		end
 	end
-	updateSpiritBoxLabel()
+	perkTrackerState.updateSpiritBoxLabel()
 	updateGhostIdentification(getGhostModel())
 end
-local function bindSpiritBoxRemoteListeners()
+perkTrackerState.bindSpiritBoxRemoteListeners = function()
 	local state = perkTrackerState
 	if state.spiritBoxRemoteBound then
 		return
@@ -9770,24 +9775,24 @@ local function bindSpiritBoxRemoteListeners()
 		return
 	end
 	state.spiritBoxRemoteBound = true
-	rebuildSpiritBoxVoiceIndex()
+	perkTrackerState.rebuildSpiritBoxVoiceIndex()
 	if remote and remote:IsA("RemoteEvent") then
 		connect(remote.OnClientEvent, function(firstArgument)
-			processSpiritBoxRemoteSubtitle(firstArgument)
+			perkTrackerState.processSpiritBoxRemoteSubtitle(firstArgument)
 		end)
 	end
 	if localEvent and localEvent:IsA("BindableEvent") then
 		connect(localEvent.Event, function(firstArgument)
-			processSpiritBoxRemoteSubtitle(firstArgument)
+			perkTrackerState.processSpiritBoxRemoteSubtitle(firstArgument)
 		end)
 	end
 	local voices = state.spiritBoxVoiceFolder
 	if voices then
-		connect(voices.DescendantAdded, rebuildSpiritBoxVoiceIndex)
-		connect(voices.DescendantRemoving, rebuildSpiritBoxVoiceIndex)
+		connect(voices.DescendantAdded, perkTrackerState.rebuildSpiritBoxVoiceIndex)
+		connect(voices.DescendantRemoving, perkTrackerState.rebuildSpiritBoxVoiceIndex)
 	end
 end
-local function updateEvidence()
+perkTrackerState.updateEvidence = function()
 	ensureGhoulItemTracker()
 	local ghost = getGhostModel()
 	local now = os.clock()
@@ -9830,10 +9835,10 @@ local function updateEvidence()
 	local roomsFolder = findRoomsFolder()
 	if now - lastDeepEvidenceScan >= 1.0 then
 		lastDeepEvidenceScan = now
-		scanDeepEvidence()
+		perkTrackerState.scanDeepEvidence()
 	end
 	setEvidence("Print", evidenceFound.Print)
-	bindSpiritBoxRemoteListeners()
+	perkTrackerState.bindSpiritBoxRemoteListeners()
 	setEvidence("Inscription", evidenceFound.Inscription)
 	setEvidence("Wither", evidenceFound.Wither)
 	local inLaser = ghost and ghost:GetAttribute("InLaser") == true or false
@@ -9930,7 +9935,7 @@ function Controller:ToggleHuntEscape()
 	huntEscapeManualEnabled = not huntEscapeManualEnabled
 	refreshHuntEscapeEnabled()
 	if huntEscapeEnabled then
-		escapeCurrentHunt()
+		doRoundState.escapeCurrentHunt()
 	end
 	return huntEscapeEnabled
 end
@@ -9952,18 +9957,18 @@ function Controller:ToggleFullBright()
 end
 
 function Controller:TeleportToBaseCamp()
-	return teleportToBaseCamp()
+	return perkTrackerState.teleportToBaseCamp()
 end
 
 function Controller:TeleportToFavouriteRoom()
-	return teleportToFavouriteRoom()
+	return perkTrackerState.teleportToFavouriteRoom()
 end
 
 function Controller:PlaceRoomItems()
 	if doRoundState.enabled then
 		return false, "Do-Round currently owns room item setup"
 	end
-	return placeItemsInFavouriteRoom("Manual")
+	return perkTrackerState.placeItemsInFavouriteRoom("Manual")
 end
 
 function Controller:ToggleAutoSpiritBox()
@@ -9973,7 +9978,7 @@ function Controller:ToggleAutoSpiritBox()
 end
 
 function Controller:ToggleDoRound()
-	return setDoRoundEnabled(not doRoundState.enabled)
+	return doRoundState.setEnabled(not doRoundState.enabled)
 end
 
 function Controller:SetEvidenceMode(mode)
@@ -10255,7 +10260,7 @@ function Controller:Destroy()
 	perkTrackerState.ghostCoreTickAccumulator = 0
 	perkTrackerState.ghostCoreSyncQueued = false
 	if doRoundState.enabled then
-		setDoRoundEnabled(false, "Off")
+		doRoundState.setEnabled(false, "Off")
 	end
 	ghostEspEnabled = false
 	huntEscapeEnabled = false
@@ -10371,8 +10376,8 @@ function Controller:Start()
 			return
 		end
 		updateAccumulator = updateAccumulator % evidenceUpdateInterval
-		updateEvidence()
-		escapeCurrentHunt()
+		perkTrackerState.updateEvidence()
+		doRoundState.escapeCurrentHunt()
 		if doRoundState.enabled then
 			setDoRoundStatus(doRoundState.phase)
 		end
@@ -10398,8 +10403,8 @@ function Controller:Start()
 		end
 	end)
 
-	bindSpiritBoxRemoteListeners()
-	updateEvidence()
+	perkTrackerState.bindSpiritBoxRemoteListeners()
+	perkTrackerState.updateEvidence()
 	return self
 end
 

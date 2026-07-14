@@ -136,7 +136,9 @@ function LoadScreen.new(options)
 
 	local self = setmetatable({
 		Gui = gui,
+		Card = card,
 		StatusLabel = status,
+		Track = track,
 		DetailLabel = detail,
 		Fill = fill,
 		Environment = environment,
@@ -168,6 +170,13 @@ function LoadScreen:Fail(message)
 	if self.Destroyed then
 		return
 	end
+	self.Card.Size = UDim2.fromOffset(420, 230)
+	self.StatusLabel.Size = UDim2.new(1, -44, 0, 92)
+	self.StatusLabel.TextTruncate = Enum.TextTruncate.None
+	self.StatusLabel.TextWrapped = true
+	self.StatusLabel.TextYAlignment = Enum.TextYAlignment.Top
+	self.Track.Position = UDim2.fromOffset(22, 166)
+	self.DetailLabel.Position = UDim2.fromOffset(22, 185)
 	self.Fill.BackgroundColor3 = Color3.fromRGB(239, 89, 101)
 	self.DetailLabel.Text = "FAILED"
 	self.DetailLabel.TextColor3 = Color3.fromRGB(239, 89, 101)
