@@ -84,13 +84,12 @@ return function(dependencies)
 			ExpectedPhantomRatio = tonumber(options.ExpectedPhantomRatio) or (13.5 / 11),
 			RatioTolerance = tonumber(options.RatioTolerance) or 0.05,
 			EqualityTolerance = tonumber(options.EqualityTolerance) or 0.05,
-			IncreaseEpsilon = tonumber(options.IncreaseEpsilon) or 0.05,
 			_context = nil,
 			huntId = nil,
 			processed = {},
 			sampleCount = 0,
 			pairCount = 0,
-			increaseCount = 0,
+			differentPairCount = 0,
 			dullahanEmitted = false,
 			dullahanAbsentEmitted = false,
 			phantomEmitted = false,
@@ -117,7 +116,7 @@ return function(dependencies)
 		table.clear(self.processed)
 		self.sampleCount = 0
 		self.pairCount = 0
-		self.increaseCount = 0
+		self.differentPairCount = 0
 		self.dullahanEmitted = false
 		self.dullahanAbsentEmitted = false
 		self.phantomEmitted = false
@@ -151,11 +150,9 @@ return function(dependencies)
 				SampleCount = self.sampleCount,
 				PairCount = self.pairCount,
 				RequiredPairs = self.RequiredPairs,
-				IncreaseCount = self.increaseCount,
-				UpwardSteps = self.increaseCount,
-				UpwardPairs = self.increaseCount,
-				RequiredUpwardSteps = self.RequiredPairs,
-				RequiredUpwardPairs = self.RequiredPairs,
+				DifferentPairCount = self.differentPairCount,
+				DifferentPairs = self.differentPairCount,
+				RequiredDifferentPairs = self.RequiredPairs,
 				Qualified = true,
 				Completed = true,
 				Pairs = Events.Copy(pairs),
@@ -184,19 +181,19 @@ return function(dependencies)
 		local invisible = {}
 		local visible = {}
 		local all = {}
-		local upwardPairs = 0
+		local differentPairs = 0
 		for _, pair in ipairs(pairs) do
 			table.insert(invisible, pair.InvisibleSpeed)
 			table.insert(visible, pair.VisibleSpeed)
 			table.insert(all, pair.FirstSpeed)
 			table.insert(all, pair.SecondSpeed)
-			if pair.SecondSpeed - pair.FirstSpeed + 1e-6 >= self.IncreaseEpsilon then
-				upwardPairs = upwardPairs + 1
+			if pair.FirstSpeed ~= pair.SecondSpeed then
+				differentPairs = differentPairs + 1
 			end
 		end
-		-- Only within-pair rises count. A reset or decrease between two pairs is
-		-- intentionally ignored, matching Dullahan's step-and-reset behavior.
-		self.increaseCount = upwardPairs
+		-- Direction and magnitude do not matter. Each pair only needs two unequal
+		-- settled speeds; stable phase repetition is filtered before Dullahan.
+		self.differentPairCount = differentPairs
 
 		local invisibleSpeed = median(invisible)
 		local visibleSpeed = median(visible)
@@ -218,7 +215,7 @@ return function(dependencies)
 			self:_emitDullahanAbsent(
 				event,
 				pairs,
-				"seven settled pairs repeated stable phase speeds instead of Dullahan's differing upward-step pattern"
+				"seven settled pairs repeated stable phase speeds instead of Dullahan's differing pair values"
 			)
 			if ratio
 				and math.abs(ratio - self.ExpectedPhantomRatio) <= self.RatioTolerance then
@@ -281,7 +278,7 @@ return function(dependencies)
 			return
 		end
 
-		if upwardPairs >= self.RequiredPairs and not self.dullahanEmitted then
+		if differentPairs >= self.RequiredPairs and not self.dullahanEmitted then
 			self.dullahanEmitted = true
 			self.lastOutcome = Events.Types.DullahanPattern
 			self:_emit({
@@ -293,16 +290,14 @@ return function(dependencies)
 					SampleCount = self.sampleCount,
 					PairCount = self.pairCount,
 					RequiredPairs = self.RequiredPairs,
-					IncreaseCount = upwardPairs,
-					UpwardSteps = upwardPairs,
-					UpwardPairs = upwardPairs,
-					RequiredUpwardSteps = self.RequiredPairs,
-					RequiredUpwardPairs = self.RequiredPairs,
+					DifferentPairCount = differentPairs,
+					DifferentPairs = differentPairs,
+					RequiredDifferentPairs = self.RequiredPairs,
 					Qualified = true,
 					Completed = true,
 					Pairs = Events.Copy(pairs),
 					Samples = Events.Copy(samples),
-					Reason = "all seven settled pairs contained a short upward speed step; decreases between pairs were ignored",
+					Reason = "all seven settled pairs contained two different speed values; direction and magnitude were ignored",
 				},
 			})
 			return
@@ -311,7 +306,7 @@ return function(dependencies)
 		self:_emitDullahanAbsent(
 			event,
 			pairs,
-			"seven settled pairs did not maintain Dullahan's differing upward-step pattern"
+			"seven settled pairs did not all contain two different speed values"
 		)
 	end
 
@@ -359,7 +354,7 @@ return function(dependencies)
 			SampleCount = self.sampleCount,
 			PairCount = self.pairCount,
 			RequiredPairs = self.RequiredPairs,
-			IncreaseCount = self.increaseCount,
+			DifferentPairCount = self.differentPairCount,
 			DullahanEmitted = self.dullahanEmitted,
 			DullahanAbsentEmitted = self.dullahanAbsentEmitted,
 			PhantomEmitted = self.phantomEmitted,

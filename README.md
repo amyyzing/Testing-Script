@@ -151,8 +151,8 @@ fresh coordinator; there is no `GhostGeneration` polling tracker.
 
 Shared analyzers classify one complete window of seven settled visible/invisible
 pairs. Seven repeating phase pairs classify Phantom, seven flat pairs feed
-Normal/Oni speed math, and seven differing pairs with an upward step inside every
-pair classify Dullahan; resets or decreases between pairs are ignored. A complete
+Normal/Oni speed math, and seven pairs whose two values are unequal classify
+Dullahan; direction and difference size do not matter. A complete
 non-Dullahan window rules Dullahan out immediately instead of waiting for the hunt
 to end. The same flat-pair result compares Normal, Oni, and the Wendigo speed
 expected from average Energy captured at the hunt-state switch. Three alternating

@@ -226,7 +226,7 @@ local Profiles = {
 	})),
 	profile("Dullahan", {"FreezingTemperatures", "LaserProjector", "Wither"}, "wiki-documented", perks({
 		note("A clear Photo Camera image shows it without a head.", SOURCE.Dullahan, "wiki-documented", false, "Weakness"),
-		note("Across seven settled visible/invisible pairs during one hunt, each pair contains a short upward WalkSpeed step while the pair values differ; line of sight is irrelevant and decreases between pairs are ignored.", SOURCE.Dullahan, "user-observed", false, "Trait"),
+		note("Across seven settled visible/invisible pairs during one hunt, both WalkSpeed values differ in every pair; direction and difference size do not matter.", SOURCE.Dullahan, "user-observed", false, "Trait"),
 	}, {
 		note("Seven stable repeating phase pairs instead resolve through Phantom or flat Normal/Oni math and rule Dullahan out immediately.", SOURCE.Dullahan, "user-observed", false, "RuleOut"),
 	}, {

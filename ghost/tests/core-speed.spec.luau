@@ -108,10 +108,30 @@ visibilityWindow({
 	22.2, 22.5,
 }, 1)
 local dullahan = findEvent(coordinator, Events.Types.DullahanPattern)
-expect(dullahan and dullahan.IncreaseCount == 7, "seven differing upward pairs should emit DullahanPattern immediately")
+expect(dullahan and dullahan.DifferentPairCount == 7,
+	"seven unequal pairs should emit DullahanPattern immediately")
 expect(dullahan.PairCount == 7 and dullahan.SampleCount == 14, "Dullahan should resolve from exactly seven complete settled pairs")
 expect(dullahan.Pairs[2].FirstSpeed < dullahan.Pairs[1].SecondSpeed,
-	"a reset between pairs must not erase the upward step inside the next pair")
+	"the relationship between separate pairs must not affect Dullahan classification")
+
+coordinator:Reset()
+now = 0
+table.clear(jobs)
+visibilityWindow({
+	22, 22.000001,
+	24, 23.999999,
+	20, 20.0000001,
+	25, 24.9999999,
+	19, 19.000002,
+	23, 22.999998,
+	21, 21.000003,
+}, 1)
+local anyDifferenceDullahan = findEvent(coordinator, Events.Types.DullahanPattern)
+expect(anyDifferenceDullahan and anyDifferenceDullahan.DifferentPairCount == 7,
+	"any exact difference in all seven pairs must identify Dullahan without a minimum size")
+expect(anyDifferenceDullahan.Pairs[2].SecondSpeed
+	< anyDifferenceDullahan.Pairs[2].FirstSpeed,
+	"a within-pair decrease must count as a different Dullahan pair")
 
 coordinator:Reset()
 now = 0
@@ -126,7 +146,7 @@ visibilityWindow({
 	22.2, 22.2,
 }, 1)
 expect(findEvent(coordinator, Events.Types.DullahanPattern) == nil,
-	"six upward pairs and one flat pair must not identify Dullahan")
+	"six unequal pairs and one equal pair must not identify Dullahan")
 expect(findEvent(coordinator, Events.Types.DullahanPatternAbsent) ~= nil,
 	"a complete inconsistent seven-pair window should rule Dullahan out immediately")
 

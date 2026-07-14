@@ -94,7 +94,7 @@ exercise("Banshee", {Type = "BrokenGlassBurst", Qualified = true, Count = 2, Win
 exercise("Demon", {Type = "CrossMotion", TrialId = "cross-1", Eligible = true, Completed = true, FloatedAndRotated = true}, "Positive")
 exercise("Dullahan", {
 	Type = "DullahanPattern", Hunting = true, Qualified = true,
-	IncreaseCount = 7, UpwardPairs = 7, SampleCount = 14,
+	DifferentPairCount = 7, DifferentPairs = 7, SampleCount = 14,
 	PairCount = 7, RequiredPairs = 7,
 }, "Positive")
 exercise("Entity", {
