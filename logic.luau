@@ -425,6 +425,16 @@ local function runLobbyStartMacro(
 			table.insert(challengeChanges, index)
 		end
 	end
+	local readyState = player:GetAttribute("IsReady")
+	local readyDeadline = os.clock() + 2
+	while type(readyState) ~= "boolean" and os.clock() < readyDeadline do
+		assertCurrent()
+		task.wait(0.1)
+		readyState = player:GetAttribute("IsReady")
+	end
+	if type(readyState) ~= "boolean" then
+		return false, "The lobby has not reported the player's ready state yet."
+	end
 	local fireSignal = environment.firesignal or firesignal
 	if type(fireSignal) ~= "function" then
 		error("this executor does not provide firesignal for UpdateDifficulty", 0)
@@ -438,7 +448,9 @@ local function runLobbyStartMacro(
 	local toggleChallenge = #challengeChanges > 0
 		and requireRemote("ToggleChallenge")
 		or nil
-	local changeStatus = requireRemote("ChangeStatus")
+	local changeStatus = readyState == false
+		and requireRemote("ChangeStatus")
+		or nil
 	local attemptStart = requireRemote("AttemptStart")
 	local prepared, prepareFailure = session:PrepareTeleport("AttemptStart")
 	if not prepared then
@@ -465,8 +477,10 @@ local function runLobbyStartMacro(
 		toggleChallenge:FireServer(challengeIndex)
 	end
 
-	waitForDispatch()
-	changeStatus:FireServer()
+	if changeStatus then
+		waitForDispatch()
+		changeStatus:FireServer()
+	end
 
 	waitForDispatch()
 	attemptStart:FireServer()

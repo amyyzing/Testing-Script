@@ -41,7 +41,9 @@ come from `ComputerScreen.Equipment.PartyLog.PresetList`. Both lists include onl
 Frame entries containing a `Delete` descendant. The selected equipment preset
 is applied, then Challenge 1-3 are compared with their live ON/OFF labels and
 `ToggleChallenge` is fired only for mismatches. Player status is then applied
-before attempting to start the round. Every macro dispatch has its own
+before attempting to start the round: `ChangeStatus` fires only when
+`LocalPlayer:GetAttribute("IsReady")` is explicitly false, so an already-ready
+player cannot be toggled back to unready. Every macro dispatch has its own
 0.75-second safety delay. The first run adopts the live challenge states when no
 challenge preference has been saved, preventing an untouched default from
 inverting an existing selection.
