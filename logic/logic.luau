@@ -261,6 +261,7 @@ local perkTrackerState = {
 	saltTrackerInitialized = false,
 	saltFolder = nil,
 	saltTrackedLines = setmetatable({}, {__mode = "k"}),
+	saltLineStates = setmetatable({}, {__mode = "k"}),
 	saltPendingTouches = {},
 	saltOverlapAccumulator = 0,
 	saltOverlapGhost = nil,
@@ -567,17 +568,19 @@ local function syncGhostCoordinatorResults()
 	local resolved = ghostCoordinator:Resolve()
 	for ghostName, state in pairs(resolved) do
 		local positive = strongestEntry(state.Positives)
-		local effectiveScore = tonumber(state.Score)
-			or tonumber(state.Confidence)
+		local supportScore = tonumber(state.Confidence)
+			or (positive and tonumber(positive.Confidence))
 			or 0
-		if positive and effectiveScore > 0 then
+		local netScore = tonumber(state.Score) or supportScore
+		if positive and supportScore > 0 then
 			local existing = perkDetections[ghostName]
 			if not existing
 				or existing.Source == "GhostCoordinator"
-				or effectiveScore > (tonumber(existing.Confidence) or 0) then
+				or supportScore > (tonumber(existing.Confidence) or 0) then
 				perkDetections[ghostName] = {
-					Confidence = effectiveScore,
+					Confidence = supportScore,
 					RawConfidence = state.Confidence,
+					NetConfidence = netScore,
 					NegativeConfidence = state.NegativeConfidence,
 					Reason = positive.Reason,
 					DetectedAt = positive.Time,
@@ -1129,6 +1132,8 @@ local function updateGhostIdentification(ghost)
 		return
 	end
 	local confirmed = getConfirmedEvidence()
+	local previousGuess = perkTrackerState.currentGhostGuess
+	local previousScore = perkTrackerState.currentGhostGuessScore or 0
 	local observed = getObservedEvidence()
 	local candidates = perkTrackerState.getRemainingCandidates(false)
 	local perkGhost, perkDetection = getBestPerkDetection(confirmed)
@@ -1201,6 +1206,22 @@ local function updateGhostIdentification(ghost)
 		table.sort(candidates)
 		selectedGhost = table.concat(candidates, " / ")
 		selectedScore = 35
+	end
+	if previousGuess and previousScore > selectedScore then
+		local stillCompatible = {}
+		for name in string.gmatch(tostring(previousGuess), "[^/]+") do
+			name = string.gsub(name, "^%s+", "")
+			name = string.gsub(name, "%s+$", "")
+			if findGhostProfile(name)
+				and not perkTrackerState.isGhostRuledOut(name)
+				and ghostSupportsConfirmedEvidence(name, confirmed, false) then
+				table.insert(stillCompatible, name)
+			end
+		end
+		if #stillCompatible > 0 then
+			selectedGhost = table.concat(stillCompatible, " / ")
+			selectedScore = previousScore
+		end
 	end
 	if selectedGhost then
 		perkTrackerState.currentGhostGuess = selectedGhost
@@ -5257,6 +5278,10 @@ perkTrackerState.beginSaltTouch = function(saltModel)
 		return
 	end
 	local now = os.clock()
+	local lineState = perkTrackerState.saltLineStates[saltModel]
+	if lineState and lineState.Armed ~= true then
+		return
+	end
 	local existing = perkTrackerState.saltPendingTouches[saltModel]
 	if existing and now - existing.StartedAt < 3.5 then
 		return
@@ -5309,6 +5334,11 @@ perkTrackerState.bindSaltLine = function(model, emitDisturbance)
 		return
 	end
 	perkTrackerState.saltTrackedLines[model] = true
+	perkTrackerState.saltLineStates[model] = {
+		Armed = emitDisturbance ~= true,
+		ReadyAt = emitDisturbance == true and os.clock() + 2 or -math.huge,
+		WaitingForClear = false,
+	}
 	local function bindTouchPart(part)
 		if not part:IsA("BasePart") then
 			return
@@ -5342,6 +5372,7 @@ perkTrackerState.ensureSaltTracker = function()
 		perkTrackerState.saltFolder = folder
 		perkTrackerState.saltTrackerInitialized = false
 		perkTrackerState.saltTrackedLines = setmetatable({}, {__mode = "k"})
+		perkTrackerState.saltLineStates = setmetatable({}, {__mode = "k"})
 		perkTrackerState.saltPendingTouches = {}
 	end
 	if not folder or perkTrackerState.saltTrackerInitialized then
@@ -5385,6 +5416,7 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 				and saltModel.Name == "SaltLine"
 				and not perkTrackerState.saltPendingTouches[saltModel] then
 				local saltPosition = perkTrackerState.saltModelPosition(saltModel)
+				local touching = false
 				if saltPosition
 					and (ghostPosition - saltPosition).Magnitude <= 12 then
 					local ok, saltCFrame, saltSize = pcall(function()
@@ -5396,10 +5428,32 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 							saltSize + Vector3.new(0.5, 1.5, 0.5),
 							overlapParams
 						)
-						if #touchingParts > 0 then
-							perkTrackerState.beginSaltTouch(saltModel)
+						touching = #touchingParts > 0
+					end
+				end
+				local lineState = perkTrackerState.saltLineStates[saltModel]
+				if not lineState then
+					lineState = {
+						Armed = true,
+						ReadyAt = -math.huge,
+						WaitingForClear = false,
+					}
+					perkTrackerState.saltLineStates[saltModel] = lineState
+				end
+				if lineState.Armed ~= true then
+					if now >= (lineState.ReadyAt or 0) then
+						if touching then
+							-- The pile spawned under the ghost. Do not treat that
+							-- initial overlap as a Wraith/Aswang contact; require the
+							-- ghost to clear the pile and touch it again.
+							lineState.WaitingForClear = true
+						else
+							lineState.Armed = true
+							lineState.WaitingForClear = false
 						end
 					end
+				elseif touching then
+					perkTrackerState.beginSaltTouch(saltModel)
 				end
 			end
 		end

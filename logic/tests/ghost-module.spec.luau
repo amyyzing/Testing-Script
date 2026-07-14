@@ -177,6 +177,15 @@ expect(
 	"only equal confidence scores should remain tied"
 )
 
+local displayedConfidenceRank = GhostModule.RankDetections({
+	Specter = {Confidence = 35, NetConfidence = 10},
+	Keres = {Confidence = 25, NetConfidence = 25},
+}, {}, {})
+expect(
+	displayedConfidenceRank[1].Ghost == "Specter",
+	"a lower displayed confidence must not outrank a higher one"
+)
+
 local highestDetection = GhostModule.SelectHighestConfidenceGuess({
 	Candidates = {"Siren", "Keres", "Wisp"},
 	Detections = {

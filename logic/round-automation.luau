@@ -2385,34 +2385,31 @@ local function openRoundExitDoor(generation)
 		if doorContainer and doorReference then
 			setDoRoundStatus("Teleporting to exit door")
 			local approaches, center = roundDoorApproaches(doorReference)
-			local teleported = false
-			for _, approach in ipairs(approaches) do
-				if not roundActionIsSafe(generation) then
-					return false, roundUnsafeReason(generation)
-				end
-				teleported = teleportToRoundDoorFace(
+			center = getInstanceWorldPosition(doorReference) or center
+			local root = player.Character
+				and player.Character:FindFirstChild("HumanoidRootPart")
+			local teleported = root ~= nil and center ~= nil
+				and (root.Position - center).Magnitude <= 10
+			-- Door interaction only requires ten studs. A placement-grade two-stud
+			-- face position is unnecessary, so try all four grounded positions
+			-- in one safe-space search instead of running a full search per face.
+			if not teleported then
+				teleported = teleportNearRoundTarget(
 					doorReference,
-					approach,
+					nil,
 					generation
 				)
-				if teleported then
-					break
-				end
 			end
-			-- Door interaction only requires ten studs. If the placement-grade
-			-- two-stud face position is obstructed, use the same grounded safe-space
-			-- search with progressively wider positions around the exit door.
+			-- Retain the exact face calculation only as a fallback for maps whose
+			-- room bounds reject every wider interaction position.
 			if not teleported then
-				for _, position in ipairs(roundApproachPositions(
-					doorReference,
-					6
-				)) do
+				for _, approach in ipairs(approaches) do
 					if not roundActionIsSafe(generation) then
 						return false, roundUnsafeReason(generation)
 					end
-					teleported = teleportNearRoundTarget(
+					teleported = teleportToRoundDoorFace(
 						doorReference,
-						position,
+						approach,
 						generation
 					)
 					if teleported then
@@ -2420,7 +2417,7 @@ local function openRoundExitDoor(generation)
 					end
 				end
 			end
-			local root = player.Character
+			root = player.Character
 				and player.Character:FindFirstChild("HumanoidRootPart")
 			center = getInstanceWorldPosition(doorReference) or center
 			if teleported and root and center
@@ -2445,10 +2442,13 @@ local function openRoundExitDoor(generation)
 					doorContainer
 				)
 				if fired then
-					doRoundWait(generation, 0.45)
-					if not roundDoorClosedState(exitModel, doorContainer) then
-						return true
-					end
+					local openDeadline = os.clock() + 0.45
+					repeat
+						if not roundDoorClosedState(exitModel, doorContainer) then
+							return true
+						end
+						doRoundWait(generation, 0.05)
+					until os.clock() >= openDeadline
 				end
 			end
 		end
