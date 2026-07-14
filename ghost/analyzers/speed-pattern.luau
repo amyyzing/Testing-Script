@@ -22,7 +22,20 @@ return function(dependencies)
 	end
 
 	local function repeatable(left, right, scale, tolerance)
-		return math.abs(left - right) <= math.max(tolerance, math.abs(scale) * 0.012)
+		return math.abs(left - right)
+			<= math.max(tolerance, math.abs(scale) * 0.006)
+	end
+
+	local function allRepeatable(values, center, tolerance)
+		if not center or #values == 0 then
+			return false
+		end
+		for _, value in ipairs(values) do
+			if not repeatable(value, center, center, tolerance) then
+				return false
+			end
+		end
+		return true
 	end
 
 	local function sampleValues(event)
@@ -38,23 +51,48 @@ return function(dependencies)
 		return samples
 	end
 
+	local function buildPairs(samples, requiredPairs)
+		local pairs = {}
+		for index = 1, requiredPairs * 2, 2 do
+			local first = samples[index]
+			local second = samples[index + 1]
+			if not first or not second or first.Invisible == second.Invisible then
+				return {}
+			end
+			table.insert(pairs, {
+				Pair = #pairs + 1,
+				FirstSpeed = tonumber(first.Speed),
+				SecondSpeed = tonumber(second.Speed),
+				FirstInvisible = first.Invisible,
+				SecondInvisible = second.Invisible,
+				InvisibleSpeed = first.Invisible and tonumber(first.Speed)
+					or tonumber(second.Speed),
+				VisibleSpeed = first.Invisible and tonumber(second.Speed)
+					or tonumber(first.Speed),
+			})
+		end
+		return pairs
+	end
+
 	function SpeedPattern.new(options)
 		options = type(options) == "table" and options or {}
 		return setmetatable({
 			Name = options.Name or "SpeedPattern",
 			Category = "Analyzer",
 			Status = "Idle",
+			RequiredPairs = math.max(1, math.floor(tonumber(options.RequiredPairs) or 7)),
 			ExpectedPhantomRatio = tonumber(options.ExpectedPhantomRatio) or (13.5 / 11),
 			RatioTolerance = tonumber(options.RatioTolerance) or 0.05,
-			EqualityTolerance = tonumber(options.EqualityTolerance) or 0.1,
-			IncreaseEpsilon = tonumber(options.IncreaseEpsilon) or 0.001,
+			EqualityTolerance = tonumber(options.EqualityTolerance) or 0.05,
+			IncreaseEpsilon = tonumber(options.IncreaseEpsilon) or 0.05,
 			_context = nil,
 			huntId = nil,
 			processed = {},
-			lastSpeed = nil,
 			sampleCount = 0,
+			pairCount = 0,
 			increaseCount = 0,
 			dullahanEmitted = false,
+			dullahanAbsentEmitted = false,
 			phantomEmitted = false,
 			flatEmitted = false,
 			lastOutcome = nil,
@@ -77,10 +115,11 @@ return function(dependencies)
 	function SpeedPattern:_clearHunt(huntId)
 		self.huntId = huntId
 		table.clear(self.processed)
-		self.lastSpeed = nil
 		self.sampleCount = 0
+		self.pairCount = 0
 		self.increaseCount = 0
 		self.dullahanEmitted = false
+		self.dullahanAbsentEmitted = false
 		self.phantomEmitted = false
 		self.flatEmitted = false
 		self.lastOutcome = nil
@@ -88,35 +127,161 @@ return function(dependencies)
 
 	function SpeedPattern:_absorb(samples)
 		for _, sample in ipairs(samples) do
-			local key = sample.SampleId or tostring(sample.Time) .. ":" .. tostring(sample.Invisible)
+			local key = sample.SampleId
+				or tostring(sample.Time) .. ":" .. tostring(sample.Invisible)
 			if not self.processed[key] then
 				self.processed[key] = true
-				local speed = tonumber(sample.Speed)
-				if speed then
-					self.lastSpeed = speed
-					self.sampleCount = self.sampleCount + 1
-				end
+				self.sampleCount = self.sampleCount + 1
 			end
 		end
 	end
 
-	function SpeedPattern:_analyzeWindow(event)
-		local samples = sampleValues(event)
-		if #samples < 4 then
+	function SpeedPattern:_emitDullahanAbsent(event, pairs, reason)
+		if self.dullahanEmitted or self.dullahanAbsentEmitted then
 			return
 		end
+		self.dullahanAbsentEmitted = true
+		self.lastOutcome = Events.Types.DullahanPatternAbsent
+		self:_emit({
+			Type = Events.Types.DullahanPatternAbsent,
+			HuntId = event.HuntId,
+			Hunting = true,
+			Source = self.Name,
+			Payload = {
+				SampleCount = self.sampleCount,
+				PairCount = self.pairCount,
+				RequiredPairs = self.RequiredPairs,
+				IncreaseCount = self.increaseCount,
+				UpwardSteps = self.increaseCount,
+				UpwardPairs = self.increaseCount,
+				RequiredUpwardSteps = self.RequiredPairs,
+				RequiredUpwardPairs = self.RequiredPairs,
+				Qualified = true,
+				Completed = true,
+				Pairs = Events.Copy(pairs),
+				Reason = reason,
+			},
+		})
+	end
+
+	function SpeedPattern:_analyzeWindow(event)
+		local requiredPairs = math.max(
+			self.RequiredPairs,
+			math.floor(tonumber(Events.Read(event, "RequiredPairs")) or 0)
+		)
+		local samples = sampleValues(event)
+		if #samples < requiredPairs * 2 then
+			return
+		end
+		local pairs = buildPairs(samples, requiredPairs)
+		if #pairs ~= requiredPairs then
+			return
+		end
+		self.RequiredPairs = requiredPairs
 		self:_absorb(samples)
-		local windowIncreaseCount = 0
-		for index = 2, #samples do
-			if samples[index].Speed - samples[index - 1].Speed >= self.IncreaseEpsilon then
-				windowIncreaseCount = windowIncreaseCount + 1
+		self.pairCount = #pairs
+
+		local invisible = {}
+		local visible = {}
+		local all = {}
+		local upwardPairs = 0
+		for _, pair in ipairs(pairs) do
+			table.insert(invisible, pair.InvisibleSpeed)
+			table.insert(visible, pair.VisibleSpeed)
+			table.insert(all, pair.FirstSpeed)
+			table.insert(all, pair.SecondSpeed)
+			if pair.SecondSpeed - pair.FirstSpeed + 1e-6 >= self.IncreaseEpsilon then
+				upwardPairs = upwardPairs + 1
 			end
 		end
-		-- Preserve the strongest qualified window; a later decrease never erases
-		-- it, but separated rises across an entire hunt are not accumulated.
-		self.increaseCount = math.max(self.increaseCount, windowIncreaseCount)
+		-- Only within-pair rises count. A reset or decrease between two pairs is
+		-- intentionally ignored, matching Dullahan's step-and-reset behavior.
+		self.increaseCount = upwardPairs
 
-		if windowIncreaseCount >= 3 and not self.dullahanEmitted then
+		local invisibleSpeed = median(invisible)
+		local visibleSpeed = median(visible)
+		local invisibleRepeats = allRepeatable(
+			invisible,
+			invisibleSpeed,
+			self.EqualityTolerance
+		)
+		local visibleRepeats = allRepeatable(
+			visible,
+			visibleSpeed,
+			self.EqualityTolerance
+		)
+		local phasesRepeat = invisibleRepeats and visibleRepeats
+		local ratio = visibleSpeed and visibleSpeed > 0
+			and invisibleSpeed / visibleSpeed or nil
+
+		if phasesRepeat then
+			self:_emitDullahanAbsent(
+				event,
+				pairs,
+				"seven settled pairs repeated stable phase speeds instead of Dullahan's differing upward-step pattern"
+			)
+			if ratio
+				and math.abs(ratio - self.ExpectedPhantomRatio) <= self.RatioTolerance then
+				if not self.phantomEmitted then
+					self.phantomEmitted = true
+					self.lastOutcome = Events.Types.PhantomPattern
+					self:_emit({
+						Type = Events.Types.PhantomPattern,
+						HuntId = event.HuntId,
+						Hunting = true,
+						Source = self.Name,
+						Payload = {
+							Qualified = true,
+							Completed = true,
+							Outcome = "PhaseDependent",
+							VisibleSpeed = visibleSpeed,
+							InvisibleSpeed = invisibleSpeed,
+							Ratio = ratio,
+							PairCount = self.pairCount,
+							RequiredPairs = self.RequiredPairs,
+							RepeatedPairs = true,
+							Pairs = Events.Copy(pairs),
+							Samples = Events.Copy(samples),
+							Reason = "seven settled pairs repeated the 13.5/11 Phantom phase ratio",
+						},
+					})
+				end
+				return
+			end
+
+			local flatSpeed = median(all)
+			local flat = allRepeatable(all, flatSpeed, self.EqualityTolerance)
+			if flat and not self.flatEmitted then
+				self.flatEmitted = true
+				self.lastOutcome = Events.Types.FlatHuntSpeed
+				self:_emit({
+					Type = Events.Types.FlatHuntSpeed,
+					HuntId = event.HuntId,
+					Hunting = true,
+					Source = self.Name,
+					Payload = {
+						Qualified = true,
+						Completed = true,
+						Outcome = "Equal",
+						PhaseDependent = false,
+						Speed = flatSpeed,
+						PairCount = self.pairCount,
+						RequiredPairs = self.RequiredPairs,
+						RepeatedPairs = true,
+						Pairs = Events.Copy(pairs),
+						Samples = Events.Copy(samples),
+						AverageSanity = Events.Read(event, "AverageSanity"),
+						MapFactor = Events.Read(event, "MapFactor"),
+						MapSize = Events.Read(event, "MapSize"),
+						ValidMultipliers = Events.Read(event, "ValidMultipliers"),
+						Reason = "seven settled visible/invisible pairs shared one hunting speed",
+					},
+				})
+			end
+			return
+		end
+
+		if upwardPairs >= self.RequiredPairs and not self.dullahanEmitted then
 			self.dullahanEmitted = true
 			self.lastOutcome = Events.Types.DullahanPattern
 			self:_emit({
@@ -126,86 +291,28 @@ return function(dependencies)
 				Source = self.Name,
 				Payload = {
 					SampleCount = self.sampleCount,
-					IncreaseCount = windowIncreaseCount,
-					UpwardSteps = windowIncreaseCount,
-					RequiredUpwardSteps = 3,
+					PairCount = self.pairCount,
+					RequiredPairs = self.RequiredPairs,
+					IncreaseCount = upwardPairs,
+					UpwardSteps = upwardPairs,
+					UpwardPairs = upwardPairs,
+					RequiredUpwardSteps = self.RequiredPairs,
+					RequiredUpwardPairs = self.RequiredPairs,
 					Qualified = true,
+					Completed = true,
+					Pairs = Events.Copy(pairs),
 					Samples = Events.Copy(samples),
-					Reason = "settled hunt speed rose through at least three short steps; decreases were ignored",
+					Reason = "all seven settled pairs contained a short upward speed step; decreases between pairs were ignored",
 				},
 			})
 			return
 		end
 
-		local invisible = {}
-		local visible = {}
-		local all = {}
-		for _, sample in ipairs(samples) do
-			table.insert(all, sample.Speed)
-			table.insert(sample.Invisible and invisible or visible, sample.Speed)
-		end
-		if #invisible ~= 2 or #visible ~= 2 then
-			return
-		end
-		local invisibleSpeed = median(invisible)
-		local visibleSpeed = median(visible)
-		local invisibleRepeats = repeatable(invisible[1], invisible[2], invisibleSpeed, self.EqualityTolerance)
-		local visibleRepeats = repeatable(visible[1], visible[2], visibleSpeed, self.EqualityTolerance)
-		local ratio = visibleSpeed and visibleSpeed > 0 and invisibleSpeed / visibleSpeed or nil
-		if invisibleRepeats and visibleRepeats and ratio
-			and math.abs(ratio - self.ExpectedPhantomRatio) <= self.RatioTolerance then
-			if not self.phantomEmitted then
-				self.phantomEmitted = true
-				self.lastOutcome = Events.Types.PhantomPattern
-				self:_emit({
-					Type = Events.Types.PhantomPattern,
-					HuntId = event.HuntId,
-					Hunting = true,
-					Source = self.Name,
-					Payload = {
-						Qualified = true,
-						Outcome = "PhaseDependent",
-						VisibleSpeed = visibleSpeed,
-						InvisibleSpeed = invisibleSpeed,
-						Ratio = ratio,
-						Samples = Events.Copy(samples),
-						Reason = "two settled invisible/visible pairs repeated the 13.5/11 Phantom speed ratio",
-					},
-				})
-			end
-			return
-		end
-
-		local flatSpeed = median(all)
-		local flat = true
-		for _, speed in ipairs(all) do
-			if not repeatable(speed, flatSpeed, flatSpeed, self.EqualityTolerance) then
-				flat = false
-				break
-			end
-		end
-		if flat and not self.flatEmitted then
-			self.flatEmitted = true
-			self.lastOutcome = Events.Types.FlatHuntSpeed
-			self:_emit({
-				Type = Events.Types.FlatHuntSpeed,
-				HuntId = event.HuntId,
-				Hunting = true,
-				Source = self.Name,
-				Payload = {
-					Qualified = true,
-					Outcome = "Equal",
-					PhaseDependent = false,
-					Speed = flatSpeed,
-					Samples = Events.Copy(samples),
-					AverageSanity = Events.Read(event, "AverageSanity"),
-					MapFactor = Events.Read(event, "MapFactor"),
-					MapSize = Events.Read(event, "MapSize"),
-					ValidMultipliers = Events.Read(event, "ValidMultipliers"),
-					Reason = "two settled invisible/visible pairs shared one hunting speed",
-				},
-			})
-		end
+		self:_emitDullahanAbsent(
+			event,
+			pairs,
+			"seven settled pairs did not maintain Dullahan's differing upward-step pattern"
+		)
 	end
 
 	function SpeedPattern:OnEvent(event)
@@ -215,30 +322,16 @@ return function(dependencies)
 		local kind = event.Type or event.Kind
 		if kind == Events.Types.HuntStarted then
 			self:_clearHunt(event.HuntId)
+			self.Status = "Active"
 		elseif kind == Events.Types.SpeedPairWindow then
 			if self.huntId == nil or event.HuntId == self.huntId then
 				self:_analyzeWindow(event)
 			end
-		elseif kind == Events.Types.HuntEnded and (self.huntId == nil or event.HuntId == self.huntId) then
-			if self.sampleCount >= 4 and self.increaseCount < 3 and not self.dullahanEmitted then
-				self:_emit({
-					Type = Events.Types.DullahanPatternAbsent,
-					HuntId = event.HuntId,
-					-- This completed result describes samples from the just-ended
-					-- hunt, so profiles should evaluate it as a hunting observation.
-					Hunting = true,
-					Source = self.Name,
-					Payload = {
-						SampleCount = self.sampleCount,
-						IncreaseCount = self.increaseCount,
-						UpwardSteps = self.increaseCount,
-						RequiredUpwardSteps = 3,
-						Qualified = true,
-						Completed = true,
-						Reason = "a qualified hunt ended without three settled upward speed steps",
-					},
-				})
-			end
+		elseif kind == Events.Types.HuntEnded
+			and (self.huntId == nil or event.HuntId == self.huntId) then
+			-- Fewer than seven complete pairs are insufficient. Never postpone a
+			-- qualified negative until HuntEnded; the seven-pair window decides it.
+			self.Status = "Dormant"
 		end
 	end
 
@@ -264,8 +357,11 @@ return function(dependencies)
 			Status = self.Status,
 			HuntId = self.huntId,
 			SampleCount = self.sampleCount,
+			PairCount = self.pairCount,
+			RequiredPairs = self.RequiredPairs,
 			IncreaseCount = self.increaseCount,
 			DullahanEmitted = self.dullahanEmitted,
+			DullahanAbsentEmitted = self.dullahanAbsentEmitted,
 			PhantomEmitted = self.phantomEmitted,
 			FlatEmitted = self.flatEmitted,
 			LastOutcome = self.lastOutcome,

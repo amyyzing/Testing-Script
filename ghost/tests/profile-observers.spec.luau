@@ -92,7 +92,11 @@ exercise("Aswang", {
 }, "Positive")
 exercise("Banshee", {Type = "BrokenGlassBurst", Qualified = true, Count = 2, Window = 2.5}, "Positive")
 exercise("Demon", {Type = "CrossMotion", TrialId = "cross-1", Eligible = true, Completed = true, FloatedAndRotated = true}, "Positive")
-exercise("Dullahan", {Type = "DullahanPattern", Hunting = true, IncreaseCount = 3, SampleCount = 4}, "Positive")
+exercise("Dullahan", {
+	Type = "DullahanPattern", Hunting = true, Qualified = true,
+	IncreaseCount = 7, UpwardPairs = 7, SampleCount = 14,
+	PairCount = 7, RequiredPairs = 7,
+}, "Positive")
 exercise("Entity", {
 	Type = "ObjectTeleportResult", ConfirmedTeleport = true, Completed = true,
 	SmokeFound = true, TeleportId = "object-1",
@@ -100,8 +104,8 @@ exercise("Entity", {
 exercise("Ghoul", {Type = "HuntElectronicDisabled", Hunting = true, Qualified = true, PlayerCaused = false, AutomationCaused = false}, "RuleOut")
 exercise("Keres", {Type = "SpeedProbeResult", Trigger = "PlayerDeath", Hunting = true, Unique = true, Qualified = true, HuntId = "hunt-1", BaselineSpeed = 11, CurrentSpeed = 10, Delta = -1}, "Positive")
 exercise("Leviathan", {Type = "RoomLightOff", Hunting = false, Qualified = true, WorkingCircuit = true, PlayerCaused = false, AutomationCaused = false, FuseCaused = false}, "Positive")
-exercise("Oni", {Type = "HuntSpeedMathResult", Hunting = true, Qualified = true, Best = "Oni", Fits = {Oni = {Matched = true}}}, "Positive")
-exercise("Phantom", {Type = "PhantomPattern", Hunting = true, VisibleSpeed = 11, InvisibleSpeed = 13.5, Ratio = 13.5 / 11}, "Positive")
+exercise("Oni", {Type = "HuntSpeedMathResult", Hunting = true, Qualified = true, PairCount = 7, RequiredPairs = 7, Best = "Oni", Fits = {Oni = {Matched = true}}}, "Positive")
+exercise("Phantom", {Type = "PhantomPattern", Hunting = true, PairCount = 7, RequiredPairs = 7, VisibleSpeed = 11, InvisibleSpeed = 13.5, Ratio = 13.5 / 11}, "Positive")
 exercise("Ravager", {Type = "VortexPattern", Hunting = true, Qualified = true, DistinctObjects = 3, Duration = 0.5, Intervals = 10, GoodShare = 0.7, AccumulatedAngle = 35}, "Positive")
 exercise("Revenant", {Type = "HuntEndedAfterDeath", DeathEventId = "death-1", Elapsed = 1.4, OtherAlive = 1, ValidMultiplayerKill = true}, "Positive")
 exercise("Siren", {Type = "SpiritBoxResponse", Qualified = true, Response = "- HUMMING -"}, "Positive")

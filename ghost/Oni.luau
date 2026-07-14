@@ -24,6 +24,10 @@ local function createObserver(api)
 		if kind ~= "NormalizedHuntSpeed" and kind ~= "HuntSpeedMathResult" then return false end
 		if api and type(api.Record) == "function" then api:Record(NAME, event) end
 		if read(event, "Hunting") == false or read(event, "Qualified") == false or read(event, "PhaseDependent") == true then return true end
+		if kind == "HuntSpeedMathResult" then
+			local requiredPairs = math.max(7, math.floor(tonumber(read(event, "RequiredPairs")) or 7))
+			if math.floor(tonumber(read(event, "PairCount")) or 0) < requiredPairs then return true end
+		end
 		local fits = read(event, "Fits")
 		local oniFit = type(fits) == "table" and fits.Oni or nil
 		local best = read(event, "Best")
@@ -56,6 +60,6 @@ return {
 	Name = NAME,
 	Evidence = {"FreezingTemperatures", "LaserProjector", "SpiritBox"},
 	ObservationEvents = {"NormalizedHuntSpeed", "HuntSpeedMathResult"},
-	Perks = { ["Pretty Sure"] = {"After removing map and a valid difficulty multiplier, hunting base speed is always 13.5."}, Maybe = {}, Idk = {"There is no 175% hunting multiplier."} },
+	Perks = { ["Pretty Sure"] = {"Seven repeating flat pairs normalize to hunting base speed 13.5 after removing map and a valid difficulty multiplier."}, Maybe = {}, Idk = {"Fewer than seven pairs are insufficient, and there is no 175% hunting multiplier."} },
 	CreateObserver = createObserver,
 }

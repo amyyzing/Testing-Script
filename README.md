@@ -149,12 +149,16 @@ fresh coordinator; there is no `GhostGeneration` polling tracker.
 - Dormant trackers wake for settled hunt transitions, transparency changes, salt contact, qualified player deaths, or the shared quarter-second tick. Speed is captured as event-driven visible/invisible pairs and targeted probes, not a continuous 0.1-second stream. The room-temperature tracker uses that existing tick to collect about 20 readings only after the ghost remains in the same `CurrentRoom` for five seconds; increases and temperatures from other rooms are ignored, while any one-step decrease of at least 0.20°C rules Shadow out at 99%.
 - Discardable trackers read immutable model facts once, emit qualified observations such as model gender, LIDAR state, and the immediate Umbra root-sound check, then stop. Model gender is the only gender observation; Spirit Box voice folders do not add a duplicate male/female score.
 
-Shared analyzers classify Phantom/Dullahan pair patterns and normalize hunting
-speed using the Small/Medium/Large map factors. Per-ghost files own conclusions and
-supersession rules; `logic/logic.luau` only collects game state and emits the
-qualified observations while the coordinator is active. The ledger retains both
-positive and negative history, but ranking uses only effective, non-superseded
-entries.
+Shared analyzers classify one complete window of seven settled visible/invisible
+pairs. Seven repeating phase pairs classify Phantom, seven flat pairs feed
+Normal/Oni speed math, and seven differing pairs with an upward step inside every
+pair classify Dullahan; resets or decreases between pairs are ignored. A complete
+non-Dullahan window rules Dullahan out immediately instead of waiting for the hunt
+to end. Hunting speed math uses the Small/Medium/Large map factors. Per-ghost files
+own conclusions and supersession rules; `logic/logic.luau` only collects game state
+and emits the qualified observations while the coordinator is active. The ledger
+retains both positive and negative history, but ranking uses only effective,
+non-superseded entries.
 
 ## Ghost data
 

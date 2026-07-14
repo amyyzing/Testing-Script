@@ -114,6 +114,8 @@ return function(dependencies)
 		end
 		local payload = {
 			Speed = speed,
+			PairCount = tonumber(Events.Read(event, "PairCount")),
+			RequiredPairs = tonumber(Events.Read(event, "RequiredPairs")),
 			MapFactor = factor,
 			NormalizedSpeed = normalized,
 			AverageSanity = sanity,

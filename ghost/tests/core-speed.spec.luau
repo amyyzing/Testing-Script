@@ -51,29 +51,37 @@ local coordinator = Coordinator.new({
 })
 coordinator:Start({Clock = function() return now end, Schedule = schedule})
 
-local function visibilityCycle(speeds, mapFactor)
+local function visibilityWindow(speeds, mapFactor)
 	coordinator:Emit({
 		Type = Events.Types.HuntStarted,
 		HuntId = 1,
 		Hunting = true,
 		Payload = {Transparency = 0, AverageSanity = 50, MapFactor = mapFactor},
 	})
-	for index, invisible in ipairs({true, false, true, false}) do
+	local invisible = true
+	for _, speed in ipairs(speeds) do
 		coordinator:Emit({
 			Type = Events.Types.TransparencyChanged,
 			HuntId = 1,
 			Hunting = true,
-			Payload = {Transparency = invisible and 1 or 0, SettledSpeed = speeds[index]},
+			Payload = {Transparency = invisible and 1 or 0, SettledSpeed = speed},
 		})
 		runJobs()
+		invisible = not invisible
 	end
 end
 
-visibilityCycle({13.5, 11, 13.5, 11}, 1)
+local phantomSpeeds = {}
+for _ = 1, 7 do
+	table.insert(phantomSpeeds, 13.5)
+	table.insert(phantomSpeeds, 11)
+end
+visibilityWindow(phantomSpeeds, 1)
 local phantom = findEvent(coordinator, Events.Types.PhantomPattern)
-expect(phantom ~= nil, "two repeated x/y visibility pairs should emit PhantomPattern")
+expect(phantom ~= nil, "seven repeated x/y visibility pairs should emit PhantomPattern")
 expect(math.abs(phantom.Ratio - 13.5 / 11) < 0.001, "PhantomPattern should expose its settled ratio at top level")
-expect(pair:Snapshot().WindowCount == 1, "four transitions should create one pair window, not a 0.1-second sample stream")
+expect(phantom.PairCount == 7, "PhantomPattern should preserve the complete seven-pair window")
+expect(pair:Snapshot().WindowCount == 1, "fourteen transitions should create one seven-pair window, not a 0.1-second sample stream")
 for _, invisible in ipairs({true, false, true, false}) do
 	coordinator:Emit({
 		Type = Events.Types.TransparencyChanged,
@@ -84,25 +92,83 @@ for _, invisible in ipairs({true, false, true, false}) do
 	runJobs()
 end
 expect(findEvent(coordinator, Events.Types.DullahanPattern) == nil, "repeated Phantom x/y cycles must not accumulate into a false Dullahan step pattern")
+expect(coordinator:Resolve({"Dullahan"}).Dullahan.RuledOut == true, "a complete repeating Phantom window should rule Dullahan out immediately")
 
 coordinator:Reset()
 now = 0
 table.clear(jobs)
-visibilityCycle({11, 11.1, 11.2, 11.3}, 1)
+visibilityWindow({
+	22, 22.3,
+	22.2, 22.4,
+	22, 22.2,
+	22.5, 22.7,
+	22.1, 22.3,
+	22.4, 22.6,
+	22.2, 22.5,
+}, 1)
 local dullahan = findEvent(coordinator, Events.Types.DullahanPattern)
-expect(dullahan and dullahan.IncreaseCount == 3, "a/b/c/d settled steps should emit DullahanPattern quickly")
+expect(dullahan and dullahan.IncreaseCount == 7, "seven differing upward pairs should emit DullahanPattern immediately")
+expect(dullahan.PairCount == 7 and dullahan.SampleCount == 14, "Dullahan should resolve from exactly seven complete settled pairs")
+expect(dullahan.Pairs[2].FirstSpeed < dullahan.Pairs[1].SecondSpeed,
+	"a reset between pairs must not erase the upward step inside the next pair")
 
 coordinator:Reset()
 now = 0
 table.clear(jobs)
-visibilityCycle({28.35, 28.35, 28.35, 28.35}, 1.05)
+visibilityWindow({
+	22, 22.3,
+	22.2, 22.4,
+	22, 22.2,
+	22.5, 22.7,
+	22.1, 22.3,
+	22.4, 22.6,
+	22.2, 22.2,
+}, 1)
+expect(findEvent(coordinator, Events.Types.DullahanPattern) == nil,
+	"six upward pairs and one flat pair must not identify Dullahan")
+expect(findEvent(coordinator, Events.Types.DullahanPatternAbsent) ~= nil,
+	"a complete inconsistent seven-pair window should rule Dullahan out immediately")
+
+coordinator:Reset()
+now = 0
+table.clear(jobs)
+local oniSpeeds = {}
+for _ = 1, 14 do table.insert(oniSpeeds, 28.35) end
+visibilityWindow(oniSpeeds, 1.05)
 local speedMath = findEvent(coordinator, Events.Types.HuntSpeedMathResult)
 expect(speedMath and speedMath.Best == "Oni", "28.35 on a Medium map should normalize to Oni base 13.5 at 200%")
+expect(speedMath.PairCount == 7, "flat speed math must be backed by all seven pairs")
 for _, multiplier in ipairs(speedMath.ValidMultipliers) do
 	 expect(multiplier ~= 1.75, "175% must never enter hunting speed math")
 end
+expect(coordinator:Resolve({"Dullahan"}).Dullahan.RuledOut == true, "qualified completed flat window should rule Dullahan out without waiting for HuntEnded")
+
+coordinator:Reset()
+now = 0
+table.clear(jobs)
+local ordinarySpeeds = {}
+for _ = 1, 14 do table.insert(ordinarySpeeds, 11) end
+visibilityWindow(ordinarySpeeds, 1)
+local ordinaryMath = findEvent(coordinator, Events.Types.HuntSpeedMathResult)
+expect(ordinaryMath and ordinaryMath.Best == "Normal",
+	"seven flat base-speed pairs should classify the normal hunting-speed pattern")
+
+coordinator:Reset()
+now = 0
+table.clear(jobs)
+local incompleteSpeeds = {}
+for _ = 1, 6 do
+	table.insert(incompleteSpeeds, 22)
+	table.insert(incompleteSpeeds, 22.3)
+end
+visibilityWindow(incompleteSpeeds, 1)
+expect(findEvent(coordinator, Events.Types.DullahanPattern) == nil,
+	"six pairs must not identify Dullahan")
+expect(findEvent(coordinator, Events.Types.DullahanPatternAbsent) == nil,
+	"six pairs must not rule Dullahan out")
 coordinator:Emit({Type = Events.Types.HuntEnded, HuntId = 1, Hunting = false})
-expect(coordinator:Resolve({"Dullahan"}).Dullahan.RuledOut == true, "qualified completed flat hunt should reach the Dullahan observer as an explicit negative")
+expect(findEvent(coordinator, Events.Types.DullahanPatternAbsent) == nil,
+	"HuntEnded must not turn an incomplete six-pair window into a negative")
 
 local probe = SpeedProbe.new()
 local probeCoordinator = Coordinator.new({

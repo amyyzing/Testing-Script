@@ -56,6 +56,7 @@ function SpeedPairs.new(options)
 		Category = "Dormant",
 		Status = "Idle",
 		SettleDelay = tonumber(options.SettleDelay) or 0.095,
+		RequiredPairs = math.max(1, math.floor(tonumber(options.RequiredPairs) or 7)),
 		_context = nil,
 		_hunting = false,
 		_huntId = nil,
@@ -130,6 +131,9 @@ function SpeedPairs:_recordSample(invisible, event, token)
 	if not self._hunting or token ~= self._token or invisible ~= self._lastInvisible then
 		return
 	end
+	if self._windowCount > 0 then
+		return
+	end
 	local speed = readSpeed(self._context, event)
 	if not speed or speed <= 0 then
 		return
@@ -151,12 +155,12 @@ function SpeedPairs:_recordSample(invisible, event, token)
 		Payload = sample,
 	})
 
-	if #self._samples < 4 then
+	local requiredSamples = self.RequiredPairs * 2
+	if #self._samples < requiredSamples then
 		return
 	end
-	local startIndex = #self._samples - 3
 	local window = {}
-	for index = startIndex, #self._samples do
+	for index = 1, requiredSamples do
 		table.insert(window, self._samples[index])
 	end
 	local alternating = true
@@ -168,9 +172,28 @@ function SpeedPairs:_recordSample(invisible, event, token)
 	end
 	if alternating then
 		self._windowCount = self._windowCount + 1
+		local pairs = {}
+		for index = 1, #window, 2 do
+			local first = window[index]
+			local second = window[index + 1]
+			table.insert(pairs, {
+				Pair = #pairs + 1,
+				FirstSpeed = first.Speed,
+				SecondSpeed = second.Speed,
+				FirstInvisible = first.Invisible,
+				SecondInvisible = second.Invisible,
+				InvisibleSpeed = first.Invisible and first.Speed or second.Speed,
+				VisibleSpeed = first.Invisible and second.Speed or first.Speed,
+				FirstSampleId = first.SampleId,
+				SecondSampleId = second.SampleId,
+			})
+		end
 		local payload = {
 			Samples = copyArray(window),
 			SampleCount = #window,
+			Pairs = pairs,
+			PairCount = #pairs,
+			RequiredPairs = self.RequiredPairs,
 			Window = self._windowCount,
 			AverageSanity = self._huntMeta.AverageSanity,
 			MapFactor = self._huntMeta.MapFactor,
@@ -184,9 +207,8 @@ function SpeedPairs:_recordSample(invisible, event, token)
 			Source = self.Name,
 			Payload = payload,
 		})
+		self.Status = "Resolved"
 	end
-	-- Retain the last pair so the next two transitions form a fresh two-cycle window.
-	self._samples = {self._samples[#self._samples - 1], self._samples[#self._samples]}
 end
 
 function SpeedPairs:OnEvent(event)
@@ -205,6 +227,7 @@ function SpeedPairs:OnEvent(event)
 	end
 	if kind ~= Events.Types.TransparencyChanged
 		or not self._hunting
+		or self._windowCount > 0
 		or event.Hunting == false
 		or (event.HuntId ~= nil and event.HuntId ~= self._huntId) then
 		return
@@ -264,6 +287,7 @@ function SpeedPairs:Snapshot()
 		LastInvisible = self._lastInvisible,
 		Samples = copyArray(self._samples),
 		WindowCount = self._windowCount,
+		RequiredPairs = self.RequiredPairs,
 		PendingSettledRead = self._cancelPending ~= nil,
 	}
 end

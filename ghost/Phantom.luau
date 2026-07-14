@@ -19,6 +19,10 @@ local function createObserver(api)
 		if kind ~= "BlinkSpeedPattern" and kind ~= "PhantomPattern" and kind ~= "FlatHuntSpeed" then return false end
 		if api and type(api.Record) == "function" then api:Record(NAME, event) end
 		if event.Hunting == false or event.Qualified == false then return true end
+		if kind == "PhantomPattern" or kind == "FlatHuntSpeed" then
+			local requiredPairs = math.max(7, math.floor(tonumber(event.RequiredPairs) or 7))
+			if math.floor(tonumber(event.PairCount) or 0) < requiredPairs then return true end
+		end
 		local visible, invisible = tonumber(event.VisibleSpeed), tonumber(event.InvisibleSpeed)
 		local ratio = tonumber(event.Ratio)
 		if ratio == nil and visible and visible > 0 and invisible then ratio = invisible / visible end
@@ -47,6 +51,6 @@ return {
 	Evidence = {"EMFLevel5", "GhostOrb", "Handprints"},
 	ObservationEvents = {"BlinkSpeedPattern", "PhantomPattern", "FlatHuntSpeed"},
 	PersistentFindings = true,
-	Perks = { ["Pretty Sure"] = {"Transparency 1 is faster than Transparency 0 by about 13.5/11 within one hunt."}, Maybe = {"One settled visible/invisible pair is provisional."}, Idk = {"Ignore the first replication-edge sample after a blink change."} },
+	Perks = { ["Pretty Sure"] = {"Seven settled pairs repeat a Transparency 1 versus Transparency 0 speed ratio of about 13.5/11 within one hunt."}, Maybe = {"Fewer than seven settled pairs are provisional."}, Idk = {"Ignore the first replication-edge sample after a blink change."} },
 	CreateObserver = createObserver,
 }

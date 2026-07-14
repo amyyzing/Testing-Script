@@ -20,16 +20,24 @@ local function createObserver(api)
 		if api and type(api.Record) == "function" then api:Record(NAME, event) end
 		if kind ~= "DullahanPatternAbsent"
 			and (event.Hunting == false or event.Qualified == false) then return true end
-		local upward = math.max(0, math.floor(tonumber(event.UpwardSteps or event.IncreaseCount) or 0))
+		local upward = math.max(0, math.floor(tonumber(
+			event.UpwardPairs or event.UpwardSteps or event.IncreaseCount
+		) or 0))
 		state.LastUpwardSteps = upward
-		local minimum = math.max(2, math.floor(tonumber(event.RequiredUpwardSteps) or 2))
+		local pairCount = math.max(0, math.floor(tonumber(event.PairCount) or 0))
+		local requiredPairs = math.max(7, math.floor(tonumber(event.RequiredPairs) or 7))
+		if (kind == "DullahanPattern" or kind == "DullahanPatternAbsent")
+			and pairCount < requiredPairs then return true end
+		local minimum = math.max(requiredPairs, math.floor(tonumber(
+			event.RequiredUpwardPairs or event.RequiredUpwardSteps
+		) or requiredPairs))
 		if kind == "DullahanPattern" or upward >= minimum then
 			state.Matched = true
-			conclude("Positive", event.Reason or "multiple short upward WalkSpeed steps occurred during the hunt", 99, event)
+			conclude("Positive", event.Reason or "all seven settled hunt-speed pairs showed differing short upward steps", 99, event)
 		elseif kind == "DullahanPatternAbsent" or (event.Completed == true and event.PhantomExcluded == true and upward == 0) then
 			if state.Matched then return true end
 			state.Matched = false
-			conclude("RuleOut", event.Reason or "a qualified short hunting probe contained no upward WalkSpeed steps", 99, event)
+			conclude("RuleOut", event.Reason or "seven settled hunt-speed pairs did not maintain Dullahan's differing upward-step pattern", 99, event)
 		end
 		return true
 	end
@@ -43,6 +51,6 @@ return {
 	Name = NAME,
 	Evidence = {"FreezingTemperatures", "LaserProjector", "Wither"},
 	ObservationEvents = {"HuntSpeedSteps", "BlinkSpeedPattern", "DullahanPattern", "DullahanPatternAbsent"},
-	Perks = { ["Pretty Sure"] = {"WalkSpeed rises in several short hunting intervals; line of sight is irrelevant and decreases are ignored."}, Maybe = {}, Idk = {"Classify Phantom phase changes before a Dullahan negative."} },
+	Perks = { ["Pretty Sure"] = {"All seven settled visible/invisible pairs show differing short upward speed steps; decreases between pairs are ignored."}, Maybe = {}, Idk = {"A repeating seven-pair Phantom or flat Normal/Oni pattern rules Dullahan out immediately; fewer than seven pairs are insufficient."} },
 	CreateObserver = createObserver,
 }
