@@ -2847,8 +2847,29 @@ local function selectRoundJournalGhost(ghostName, generation)
 	if not doRoundOperationActive(generation) then
 		return false
 	end
-	return perkTrackerState.syncJournal(ghostName) == true
-		and doRoundOperationActive(generation)
+	if perkTrackerState.syncJournal(ghostName) ~= true
+		or not doRoundOperationActive(generation) then
+		return false
+	end
+	local ghostTypes = perkTrackerState.findJournalGhostTypes()
+	if not ghostTypes then
+		-- With no replicated journal UI, a successful RemoteEvent dispatch is
+		-- the only observable confirmation available.
+		return true
+	end
+	local frame = ghostTypes:FindFirstChild(ghostName)
+	if not frame or not frame:IsA("Frame") then
+		return false
+	end
+	local deadline = os.clock() + 0.75
+	repeat
+		if perkTrackerState.readJournalRowState(frame) == true then
+			return true
+		end
+		task.wait(0.03)
+	until not doRoundOperationActive(generation)
+		or os.clock() >= deadline
+	return false
 end
 
 	local setEnabled
@@ -3390,6 +3411,7 @@ setEnabled = function(enabled, finalPhase)
 	doRoundState.generation = doRoundState.generation + 1
 	doRoundState.enabled = enabled
 	if enabled then
+		perkTrackerState.journalForcedGhost = nil
 		for _, power in pairs(doRoundState.itemPower) do
 			if power.Connection and power.Connection.Connected then
 				power.Connection:Disconnect()

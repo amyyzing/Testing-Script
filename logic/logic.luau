@@ -306,6 +306,7 @@ local perkTrackerState = {
 	journalEvent = nil,
 	lastJournalSelectedGhost = nil,
 	lastJournalVisualGhost = nil,
+	journalForcedGhost = nil,
 	journalDesiredApplicability = {},
 	journalMutationBusy = false,
 	currentGhostGuess = nil,
@@ -1329,14 +1330,26 @@ perkTrackerState.applyJournalRowState = function(frame, desiredState)
 	if current == desiredState then
 		return true
 	end
-	for _ = 1, 2 do
+	for _ = 1, 3 do
+		local previous = current
 		if not perkTrackerState.triggerJournalClick(frame) then
 			break
 		end
-		task.wait(0.03)
-		current = perkTrackerState.readJournalRowState(frame)
+		-- Journal visuals do not always update on the same frame as the click,
+		-- especially after the player changed rows manually. Wait for a real
+		-- state transition before deciding whether another click is required.
+		local deadline = os.clock() + 0.25
+		repeat
+			task.wait(0.02)
+			current = perkTrackerState.readJournalRowState(frame)
+		until current == desiredState
+			or current ~= previous
+			or os.clock() >= deadline
 		if current == desiredState then
 			return true
+		end
+		if current == previous then
+			break
 		end
 	end
 	return current == desiredState
@@ -1345,12 +1358,26 @@ perkTrackerState.syncJournal = function(forcedGhost)
 	if closed or perkTrackerState.journalMutationBusy then
 		return false
 	end
+	local explicitlyForced = forcedGhost ~= nil
+	if forcedGhost == nil then
+		forcedGhost = perkTrackerState.journalForcedGhost
+	end
 	local forcedSelection = type(forcedGhost) == "string"
 		and forcedGhost ~= ""
 		and not string.find(forcedGhost, "/", 1, true)
 		and GhostModule.Find(forcedGhost) ~= nil
 	if forcedGhost ~= nil and not forcedSelection then
-		return false
+		if not explicitlyForced then
+			perkTrackerState.journalForcedGhost = nil
+			forcedGhost = nil
+		else
+			return false
+		end
+	end
+	if explicitlyForced and forcedSelection then
+		-- Preserve the final choice while evidence/UI refreshes continue in
+		-- parallel with the lobby-return sequence.
+		perkTrackerState.journalForcedGhost = forcedGhost
 	end
 	local candidates
 	if forcedSelection then
@@ -1382,29 +1409,41 @@ perkTrackerState.syncJournal = function(forcedGhost)
 	if ghostTypes then
 		perkTrackerState.journalMutationBusy = true
 		local selectedApplied = selectedGhost == nil
-		for _, profile in ipairs(GHOST_PROFILES) do
+		local function applyProfileState(profile)
 			local ghostName = profile.Name
 			local applicable = candidateSet[ghostName] == true
 			local desiredState = false
 			if applicable then
 				desiredState = nil
 			end
-			if ghostName == selectedGhost then
-				desiredState = true
-			end
 			local frame = ghostTypes:FindFirstChild(ghostName)
-			local applied = false
 			if frame and frame:IsA("Frame") then
-				applied = perkTrackerState.applyJournalRowState(
+				perkTrackerState.applyJournalRowState(
 					frame,
 					desiredState
 				)
 			end
-			if ghostName == selectedGhost then
-				selectedApplied = applied
-			end
 			perkTrackerState.journalDesiredApplicability[ghostName] =
 				applicable
+		end
+		for _, profile in ipairs(GHOST_PROFILES) do
+			if profile.Name ~= selectedGhost then
+				applyProfileState(profile)
+			end
+		end
+		-- Select last. If the game's journal controller clears a highlight while
+		-- another row is changed, no later cross-out click can undo the winner.
+		if selectedGhost then
+			local selectedProfile = GhostModule.Find(selectedGhost)
+			if selectedProfile then
+				local frame = ghostTypes:FindFirstChild(selectedGhost)
+				if frame and frame:IsA("Frame") then
+					selectedApplied =
+						perkTrackerState.applyJournalRowState(frame, true)
+				end
+				perkTrackerState.journalDesiredApplicability[selectedGhost] =
+					true
+			end
 		end
 		perkTrackerState.journalMutationBusy = false
 		if selectedGhost and selectedApplied then
@@ -1416,10 +1455,6 @@ perkTrackerState.syncJournal = function(forcedGhost)
 			perkTrackerState.lastJournalVisualGhost = nil
 			return true
 		end
-	end
-	if selectedGhost
-		and selectedGhost == perkTrackerState.lastJournalSelectedGhost then
-		return true
 	end
 	if selectedGhost then
 		local events =

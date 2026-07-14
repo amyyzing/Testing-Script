@@ -212,6 +212,23 @@ expect(
 	"confirmed evidence must outrank incompatible perk detections"
 )
 
+local printOrbTimeoutTie = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Banshee", "Leviathan"},
+	Detections = {Banshee = 35, Leviathan = 35},
+	ConfirmedEvidence = {
+		Handprints = true,
+		GhostOrb = true,
+	},
+	RandomIndex = function(count)
+		expect(count == 2, "Print plus Orb should retain both supplied candidates")
+		return 2
+	end,
+})
+expect(
+	printOrbTimeoutTie == "Leviathan",
+	"an equal Print plus Orb timeout tie must still produce a final ghost"
+)
+
 local compositeCurrentGuess = GhostModule.SelectHighestConfidenceGuess({
 	Candidates = {"Leviathan", "Skinwalker", "Wisp"},
 	Detections = {
