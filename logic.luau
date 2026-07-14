@@ -7,9 +7,14 @@ end
 local BASE_URL = "https://raw.githubusercontent.com/amyyzing/Testing-Script/main/"
 local RUN_VERSION = tostring(os.time())
 local environment = (getgenv and getgenv()) or _G
+local rememberedLobbySettings = type(environment.DemonologyLobbySettings) == "table"
+	and environment.DemonologyLobbySettings
+	or {}
 local autoEnabled
 if type(requestedAuto) == "boolean" then
 	autoEnabled = requestedAuto
+elseif type(rememberedLobbySettings.Auto) == "boolean" then
+	autoEnabled = rememberedLobbySettings.Auto
 elseif type(environment.DemonologyAuto) == "boolean" then
 	autoEnabled = environment.DemonologyAuto
 elseif type(environment.Auto) == "boolean" then
@@ -20,7 +25,25 @@ end
 local arrivalContext = type(requestedArrivalContext) == "string"
 	and requestedArrivalContext
 	or nil
+local lobbySettings = {
+	Auto = autoEnabled,
+	JobSite = type(rememberedLobbySettings.JobSite) == "string"
+		and rememberedLobbySettings.JobSite
+		or "School",
+	Difficulty = type(rememberedLobbySettings.Difficulty) == "string"
+		and rememberedLobbySettings.Difficulty
+		or "Nightmare",
+	CustomPreset = type(rememberedLobbySettings.CustomPreset) == "string"
+		and rememberedLobbySettings.CustomPreset ~= ""
+		and rememberedLobbySettings.CustomPreset
+		or nil,
+	EquipmentPreset = type(rememberedLobbySettings.EquipmentPreset) == "string"
+		and rememberedLobbySettings.EquipmentPreset ~= ""
+		and rememberedLobbySettings.EquipmentPreset
+		or "green",
+}
 environment.DemonologyAuto = autoEnabled
+environment.DemonologyLobbySettings = lobbySettings
 local Services = {
 	Players = game:GetService("Players"),
 	RunService = game:GetService("RunService"),
@@ -102,6 +125,7 @@ local session = {
 	ArrivalContext = arrivalContext,
 	Destroyed = false,
 	Generation = generation,
+	LobbySettings = lobbySettings,
 }
 environment.DemonologySession = session
 
@@ -128,6 +152,8 @@ function session:Destroy(keepLoader)
 
 	if self.Controller then
 		pcall(self.Controller.Destroy, self.Controller)
+	elseif self.LobbyView and type(self.LobbyView.Destroy) == "function" then
+		pcall(self.LobbyView.Destroy, self.LobbyView)
 	elseif self.View and self.View.Gui then
 		pcall(self.View.Gui.Destroy, self.View.Gui)
 	elseif ownsGui and environment.UntitledGuiInstance then
@@ -164,12 +190,23 @@ if type(queueOnTeleport) ~= "function" and type(executorNamespace) == "table" th
 end
 
 local function queuedLoaderSource(context)
+	local saved = type(environment.DemonologyLobbySettings) == "table"
+		and environment.DemonologyLobbySettings
+		or lobbySettings
 	return string.format([[
 local environment = (getgenv and getgenv()) or _G
 if environment.DemonologyAutoExecuted then
 	return
 end
 environment.DemonologyAutoExecuted = true
+environment.DemonologyAuto = %s
+environment.DemonologyLobbySettings = {
+	Auto = %s,
+	JobSite = %q,
+	Difficulty = %q,
+	CustomPreset = %q,
+	EquipmentPreset = %q,
+}
 if not game:IsLoaded() then
 	game.Loaded:Wait()
 end
@@ -179,8 +216,18 @@ local url = %q .. "?v=" .. tostring(os.time())
 local source = game:HttpGet(url)
 local chunk, compileError = compiler(source, "@DemonologyAutoLoader")
 assert(chunk, compileError)
-chunk(true, %q)
-]], BASE_URL .. "logic.luau", tostring(context or "Teleport"))
+chunk(%s, %q)
+]],
+		tostring(session.Auto == true),
+		tostring(session.Auto == true),
+		tostring(saved.JobSite or "School"),
+		tostring(saved.Difficulty or "Nightmare"),
+		tostring(saved.CustomPreset or ""),
+		tostring(saved.EquipmentPreset or "green"),
+		BASE_URL .. "logic.luau",
+		tostring(session.Auto == true),
+		tostring(context or "Teleport")
+	)
 end
 
 function session:PrepareTeleport(context)
@@ -262,8 +309,16 @@ local function waitForLobbyDataLoad()
 	assertCurrent()
 end
 
-local function runLobbyStartMacro()
+local function runLobbyStartMacro(
+	settings,
+	automatic,
+	customPresetExists,
+	equipmentPresetExists
+)
 	waitForLobbyDataLoad()
+	if automatic and not session.Auto then
+		return false, "Automatic start cancelled; choose settings and press Start Round."
+	end
 	local events = Services.ReplicatedStorage:FindFirstChild("Events")
 	if not events then
 		error("ReplicatedStorage.Events was not found for the lobby macro", 0)
@@ -278,12 +333,39 @@ local function runLobbyStartMacro()
 
 	-- Resolve everything before dispatch so a missing endpoint cannot leave the
 	-- lobby only partially configured.
+	local selectedJobSite = tostring(settings.JobSite or "School")
+	local selectedDifficulty = tostring(settings.Difficulty or "Nightmare")
+	local selectedCustomPreset = type(settings.CustomPreset) == "string"
+		and settings.CustomPreset
+		or nil
+	local selectedEquipmentPreset = type(settings.EquipmentPreset) == "string"
+		and settings.EquipmentPreset
+		or nil
+	if selectedDifficulty == "Custom"
+		and (not selectedCustomPreset
+			or selectedCustomPreset == ""
+			or type(customPresetExists) == "function"
+				and not customPresetExists(selectedCustomPreset)) then
+		return false, "Select a saved custom difficulty preset before starting."
+	end
+	if not selectedEquipmentPreset
+		or selectedEquipmentPreset == ""
+		or type(equipmentPresetExists) == "function"
+			and not equipmentPresetExists(selectedEquipmentPreset) then
+		return false, "Select a saved equipment preset before starting."
+	end
+	local fireSignal = environment.firesignal or firesignal
+	if type(fireSignal) ~= "function" then
+		error("this executor does not provide firesignal for UpdateDifficulty", 0)
+	end
 	local loadingFinished = arrivalContext == "ReturnToLobby"
 		and requireRemote("LoadingFinished")
 		or nil
 	local changeJobSite = requireRemote("ChangeJobSite")
-	local changeDifficulty = requireRemote("ChangeDifficulty")
-	local applyDifficultyPreset = requireRemote("ApplyDifficultyPreset")
+	local updateDifficulty = requireRemote("UpdateDifficulty")
+	local applyDifficultyPreset = selectedDifficulty == "Custom"
+		and requireRemote("ApplyDifficultyPreset")
+		or nil
 	local applyEquipmentPreset = requireRemote("ApplyEquipmentPreset")
 	local changeStatus = requireRemote("ChangeStatus")
 	local attemptStart = requireRemote("AttemptStart")
@@ -305,45 +387,25 @@ local function runLobbyStartMacro()
 	end
 
 	waitForDispatch()
-	changeJobSite:FireServer("School")
+	changeJobSite:FireServer(selectedJobSite)
 
 	waitForDispatch()
-	changeDifficulty:FireServer("Minus")
+	fireSignal(updateDifficulty.OnClientEvent, selectedDifficulty)
+
+	if applyDifficultyPreset then
+		waitForDispatch()
+		applyDifficultyPreset:FireServer(selectedCustomPreset)
+	end
 
 	waitForDispatch()
-	applyDifficultyPreset:FireServer("john4")
-
-	waitForDispatch()
-	applyEquipmentPreset:FireServer("green")
+	applyEquipmentPreset:FireServer(selectedEquipmentPreset)
 
 	waitForDispatch()
 	changeStatus:FireServer()
 
 	waitForDispatch()
 	attemptStart:FireServer()
-end
-
--- Discardable loader probe: take one final model snapshot and create no lasting
--- listener. A queued AttemptStart arrival gets a short replication grace period
--- so it cannot mistake a still-loading round for the lobby and start a loop.
-local loaderGhost = workspace:FindFirstChild("Ghost")
-if not loaderGhost and arrivalContext == "AttemptStart" then
-	loaderGhost = workspace:WaitForChild("Ghost", 15)
-end
-local shouldLoadRoundGui = loaderGhost ~= nil and loaderGhost:IsA("Model")
-loaderGhost = nil
-if arrivalContext == "AttemptStart" and not shouldLoadRoundGui then
-	session:Destroy()
-	error("AttemptStart arrival did not replicate Workspace.Ghost within 15 seconds", 0)
-end
-if not shouldLoadRoundGui then
-	session.Mode = "LobbyMacro"
-	local started, startFailure = xpcall(runLobbyStartMacro, debug.traceback)
-	if not started then
-		session:Destroy()
-		error(startFailure, 0)
-	end
-	return session
+	return true
 end
 
 local REMOTE_FETCH_TIMEOUT = 8
@@ -451,6 +513,112 @@ local function prefetchRemoteSources(paths, onProgress)
 	if firstFailure then
 		error(firstFailure, 0)
 	end
+end
+
+-- Discardable loader probe: take one final model snapshot and create no lasting
+-- listener. A queued AttemptStart arrival gets a short replication grace period
+-- so it cannot mistake a still-loading round for the lobby and start a loop.
+local loaderGhost = workspace:FindFirstChild("Ghost")
+if not loaderGhost and arrivalContext == "AttemptStart" then
+	loaderGhost = workspace:WaitForChild("Ghost", 15)
+end
+local shouldLoadRoundGui = loaderGhost ~= nil and loaderGhost:IsA("Model")
+loaderGhost = nil
+if arrivalContext == "AttemptStart" and not shouldLoadRoundGui then
+	session:Destroy()
+	error("AttemptStart arrival did not replicate Workspace.Ghost within 15 seconds", 0)
+end
+if not shouldLoadRoundGui then
+	session.Mode = "LobbySettings"
+	local loaded, LobbySettings = xpcall(function()
+		return loadRemoteModule("gui/lobby-settings.luau")
+	end, debug.traceback)
+	if not loaded then
+		session:Destroy()
+		error(LobbySettings, 0)
+	end
+
+	local function persistSettings(settings)
+		settings.Auto = settings.Auto == true
+		session.Auto = settings.Auto
+		environment.DemonologyAuto = settings.Auto
+		environment.DemonologyLobbySettings = settings
+		session.LobbySettings = settings
+	end
+
+	local function customPresetExists(name)
+		return table.find(LobbySettings.ReadCustomPresets(player), name) ~= nil
+	end
+	local function equipmentPresetExists(name)
+		return table.find(LobbySettings.ReadEquipmentPresets(player), name) ~= nil
+	end
+
+	local beginLobbyStart
+	local view
+	beginLobbyStart = function(automatic)
+		if session.LobbyStarting or not isCurrent() then
+			return
+		end
+		session.LobbyStarting = true
+		persistSettings(lobbySettings)
+		view:SetBusy(true, automatic)
+		view:SetStatus(
+			automatic
+				and "Auto start is waiting for lobby data; switch Auto off to cancel."
+				or "Waiting for lobby data before applying the saved settings..."
+		)
+		task.spawn(function()
+			local called, started, startFailure = xpcall(function()
+				return runLobbyStartMacro(
+					lobbySettings,
+					automatic,
+					customPresetExists,
+					equipmentPresetExists
+				)
+			end, debug.traceback)
+			if not isCurrent() then
+				return
+			end
+			if not called then
+				session.LobbyStarting = false
+				view:SetBusy(false)
+				view:SetStatus(started, true)
+			elseif started ~= true then
+				session.LobbyStarting = false
+				view:SetBusy(false)
+				view:SetStatus(startFailure or "The lobby start was cancelled.", false)
+			else
+				view:SetStatus("Settings applied; waiting for the round teleport...", false)
+			end
+		end)
+	end
+
+	local built, builtView = xpcall(function()
+		return LobbySettings.Create({
+			Services = Services,
+			Player = player,
+			Environment = environment,
+			Generation = generation,
+			Settings = lobbySettings,
+			OnChanged = persistSettings,
+			OnStart = function()
+				beginLobbyStart(false)
+			end,
+		})
+	end, debug.traceback)
+	if not built then
+		session:Destroy()
+		error(builtView, 0)
+	end
+	view = builtView
+	session.LobbyView = view
+	persistSettings(lobbySettings)
+	if session.Auto then
+		task.defer(function()
+			beginLobbyStart(true)
+		end)
+	end
+	return session
 end
 
 local ok, failure = xpcall(function()

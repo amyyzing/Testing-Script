@@ -1,0 +1,113 @@
+local LobbySettings = require("../lobby-settings")
+
+local function expect(condition, message)
+	if not condition then
+		error(message, 2)
+	end
+end
+
+local expectedNames = {
+	"Lincoln St",
+	"Fenway Drive",
+	"Juniper Road",
+	"Bodega",
+	"Lilim Lane",
+	"Cafe",
+	"Bridgewood Drive",
+	"Oakbridge Estates",
+	"Prison",
+	"School",
+	"Asylum",
+}
+local expectedRequirements = {
+	Bodega = 6,
+	["Lilim Lane"] = 4,
+	Cafe = 8,
+	["Bridgewood Drive"] = 16,
+	["Oakbridge Estates"] = 25,
+	Prison = 9,
+	School = 13,
+	Asylum = 20,
+}
+
+expect(#LobbySettings.JobSites == #expectedNames, "all requested job sites must be present")
+for index, expectedName in ipairs(expectedNames) do
+	local site = LobbySettings.JobSites[index]
+	expect(site.Name == expectedName, "job-site order must remain stable")
+	expect(site.Size == "Small" or site.Size == "Medium" or site.Size == "Large", "job site needs a valid size")
+	expect(type(site.Description) == "string" and site.Description ~= "", "job site needs a description")
+	expect(string.find(site.Description, "———", 1, true) ~= nil, "job-site credit separator changed")
+	expect(site.LevelRequirement == expectedRequirements[site.Name], "job-site level requirement changed")
+end
+
+local expectedDifficulties = {"Easy", "Medium", "Hard", "Nightmare", "Custom"}
+expect(#LobbySettings.Difficulties == #expectedDifficulties, "difficulty list length changed")
+for index, name in ipairs(expectedDifficulties) do
+	expect(LobbySettings.Difficulties[index] == name, "difficulty order must remain stable")
+end
+
+local function node(name, className, children)
+	local object = {
+		Name = name,
+		ClassName = className or "Folder",
+		Children = children or {},
+	}
+	function object:IsA(expected)
+		return self.ClassName == expected
+	end
+	function object:GetChildren()
+		return self.Children
+	end
+	function object:FindFirstChild(childName, recursive)
+		for _, child in ipairs(self.Children) do
+			if child.Name == childName then
+				return child
+			end
+		end
+		if recursive then
+			for _, child in ipairs(self.Children) do
+				local found = child:FindFirstChild(childName, true)
+				if found then
+					return found
+				end
+			end
+		end
+		return nil
+	end
+	return object
+end
+
+local delete = node("Delete", "TextButton")
+local presetList = node("PresetList", "Frame", {
+	node("Template", "Frame"),
+	node("Zulu", "Frame", {node("Controls", "Frame", {delete})}),
+	node("alpha", "Frame", {delete}),
+	node("NotAFrame", "Folder", {delete}),
+})
+local equipmentPresetList = node("PresetList", "Frame", {
+	node("Template", "Frame"),
+	node("green", "Frame", {delete}),
+	node("EvidenceRun", "Frame", {node("Footer", "Frame", {delete})}),
+})
+local player = node("Player", "Player", {
+	node("PlayerGui", "PlayerGui", {
+		node("ComputerScreen", "ScreenGui", {
+			node("JobSite", "Frame", {
+				node("DifficultySettings", "Frame", {presetList}),
+			}),
+			node("Equipment", "Frame", {
+				node("PartyLog", "Frame", {equipmentPresetList}),
+			}),
+		}),
+	}),
+})
+
+local presets = LobbySettings.ReadCustomPresets(player)
+expect(#presets == 2, "only preset frames containing Delete should be listed")
+expect(presets[1] == "alpha" and presets[2] == "Zulu", "custom presets should sort case-insensitively")
+
+local equipmentPresets = LobbySettings.ReadEquipmentPresets(player)
+expect(#equipmentPresets == 2, "equipment presets must use the PartyLog preset list")
+expect(equipmentPresets[1] == "EvidenceRun" and equipmentPresets[2] == "green", "equipment presets should sort case-insensitively")
+
+print("lobby-settings.spec: maps, difficulties, and both saved-preset filters passed")

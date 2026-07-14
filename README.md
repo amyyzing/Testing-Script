@@ -5,18 +5,21 @@ A modular Demonology evidence and behavior assistant written in Luau. The origin
 ## Run
 
 ```luau
-local Auto = true
-loadstring(game:HttpGet("https://raw.githubusercontent.com/amyyzing/Testing-Script/main/logic.luau"))(Auto)
+loadstring(game:HttpGet("https://raw.githubusercontent.com/amyyzing/Testing-Script/main/logic.luau"))()
 ```
 
-Pass the local `Auto` value into the downloaded chunk as shown; a separate
-`loadstring` cannot read an unpassed lexical local. The loader also remembers the
-last boolean in `getgenv().DemonologyAuto`. With Auto enabled it queues a guarded
-self-loader through `queue_on_teleport`/`queueonteleport` whenever `AttemptStart`
-or `RequestReturnToLobby` initiates a teleport. A round arrival loads the GUI and
+When run in the lobby, the loader opens a settings window for Job Site,
+difficulty, saved Custom preset, saved equipment preset, and Auto. The selections
+are retained in `getgenv().DemonologyLobbySettings` and serialized into the
+queued teleport loader, so `local Auto = true` is no longer needed. Passing a
+boolean argument is still supported as a one-time override. With Auto enabled,
+the loader queues a guarded self-loader through
+`queue_on_teleport`/`queueonteleport` whenever `AttemptStart` or
+`RequestReturnToLobby` initiates a teleport. A round arrival loads the GUI and
 turns on Do-Round automatically after the character, map, ghost, doors, and door
 remote have stayed replicated for one second. A lobby return fires
-`LoadingFinished` before starting the next lobby macro.
+`LoadingFinished`, reapplies the remembered lobby settings, and starts the next
+round automatically.
 
 The script requires an environment that provides `game:HttpGet` and `loadstring`. Some optional features also capability-check executor APIs such as `gethui`, `firesignal`, `getconnections`, and `fireproximityprompt`. It is not a normal Roblox Studio `LocalScript`.
 
@@ -28,17 +31,22 @@ Remote code is fetched at run time. Review the repository before executing it, a
 
 Before fetching GUI modules, the bootstrap performs a discardable one-shot check
 for the `Workspace.Ghost` model. When it exists, the normal in-round GUI loads.
-When it does not exist, the GUI is skipped and the loader changes the job site to
-School, applies the Minus difficulty change, applies the `john4` difficulty preset
-once, applies the green equipment preset, and changes the player status before
-attempting to start the round. Every macro dispatch has its own 0.75-second safety
-delay.
+When it does not exist, only the lobby settings GUI loads. Starting applies the
+selected Job Site, fires the selected Easy/Medium/Hard/Nightmare/Custom value
+through `UpdateDifficulty.OnClientEvent`, and applies a named difficulty preset
+only when Custom is selected. Difficulty preset names come from
+`ComputerScreen.JobSite.DifficultySettings.PresetList`; equipment preset names
+come from `ComputerScreen.Equipment.PartyLog.PresetList`. Both lists include only
+Frame entries containing a `Delete` descendant. The selected equipment preset
+and player status are then applied before attempting to start the round. Every
+macro dispatch has its own 0.75-second safety delay.
 
 ## Layout
 
 ```text
 logic.luau                 Remote bootstrap and module loading lifecycle
 gui/load-screen.luau       Loading progress and failure UI
+gui/lobby-settings.luau    Lobby-only persisted map, difficulty, preset, and Auto controls
 gui/aesthetic.luau         Theme, reusable copy, and GUI construction
 gui/gui-logic.luau         Buttons, dropdown, drag/resize, hotkey, and rendering
 logic/logic.luau           UI/action logic and Roblox signal-to-observation adapters
