@@ -30,9 +30,11 @@ local function runJobs()
 	end
 end
 
-local function findEvent(coordinator, kind)
+local function findEvent(coordinator, kind, predicate)
 	for _, event in ipairs(coordinator:Snapshot().Events) do
-		if event.Type == kind then return event end
+		if event.Type == kind and (predicate == nil or predicate(event)) then
+			return event
+		end
 	end
 	return nil
 end
@@ -141,6 +143,81 @@ probeCoordinator:Emit({
 	Payload = {SettledSpeed = 11},
 })
 expect(findEvent(probeCoordinator, Events.Types.SpeedProbeRecovery) ~= nil, "event-driven return to baseline should emit one salt recovery")
+
+probeCoordinator:Reset()
+table.clear(jobs)
+now = 5
+probeCoordinator:Emit({Type = Events.Types.HuntStarted, HuntId = 4, Hunting = true, Time = now})
+probeCoordinator:Emit({
+	Type = Events.Types.HuntTransitionSettled,
+	HuntId = 4,
+	Hunting = true,
+	Payload = {BaselineSpeed = 11},
+})
+probeCoordinator:Emit({
+	Type = Events.Types.SaltContact,
+	Id = "salt-hunt-edge-touch",
+	HuntId = 4,
+	Hunting = true,
+	Time = now + 0.01,
+	Payload = {
+		CurrentSpeed = 11,
+		HuntingAtContact = true,
+		DirectContact = true,
+		SaltDisturbed = false,
+		ContactId = "edge-contact",
+	},
+})
+probeCoordinator:Emit({
+	Type = Events.Types.HuntEnded,
+	HuntId = 4,
+	Hunting = false,
+	Time = now + 0.02,
+	Payload = {CurrentSpeed = 11},
+})
+probeCoordinator:Emit({
+	Type = Events.Types.SaltContact,
+	Id = "salt-hunt-edge-disturbed",
+	HuntId = 4,
+	Hunting = false,
+	Time = now + 0.03,
+	Payload = {
+		CurrentSpeed = 11,
+		HuntingAtContact = true,
+		DirectContact = true,
+		SaltDisturbed = true,
+		ContactId = "edge-contact",
+		DisturbedContactId = "edge-contact",
+	},
+})
+probeCoordinator:Emit({
+	Type = Events.Types.WalkSpeedChanged,
+	HuntId = 4,
+	Hunting = false,
+	Time = now + 0.08,
+	Payload = {CurrentSpeed = 8},
+})
+local postHuntSaltProbe = findEvent(
+	probeCoordinator,
+	Events.Types.SpeedProbeResult,
+	function(event)
+		return event.HuntEndedBeforeSample == true
+	end
+)
+expect(postHuntSaltProbe and postHuntSaltProbe.Delta == -3,
+	"salt contact during a hunt must retain a brief probe when the slowdown arrives just after HuntEnded")
+expect(postHuntSaltProbe.Hunting == false and postHuntSaltProbe.HuntingAtContact == true,
+	"post-hunt Aswang sampling must preserve contact-time hunting without misreporting the sample state")
+probeCoordinator:Emit({
+	Type = Events.Types.WalkSpeedChanged,
+	HuntId = 4,
+	Hunting = false,
+	Time = now + 0.25,
+	Payload = {CurrentSpeed = 11},
+})
+expect(findEvent(probeCoordinator, Events.Types.SpeedProbeRecovery, function(event)
+	return event.HuntEndedBeforeSample == true
+end) ~= nil, "a post-hunt Aswang slowdown should still confirm its temporary recovery")
 
 probeCoordinator:Reset()
 table.clear(jobs)

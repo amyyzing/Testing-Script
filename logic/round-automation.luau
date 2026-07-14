@@ -1919,6 +1919,7 @@ end
 		PlacementHasFloor = roundPlacementHasFloor,
 		PickupMaxDistance = ROUND_PICKUP_MAX_DISTANCE,
 		RemoteSafetyDelay = ROUND_REMOTE_SAFETY_DELAY,
+		MinimumLeaveAge = ROUND_MINIMUM_LEAVE_AGE,
 		SaltPlacementLimit = ROUND_SALT_PLACEMENT_LIMIT,
 		HolyOilPlacementLimit = ROUND_HOLY_OIL_PLACEMENT_LIMIT,
 		ItemOutsideGrace = ROUND_ITEM_OUTSIDE_GRACE,
@@ -1961,6 +1962,7 @@ local setDoRoundEnabled = (function()
 	local roundWorldItemIsInsideRoom = roundUtilities.WorldItemIsInsideRoom
 	local ROUND_PICKUP_MAX_DISTANCE = roundUtilities.PickupMaxDistance
 	local ROUND_REMOTE_SAFETY_DELAY = roundUtilities.RemoteSafetyDelay
+	local ROUND_MINIMUM_LEAVE_AGE = roundUtilities.MinimumLeaveAge
 	local ROUND_SALT_PLACEMENT_LIMIT = roundUtilities.SaltPlacementLimit
 	local ROUND_HOLY_OIL_PLACEMENT_LIMIT = roundUtilities.HolyOilPlacementLimit
 	local ROUND_ITEM_OUTSIDE_GRACE = roundUtilities.ItemOutsideGrace

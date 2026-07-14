@@ -11,8 +11,11 @@ local function triggerKind(event)
 end
 
 local function qualifiedSaltContact(event)
-	if read(event, "Hunting") ~= true
-		or read(event, "DirectContact") ~= true
+	local huntingAtContact = read(event, "HuntingAtContact")
+	if huntingAtContact == nil then
+		huntingAtContact = read(event, "Hunting")
+	end
+	if huntingAtContact ~= true or read(event, "DirectContact") ~= true
 		or read(event, "SaltDisturbed") ~= true then
 		return false
 	end
@@ -71,7 +74,8 @@ local function createObserver(api)
 					if state.SaltOutcome == "Matched" then return true end
 					state.SaltOutcome = "Provisional"
 					conclude("Salt", "Positive", read(event, "Reason") or "a salt-triggered hunting speed probe measured a slowdown; recovery is pending", 80, event)
-				elseif kind == "SpeedProbeResult" and delta and delta >= 0 then
+				elseif kind == "SpeedProbeResult" and read(event, "Completed") == true
+					and delta and delta >= 0 then
 					if state.SaltOutcome == "Matched" then return true end
 					state.SaltOutcome = "Rejected"
 					conclude("Salt", "RuleOut", read(event, "Reason") or "a qualified salt-triggered hunting speed probe measured no slowdown", 99, event)

@@ -83,6 +83,13 @@ exercise("Aswang", {
 	DisturbedContactId = "salt-1", BaselineSpeed = 11, EventSpeed = 8,
 	RecoverySpeed = 10.8,
 }, "Positive")
+exercise("Aswang", {
+	Type = "SpeedProbeResult", Trigger = "SaltContact", Hunting = false,
+	HuntingAtContact = true, HuntEndedBeforeSample = true,
+	DirectContact = true, SaltDisturbed = true, ContactId = "salt-edge",
+	DisturbedContactId = "salt-edge", BaselineSpeed = 11, CurrentSpeed = 8,
+	Delta = -3,
+}, "Positive")
 exercise("Banshee", {Type = "BrokenGlassBurst", Qualified = true, Count = 2, Window = 2.5}, "Positive")
 exercise("Demon", {Type = "CrossMotion", TrialId = "cross-1", Eligible = true, Completed = true, FloatedAndRotated = true}, "Positive")
 exercise("Dullahan", {Type = "DullahanPattern", Hunting = true, IncreaseCount = 3, SampleCount = 4}, "Positive")
@@ -126,6 +133,25 @@ do
 		RecoverySpeed = 11,
 	})
 	expect(last(api, "Positive") == nil and last(api, "RuleOut") == nil, "Aswang requires hunting, direct contact, disturbance, and matching salt identity")
+end
+
+do
+	local api = newApi()
+	local observer = byName.Aswang.CreateObserver(api)
+	observer:OnEvent({
+		Type = "SpeedProbeResult", Trigger = "SaltContact", Hunting = true,
+		DirectContact = true, SaltDisturbed = true, ContactId = "salt-1",
+		DisturbedContactId = "salt-1", BaselineSpeed = 11, CurrentSpeed = 11,
+		Delta = 0, Completed = false,
+	})
+	expect(last(api, "RuleOut") == nil, "one early no-drop sample must not rule Aswang out before the salt observation window completes")
+	observer:OnEvent({
+		Type = "SpeedProbeResult", Trigger = "SaltContact", Hunting = true,
+		DirectContact = true, SaltDisturbed = true, ContactId = "salt-1",
+		DisturbedContactId = "salt-1", BaselineSpeed = 11, CurrentSpeed = 11,
+		Delta = 0, Completed = true,
+	})
+	expect(last(api, "RuleOut") ~= nil, "a completed qualified salt window with no slowdown may rule Aswang out")
 end
 
 do

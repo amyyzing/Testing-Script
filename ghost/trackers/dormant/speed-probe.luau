@@ -59,6 +59,7 @@ function SpeedProbe.new(options)
 		MinimumHuntAge = tonumber(options.MinimumHuntAge) or 0.5,
 		RecoveryTolerance = tonumber(options.RecoveryTolerance) or 0.03,
 		RecoveryTimeout = tonumber(options.RecoveryTimeout) or 4,
+		PostHuntSaltGrace = tonumber(options.PostHuntSaltGrace) or 1.25,
 		_context = nil,
 		_hunting = false,
 		_huntId = nil,
@@ -68,6 +69,8 @@ function SpeedProbe.new(options)
 		_queuedProbes = {},
 		_pendingDeaths = {},
 		_pendingRecoveries = {},
+		_saltWindows = {},
+		_recentEndedHunt = nil,
 		_lastResult = nil,
 	}, SpeedProbe)
 end
@@ -109,12 +112,17 @@ function SpeedProbe:_beginHunt(event)
 		)
 	table.clear(self._pendingDeaths)
 	table.clear(self._pendingRecoveries)
+	table.clear(self._saltWindows)
 	table.clear(self._queuedProbes)
+	self._recentEndedHunt = nil
 	self.Status = self._baseline and "Armed" or "WaitingForBaseline"
 end
 
 function SpeedProbe:_endHunt(event)
 	local now = self:_now(event)
+	local endedHuntId = self._huntId
+	local endedBaseline = self._baseline
+	local endSpeed = speedFrom(self._context, event)
 	for key, pending in pairs(self._pendingDeaths) do
 		local elapsed = now - pending.Time
 		if elapsed >= 0 and elapsed <= self.RevenantWindow then
@@ -152,6 +160,19 @@ function SpeedProbe:_endHunt(event)
 		end
 		self._pendingDeaths[key] = nil
 	end
+	self._recentEndedHunt = {
+		HuntId = endedHuntId,
+		Baseline = endedBaseline,
+		EndedAt = now,
+		EndSpeed = endSpeed,
+	}
+	for _, window in pairs(self._saltWindows) do
+		if window.HuntId == endedHuntId then
+			window.HuntEndedAt = now
+			window.HuntEndSpeed = endSpeed
+			window.ExpiresAt = now + self.PostHuntSaltGrace
+		end
+	end
 	self:_cancelPendingReads()
 	self._hunting = false
 	self._huntId = nil
@@ -163,39 +184,95 @@ function SpeedProbe:_endHunt(event)
 end
 
 function SpeedProbe:_probe(event)
-	if not self._hunting
-		or event.Hunting == false
-		or (event.HuntId ~= nil and event.HuntId ~= self._huntId) then
-		return
-	end
-	if not self._baseline then
-		table.insert(self._queuedProbes, Events.Copy(event))
-		return
-	end
 	local trigger = event.Type or event.Kind
+	local isSalt = trigger == Events.Types.SaltContact
+	local now = self:_now(event)
+	local huntingAtContact = Events.Read(event, "HuntingAtContact")
+	if huntingAtContact == nil then
+		huntingAtContact = Events.Read(event, "Hunting")
+	end
+	local directContact = Events.Read(event, "DirectContact") == true
+	local saltDisturbed = Events.Read(event, "SaltDisturbed") == true
+		or Events.Read(event, "Disturbed") == true
+	local contactId = Events.Read(event, "ContactId")
+	local disturbedContactId = Events.Read(event, "DisturbedContactId")
+	local qualifiedSalt = isSalt and huntingAtContact == true
+		and directContact and saltDisturbed
+		and contactId ~= nil and disturbedContactId ~= nil
+		and tostring(contactId) == tostring(disturbedContactId)
+	local activeHunt = self._hunting
+		and (not isSalt and event.Hunting ~= false or qualifiedSalt)
+		and (event.HuntId == nil or event.HuntId == self._huntId)
+	local recent = self._recentEndedHunt
+	local recentSalt = qualifiedSalt and not self._hunting and recent ~= nil
+		and now - recent.EndedAt <= self.PostHuntSaltGrace
+		and (event.HuntId == nil or event.HuntId == recent.HuntId)
+	if isSalt then
+		if not qualifiedSalt or (not activeHunt and not recentSalt) then
+			return
+		end
+	elseif not activeHunt then
+		return
+	end
+	local probeBaseline
+	local probeHuntId
+	if activeHunt then
+		probeBaseline = self._baseline
+		probeHuntId = self._huntId
+	else
+		probeBaseline = recent.Baseline
+		probeHuntId = recent.HuntId
+	end
+	if not probeBaseline then
+		if activeHunt then
+			table.insert(self._queuedProbes, Events.Copy(event))
+		end
+		return
+	end
 	local delaySeconds = trigger == Events.Types.PlayerDeath and self.DeathSettleDelay or self.SettleDelay
 	local key = tostring(event.Id or trigger .. ":" .. tostring(event.Time))
 	local eventCopy = Events.Copy(event)
+	if isSalt then
+		self._saltWindows[key] = {
+			EventId = eventCopy.Id,
+			OpenedAt = now,
+			ExpiresAt = activeHunt and (now + self.RecoveryTimeout)
+				or (recent.EndedAt + self.PostHuntSaltGrace),
+			HuntId = probeHuntId,
+			Baseline = probeBaseline,
+			HuntEndedAt = recentSalt and recent.EndedAt or nil,
+			HuntEndSpeed = recentSalt and recent.EndSpeed or nil,
+			DirectContact = directContact,
+			SaltDisturbed = saltDisturbed,
+			ContactId = contactId,
+			DisturbedContactId = disturbedContactId,
+			SlowObserved = false,
+		}
+	end
 	self._pendingReads[key] = schedule(self._context, delaySeconds, function()
 		self._pendingReads[key] = nil
+		if isSalt then
+			self:_sampleSaltWindows(eventCopy, key)
+			return
+		end
 		if not self._hunting
-			or eventCopy.HuntId ~= nil and eventCopy.HuntId ~= self._huntId then
+			or self._huntId ~= probeHuntId then
 			return
 		end
 		local current = speedFrom(self._context, eventCopy)
-		if not current or not self._baseline or self._baseline <= 0 then
+		if not current or probeBaseline <= 0 then
 			return
 		end
-		local delta = current - self._baseline
-		local relative = delta / self._baseline
+		local delta = current - probeBaseline
+		local relative = delta / probeBaseline
 		local payload = {
 			Trigger = trigger,
 			TriggerEventId = eventCopy.Id,
-			BaselineSpeed = self._baseline,
+			BaselineSpeed = probeBaseline,
 			CurrentSpeed = current,
 			Delta = delta,
 			RelativeDelta = relative,
-			HuntId = self._huntId,
+			HuntId = probeHuntId,
 			Hunting = true,
 			Time = self:_now(eventCopy),
 			DirectContact = Events.Read(eventCopy, "DirectContact") == true,
@@ -211,24 +288,117 @@ function SpeedProbe:_probe(event)
 		self._lastResult = payload
 		self:_emit({
 			Type = Events.Types.SpeedProbeResult,
-			HuntId = self._huntId,
+			HuntId = probeHuntId,
 			Hunting = true,
 			Source = self.Name,
 			Payload = payload,
 		})
-		if trigger == Events.Types.SaltContact and relative < -self.RecoveryTolerance then
-			self._pendingRecoveries[key] = {
-				EventId = eventCopy.Id,
-				EventSpeed = current,
-				OpenedAt = self:_now(eventCopy),
-				HuntId = self._huntId,
-				DirectContact = payload.DirectContact,
-				SaltDisturbed = payload.SaltDisturbed,
-				ContactId = payload.ContactId,
-				DisturbedContactId = payload.DisturbedContactId,
-			}
-		end
 	end)
+end
+
+function SpeedProbe:_emitSaltResult(window, current, now, completed)
+	local postHunt = window.HuntEndedAt ~= nil
+	local delta = current - window.Baseline
+	local payload = {
+		Trigger = Events.Types.SaltContact,
+		TriggerEventId = window.EventId,
+		BaselineSpeed = window.Baseline,
+		CurrentSpeed = current,
+		Delta = delta,
+		RelativeDelta = delta / window.Baseline,
+		HuntId = window.HuntId,
+		Hunting = not postHunt,
+		HuntingAtContact = true,
+		HuntEndedBeforeSample = postHunt,
+		Completed = completed == true,
+		Time = now,
+		DirectContact = window.DirectContact,
+		SaltDisturbed = window.SaltDisturbed,
+		ContactId = window.ContactId,
+		DisturbedContactId = window.DisturbedContactId,
+	}
+	self._lastResult = payload
+	self:_emit({
+		Type = Events.Types.SpeedProbeResult,
+		HuntId = window.HuntId,
+		Hunting = not postHunt,
+		Source = self.Name,
+		Payload = payload,
+	})
+end
+
+function SpeedProbe:_emitSaltRecovery(window, current, now)
+	local postHunt = window.HuntEndedAt ~= nil
+	self:_emit({
+		Type = Events.Types.SpeedProbeRecovery,
+		HuntId = window.HuntId,
+		Hunting = not postHunt,
+		Source = self.Name,
+		Payload = {
+			Trigger = Events.Types.SaltContact,
+			TriggerEventId = window.EventId,
+			BaselineSpeed = window.Baseline,
+			EventSpeed = window.EventSpeed,
+			RecoverySpeed = current,
+			Elapsed = now - (window.SlowAt or window.OpenedAt),
+			Hunting = not postHunt,
+			HuntingAtContact = true,
+			HuntEndedBeforeSample = postHunt,
+			DirectContact = window.DirectContact,
+			SaltDisturbed = window.SaltDisturbed,
+			ContactId = window.ContactId,
+			DisturbedContactId = window.DisturbedContactId,
+		},
+	})
+end
+
+function SpeedProbe:_sampleSaltWindows(event, onlyKey)
+	local current = speedFrom(self._context, event)
+	if not current then
+		return
+	end
+	local now = self:_now(event)
+	for key, window in pairs(self._saltWindows) do
+		if onlyKey == nil or key == onlyKey then
+			local active = self._hunting and window.HuntId == self._huntId
+			local postHunt = window.HuntEndedAt ~= nil
+				and now <= window.ExpiresAt
+			if not active and not postHunt then
+				if window.HuntEndedAt ~= nil or now >= window.ExpiresAt then
+					self._saltWindows[key] = nil
+				end
+			elseif window.Baseline and window.Baseline > 0 then
+				local relative = (current - window.Baseline) / window.Baseline
+				if not window.SlowObserved then
+					local slowed = relative < -self.RecoveryTolerance
+					if postHunt and window.HuntEndSpeed then
+						slowed = slowed and current
+							< window.HuntEndSpeed * (1 - self.RecoveryTolerance)
+					end
+					if slowed then
+						window.SlowObserved = true
+						window.EventSpeed = current
+						window.SlowAt = now
+						self:_emitSaltResult(window, current, now, false)
+					elseif active and now >= window.ExpiresAt then
+						self:_emitSaltResult(window, current, now, true)
+						self._saltWindows[key] = nil
+					end
+				else
+					local recoveryTarget = postHunt
+						and window.HuntEndSpeed or window.Baseline
+					if recoveryTarget
+						and current > window.EventSpeed
+						and current >= recoveryTarget * (1 - self.RecoveryTolerance) then
+						self:_emitSaltRecovery(window, current, now)
+						self._saltWindows[key] = nil
+					elseif postHunt and now >= window.ExpiresAt then
+						self._saltWindows[key] = nil
+					end
+				end
+			end
+		end
+	end
 end
 
 	function SpeedProbe:_armDeath(event)
@@ -345,6 +515,7 @@ function SpeedProbe:_tick(event)
 			self._pendingDeaths[key] = nil
 		end
 	end
+	self:_sampleSaltWindows(event)
 	self:_checkRecovery(event)
 end
 
@@ -374,9 +545,10 @@ function SpeedProbe:OnEvent(event)
 			if self:_armDeath(event) then
 				self:_probe(event)
 			end
-	elseif kind == Events.Types.SaltContact and self._hunting then
+	elseif kind == Events.Types.SaltContact then
 		self:_probe(event)
 	elseif kind == Events.Types.WalkSpeedChanged then
+		self:_sampleSaltWindows(event)
 		self:_checkRecovery(event)
 	elseif kind == Events.Types.Tick then
 		self:_tick(event)
@@ -398,7 +570,9 @@ function SpeedProbe:Reset()
 	self._baseline = nil
 	table.clear(self._pendingDeaths)
 	table.clear(self._pendingRecoveries)
+	table.clear(self._saltWindows)
 	table.clear(self._queuedProbes)
+	self._recentEndedHunt = nil
 	self._lastResult = nil
 	self.Status = "Idle"
 end

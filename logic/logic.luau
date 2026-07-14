@@ -5208,13 +5208,13 @@ perkTrackerState.markSaltDisturbed = function(disturbedModel)
 		Disturbed = true,
 		SaltDisturbed = true,
 		DisturbedContactId = observation.ContactId,
-		Hunting = observation.HuntingAtTouch == true
-			and observation.Ghost:GetAttribute("Hunting") == true,
+		Hunting = observation.Ghost:GetAttribute("Hunting") == true,
+		HuntingAtContact = observation.HuntingAtTouch == true,
 		Source = "SaltPiles.DisturbedSaltLine",
 	})
 	if observation.DirectContact == true
-		and observation.HuntingAtTouch == true
-		and observation.Ghost:GetAttribute("Hunting") == true then
+		and observation.HuntingAtTouch == true then
+		local stillHunting = observation.Ghost:GetAttribute("Hunting") == true
 		emitGhostObservation({
 			Type = GhostPackage.Events.Types.SaltContact,
 			ContactId = observation.ContactId,
@@ -5223,7 +5223,9 @@ perkTrackerState.markSaltDisturbed = function(disturbedModel)
 			SaltDisturbed = true,
 			DisturbedContactId = observation.ContactId,
 			Qualified = true,
-			Hunting = true,
+			Hunting = stillHunting,
+			HuntingAtContact = true,
+			HuntEndedBeforeSample = not stillHunting,
 			Source = "SaltPiles.QualifiedHuntingContact",
 		})
 	end
@@ -5318,6 +5320,7 @@ perkTrackerState.beginSaltTouch = function(saltModel)
 		Disturbed = false,
 		SaltDisturbed = false,
 		Hunting = ghost:GetAttribute("Hunting") == true,
+		HuntingAtContact = ghost:GetAttribute("Hunting") == true,
 		Source = "SaltLine.Touched",
 	})
 end
