@@ -57,6 +57,7 @@ local ROUND_PLACEMENT_MAX_PLAYER_DISTANCE = 2
 local ROUND_PICKUP_MAX_DISTANCE = 8
 local ROUND_REMOTE_SAFETY_DELAY = 0.1
 local ROUND_LOBBY_RETRY_SECONDS = 4
+local ROUND_MINIMUM_LEAVE_AGE = 30
 -- Salt consumes every available use. Distinct door identity, not an arbitrary
 -- count, is the only placement cap; Holy Oil is capped at three placements.
 local ROUND_SALT_PLACEMENT_LIMIT = math.huge
@@ -956,29 +957,31 @@ local function prepareRoundDoorForPlacement(doorModel, generation)
 		return nil, nil, "DoorModel.Door.DoorUnion was unavailable"
 	end
 	if not roundDoorClosedState(doorModel, doorContainer, stateCandidates) then
-		local approached = false
-		local approaches = roundDoorApproaches(reference)
-		for _, approach in ipairs(approaches) do
-			if not roundActionIsSafe(generation) then
-				return nil, nil, roundUnsafeReason(generation)
-			end
-			if teleportToRoundDoorFace(reference, approach, generation) then
-				approached = true
-				break
-			end
-		end
+		local center = getInstanceWorldPosition(reference)
+		local root = player.Character
+			and player.Character:FindFirstChild("HumanoidRootPart")
+		local approached = root ~= nil and center ~= nil
+			and (root.Position - center).Magnitude <= 10
+		-- Closing only requires interaction range. Use one broad safe-space
+		-- teleport before attempting the slower placement-grade face searches.
 		if not approached then
-			local positions = roundApproachPositions(reference, 5)
-			for _, position in ipairs(positions) do
-				if teleportNearRoundTarget(reference, position, generation) then
+			approached = teleportNearRoundTarget(reference, nil, generation)
+		end
+		local approaches = roundDoorApproaches(reference)
+		if not approached then
+			for _, approach in ipairs(approaches) do
+				if not roundActionIsSafe(generation) then
+					return nil, nil, roundUnsafeReason(generation)
+				end
+				if teleportToRoundDoorFace(reference, approach, generation) then
 					approached = true
 					break
 				end
 			end
 		end
-		local root = player.Character
+		root = player.Character
 			and player.Character:FindFirstChild("HumanoidRootPart")
-		local center = getInstanceWorldPosition(reference)
+		center = getInstanceWorldPosition(reference)
 		if not approached or not root or not center
 			or (root.Position - center).Magnitude > 10 then
 			return nil, nil, "could not move within door-closing range"
@@ -996,19 +999,33 @@ local function prepareRoundDoorForPlacement(doorModel, generation)
 		-- The approach can take long enough for another actor to close the door.
 		-- Re-read immediately before toggling so a closed door is never reopened.
 		doorContainer = doorModel:FindFirstChild("Door") or doorModel
+		reference = roundDoorReference(doorContainer)
 		stateCandidates = {
 			DoorContainer = doorContainer,
 			Objects = collectRoundDoorStateCandidates(doorModel, doorContainer),
 		}
+		root = player.Character
+			and player.Character:FindFirstChild("HumanoidRootPart")
+		center = getInstanceWorldPosition(reference)
+		if not root or not center or (root.Position - center).Magnitude > 10 then
+			return nil, nil, "moved outside door-closing range"
+		end
+		local firedAt
+		local firedReference = reference
+		local firedFrame = reference and reference:IsA("BasePart")
+			and reference.CFrame
 		if not roundDoorClosedState(doorModel, doorContainer, stateCandidates) then
 			local fired = pcall(remote.FireServer, remote, doorContainer)
 			if not fired then
 				return nil, nil, "door close interaction failed"
 			end
+			firedAt = os.clock()
 		end
-		-- A single exact-instance toggle is intentional: retrying before the
-		-- replicated DoorClosed value arrives can reopen this physical door.
+		-- Retry once only when neither replicated state nor physical geometry
+		-- changed. This recovers an intermittently dropped interaction without
+		-- toggling a door back open while its close animation is underway.
 		local closeDeadline = os.clock() + 4
+		local retried = false
 		repeat
 			if not roundActionIsSafe(generation) then
 				return nil, nil, roundUnsafeReason(generation)
@@ -1023,6 +1040,32 @@ local function prepareRoundDoorForPlacement(doorModel, generation)
 			end
 			if roundDoorClosedState(doorModel, doorContainer, stateCandidates) then
 				break
+			end
+			if firedAt and not retried and os.clock() - firedAt >= 1.5 then
+				retried = true
+				local currentReference = roundDoorReference(doorContainer)
+				local geometryMoved = currentReference ~= firedReference
+				if not geometryMoved and firedFrame and currentReference
+					and currentReference:IsA("BasePart") then
+					local currentFrame = currentReference.CFrame
+					geometryMoved = (currentFrame.Position - firedFrame.Position).Magnitude
+						> 0.03
+						or currentFrame.RightVector:Dot(firedFrame.RightVector) < 0.9995
+						or currentFrame.LookVector:Dot(firedFrame.LookVector) < 0.9995
+				end
+				root = player.Character
+					and player.Character:FindFirstChild("HumanoidRootPart")
+				center = getInstanceWorldPosition(currentReference)
+				if not geometryMoved and root and center
+					and (root.Position - center).Magnitude <= 10
+					and not roundDoorClosedState(
+						doorModel,
+						doorContainer,
+						stateCandidates
+					) then
+					beginAutomationMutation(1)
+					pcall(remote.FireServer, remote, doorContainer)
+				end
 			end
 			doRoundWait(generation, 0.05)
 		until os.clock() >= closeDeadline
@@ -2364,6 +2407,10 @@ local function placeRoundToolsAtDoors(generation)
 end
 
 local function openRoundExitDoor(generation)
+	local function markRoundStarted()
+		doRoundState.exitOpenedAt = doRoundState.exitOpenedAt or os.clock()
+		return true
+	end
 	local events = Services.ReplicatedStorage:FindFirstChild("Events")
 	local remote = events and events:FindFirstChild("ClientChangeDoorState")
 	if not remote or not remote:IsA("RemoteEvent") then
@@ -2377,7 +2424,7 @@ local function openRoundExitDoor(generation)
 		local initialDoorContainer = exitModel:FindFirstChild("Door")
 			or exitModel
 		if not roundDoorClosedState(exitModel, initialDoorContainer) then
-			return true
+			return markRoundStarted()
 		end
 		local doorContainer = exitModel:FindFirstChild("Door")
 		local doorReference = doorContainer
@@ -2428,7 +2475,7 @@ local function openRoundExitDoor(generation)
 				end
 				-- Doors.ExitDoor.DoorClosed is authoritative when present.
 				if not roundDoorClosedState(exitModel, doorContainer) then
-					return true
+					return markRoundStarted()
 				end
 				setDoRoundStatus("Opening exit door")
 				beginAutomationMutation(1.5)
@@ -2445,7 +2492,7 @@ local function openRoundExitDoor(generation)
 					local openDeadline = os.clock() + 0.45
 					repeat
 						if not roundDoorClosedState(exitModel, doorContainer) then
-							return true
+							return markRoundStarted()
 						end
 						doRoundWait(generation, 0.05)
 					until os.clock() >= openDeadline
@@ -2933,6 +2980,10 @@ local function requestRoundReturnToLobby(generation)
 		end
 	end
 	local queueWarningShown = false
+	local roundStartedAt = doRoundState.exitOpenedAt
+		or doRoundState.startedAt
+		or os.clock()
+	local earliestReturnAt = roundStartedAt + ROUND_MINIMUM_LEAVE_AGE
 	while doRoundOperationActive(generation) do
 		if not playerIsInsideRoundBaseCamp()
 			and not returnRoundToBase(generation) then
@@ -2941,6 +2992,12 @@ local function requestRoundReturnToLobby(generation)
 		end
 		if not playerIsInsideRoundBaseCamp() then
 			doRoundWait(generation, 0.1)
+			continue
+		end
+		local leaveWait = earliestReturnAt - os.clock()
+		if leaveWait > 0 then
+			setDoRoundStatus("Waiting safely until 0:30")
+			doRoundWait(generation, math.min(0.25, leaveWait))
 			continue
 		end
 		setDoRoundStatus("Returning to lobby")
@@ -3423,6 +3480,7 @@ setEnabled = function(enabled, finalPhase)
 			end
 		end
 		doRoundState.startedAt = os.clock()
+		doRoundState.exitOpenedAt = nil
 		doRoundState.completionClaimed = false
 		doRoundState.lastElapsed = 0
 		doRoundState.phase = "Checking ghost room"
@@ -3512,6 +3570,7 @@ setEnabled = function(enabled, finalPhase)
 		doRoundState.identificationThread = nil
 		doRoundState.completionClaimed = false
 		doRoundState.startedAt = nil
+		doRoundState.exitOpenedAt = nil
 		doRoundState.roundMap = nil
 		doRoundState.roundGhost = nil
 		setDoRoundStatus(finalPhase or "Off")

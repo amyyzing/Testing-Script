@@ -99,6 +99,7 @@ local doRoundState = {
 	identificationThread = nil,
 	completionClaimed = false,
 	startedAt = nil,
+	exitOpenedAt = nil,
 	lastElapsed = 0,
 	phase = "Off",
 	lastRenderedPhase = nil,
