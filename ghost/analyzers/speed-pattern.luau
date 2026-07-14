@@ -21,23 +21,6 @@ return function(dependencies)
 		return (sorted[middle] + sorted[middle + 1]) / 2
 	end
 
-	local function repeatable(left, right, scale, tolerance)
-		return math.abs(left - right)
-			<= math.max(tolerance, math.abs(scale) * 0.006)
-	end
-
-	local function allRepeatable(values, center, tolerance)
-		if not center or #values == 0 then
-			return false
-		end
-		for _, value in ipairs(values) do
-			if not repeatable(value, center, center, tolerance) then
-				return false
-			end
-		end
-		return true
-	end
-
 	local function sampleValues(event)
 		local raw = Events.Read(event, "Samples")
 		local samples = {}
@@ -59,16 +42,20 @@ return function(dependencies)
 			if not first or not second or first.Invisible == second.Invisible then
 				return {}
 			end
+			local invisibleSpeed = first.Invisible and tonumber(first.Speed)
+				or tonumber(second.Speed)
+			local visibleSpeed = first.Invisible and tonumber(second.Speed)
+				or tonumber(first.Speed)
 			table.insert(pairs, {
 				Pair = #pairs + 1,
 				FirstSpeed = tonumber(first.Speed),
 				SecondSpeed = tonumber(second.Speed),
 				FirstInvisible = first.Invisible,
 				SecondInvisible = second.Invisible,
-				InvisibleSpeed = first.Invisible and tonumber(first.Speed)
-					or tonumber(second.Speed),
-				VisibleSpeed = first.Invisible and tonumber(second.Speed)
-					or tonumber(first.Speed),
+				InvisibleSpeed = invisibleSpeed,
+				VisibleSpeed = visibleSpeed,
+				Ratio = visibleSpeed and visibleSpeed > 0
+					and invisibleSpeed / visibleSpeed or nil,
 			})
 		end
 		return pairs
@@ -83,7 +70,6 @@ return function(dependencies)
 			RequiredPairs = math.max(1, math.floor(tonumber(options.RequiredPairs) or 7)),
 			ExpectedPhantomRatio = tonumber(options.ExpectedPhantomRatio) or (13.5 / 11),
 			RatioTolerance = tonumber(options.RatioTolerance) or 0.05,
-			EqualityTolerance = tonumber(options.EqualityTolerance) or 0.05,
 			_context = nil,
 			huntId = nil,
 			processed = {},
@@ -181,74 +167,76 @@ return function(dependencies)
 		local invisible = {}
 		local visible = {}
 		local all = {}
+		local pairRatios = {}
+		local phantomPairCount = 0
 		local differentPairs = 0
 		for _, pair in ipairs(pairs) do
 			table.insert(invisible, pair.InvisibleSpeed)
 			table.insert(visible, pair.VisibleSpeed)
 			table.insert(all, pair.FirstSpeed)
 			table.insert(all, pair.SecondSpeed)
+			if pair.Ratio then
+				table.insert(pairRatios, pair.Ratio)
+				if math.abs(pair.Ratio - self.ExpectedPhantomRatio)
+					<= self.RatioTolerance then
+					phantomPairCount = phantomPairCount + 1
+				end
+			end
 			if pair.FirstSpeed ~= pair.SecondSpeed then
 				differentPairs = differentPairs + 1
 			end
 		end
-		-- Direction and magnitude do not matter. Each pair only needs two unequal
-		-- settled speeds; stable phase repetition is filtered before Dullahan.
+		-- Direction and magnitude do not matter for Dullahan. Phantom is checked
+		-- first from each local invisible/visible AB ratio.
 		self.differentPairCount = differentPairs
 
 		local invisibleSpeed = median(invisible)
 		local visibleSpeed = median(visible)
-		local invisibleRepeats = allRepeatable(
-			invisible,
-			invisibleSpeed,
-			self.EqualityTolerance
-		)
-		local visibleRepeats = allRepeatable(
-			visible,
-			visibleSpeed,
-			self.EqualityTolerance
-		)
-		local phasesRepeat = invisibleRepeats and visibleRepeats
-		local ratio = visibleSpeed and visibleSpeed > 0
-			and invisibleSpeed / visibleSpeed or nil
+		local ratio = median(pairRatios)
 
-		if phasesRepeat then
+		if phantomPairCount >= self.RequiredPairs then
 			self:_emitDullahanAbsent(
 				event,
 				pairs,
-				"seven settled pairs repeated stable phase speeds instead of Dullahan's differing pair values"
+				"all seven local blink/non-blink AB ratios matched Phantom"
 			)
-			if ratio
-				and math.abs(ratio - self.ExpectedPhantomRatio) <= self.RatioTolerance then
-				if not self.phantomEmitted then
-					self.phantomEmitted = true
-					self.lastOutcome = Events.Types.PhantomPattern
-					self:_emit({
-						Type = Events.Types.PhantomPattern,
-						HuntId = event.HuntId,
-						Hunting = true,
-						Source = self.Name,
-						Payload = {
-							Qualified = true,
-							Completed = true,
-							Outcome = "PhaseDependent",
-							VisibleSpeed = visibleSpeed,
-							InvisibleSpeed = invisibleSpeed,
-							Ratio = ratio,
-							PairCount = self.pairCount,
-							RequiredPairs = self.RequiredPairs,
-							RepeatedPairs = true,
-							Pairs = Events.Copy(pairs),
-							Samples = Events.Copy(samples),
-							Reason = "seven settled pairs repeated the 13.5/11 Phantom phase ratio",
-						},
-					})
-				end
-				return
+			if not self.phantomEmitted then
+				self.phantomEmitted = true
+				self.lastOutcome = Events.Types.PhantomPattern
+				self:_emit({
+					Type = Events.Types.PhantomPattern,
+					HuntId = event.HuntId,
+					Hunting = true,
+					Source = self.Name,
+					Payload = {
+						Qualified = true,
+						Completed = true,
+						Outcome = "PhaseDependent",
+						VisibleSpeed = visibleSpeed,
+						InvisibleSpeed = invisibleSpeed,
+						Ratio = ratio,
+						PairRatios = Events.Copy(pairRatios),
+						MatchedPairCount = phantomPairCount,
+						PairCount = self.pairCount,
+						RequiredPairs = self.RequiredPairs,
+						RepeatedPairs = true,
+						Pairs = Events.Copy(pairs),
+						Samples = Events.Copy(samples),
+						Reason = "each of seven local AB pairs matched the 13.5/11 Phantom blink ratio",
+					},
+				})
 			end
+			return
+		end
 
+		if differentPairs == 0 then
+			self:_emitDullahanAbsent(
+				event,
+				pairs,
+				"all seven local AB pairs contained equal speeds"
+			)
 			local flatSpeed = median(all)
-			local flat = allRepeatable(all, flatSpeed, self.EqualityTolerance)
-			if flat and not self.flatEmitted then
+			if not self.flatEmitted then
 				self.flatEmitted = true
 				self.lastOutcome = Events.Types.FlatHuntSpeed
 				self:_emit({

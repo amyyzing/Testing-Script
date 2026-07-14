@@ -283,11 +283,11 @@ local Profiles = {
 		note("One fast hunt or one manifestation is a risky relative-speed/activity tell.", SOURCE.Oni, "wiki-documented", false, "Caveat"),
 	})),
 	profile("Phantom", {"EMFLevel5", "GhostOrb", "Handprints"}, "wiki-documented", perks({
-		note("Across seven settled pairs at 100% configured speed, its stable visible/invisible hunt speeds are 11/13.5 on Small maps, 11.55/14.175 on Medium maps, and 12.1/14.85 on Large maps; both modes scale together at other speed settings.", SOURCE.Phantom, "wiki-documented", true, "Trait", "Retain Skinwalker as an equal possibility in Mimicry mode."),
+		note("Across seven local blink/non-blink AB pairs at 100% configured speed, its visible/invisible hunt speeds are 11/13.5 on Small maps, 11.55/14.175 on Medium maps, and 12.1/14.85 on Large maps; both values may drift together between pairs.", SOURCE.Phantom, "wiki-documented", true, "Trait", "Retain Skinwalker as an equal possibility in Mimicry mode."),
 	}, {
-		note("All seven stable paired phases show the ghost moving about 13.5/11 times faster while invisible than while visible.", SOURCE.Phantom, "wiki-documented", true, "Trait"),
+		note("Each of seven local AB pairs shows the ghost moving about 13.5/11 times faster while invisible than while visible, regardless of whether the visible or invisible state arrived first.", SOURCE.Phantom, "user-observed", true, "Trait"),
 	}, {
-		note("A transition edge or fewer than seven complete pairs is not diagnostic; compare settled visible and invisible phases at the same configured speed.", SOURCE.Phantom, "wiki-documented", true, "Caveat"),
+		note("A transition edge or fewer than seven complete AB pairs is not diagnostic; do not compare globally grouped blink states when local pairs are available.", SOURCE.Phantom, "user-observed", true, "Caveat"),
 	})),
 	profile("Ravager", {"EMFLevel5", "GhostWriting", "SpiritBox"}, "wiki-recent-stub", perks({
 		note("A vortex pulls nearby objects into a tornado during a hunt.", SOURCE.Ravager, "wiki-recent-stub", false, "Trait", "The guide reports roughly a one-in-three activation chance."),

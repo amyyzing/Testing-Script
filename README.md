@@ -150,7 +150,8 @@ fresh coordinator; there is no `GhostGeneration` polling tracker.
 - Discardable trackers read immutable model facts once, emit qualified observations such as model gender, LIDAR state, and the immediate Umbra root-sound check, then stop. Model gender is the only gender observation; Spirit Box voice folders do not add a duplicate male/female score.
 
 Shared analyzers classify one complete window of seven settled visible/invisible
-pairs. Seven repeating phase pairs classify Phantom, seven flat pairs feed
+pairs. Seven local blink/non-blink AB ratios classify Phantom even if absolute
+speed drifts between pairs, seven flat pairs feed
 Normal/Oni speed math, and seven pairs whose two values are unequal classify
 Dullahan; direction and difference size do not matter. A complete
 non-Dullahan window rules Dullahan out immediately instead of waiting for the hunt

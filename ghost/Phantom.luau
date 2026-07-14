@@ -51,6 +51,6 @@ return {
 	Evidence = {"EMFLevel5", "GhostOrb", "Handprints"},
 	ObservationEvents = {"BlinkSpeedPattern", "PhantomPattern", "FlatHuntSpeed"},
 	PersistentFindings = true,
-	Perks = { ["Pretty Sure"] = {"Seven settled pairs repeat a Transparency 1 versus Transparency 0 speed ratio of about 13.5/11 within one hunt."}, Maybe = {"Fewer than seven settled pairs are provisional."}, Idk = {"Ignore the first replication-edge sample after a blink change."} },
+	Perks = { ["Pretty Sure"] = {"Each of seven local blink/non-blink AB pairs has a Transparency 1 versus Transparency 0 speed ratio of about 13.5/11; absolute drift between pairs is allowed."}, Maybe = {"Fewer than seven settled AB pairs are provisional."}, Idk = {"Pair by blink state after the replication edge instead of grouping all visible and invisible samples globally."} },
 	CreateObserver = createObserver,
 }

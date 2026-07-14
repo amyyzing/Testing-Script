@@ -52,14 +52,19 @@ local coordinator = Coordinator.new({
 })
 coordinator:Start({Clock = function() return now end, Schedule = schedule})
 
-local function visibilityWindow(speeds, mapFactor)
+local function visibilityWindow(speeds, mapFactor, initialInvisible)
+	initialInvisible = initialInvisible == true
 	coordinator:Emit({
 		Type = Events.Types.HuntStarted,
 		HuntId = 1,
 		Hunting = true,
-		Payload = {Transparency = 0, AverageSanity = 50, MapFactor = mapFactor},
+		Payload = {
+			Transparency = initialInvisible and 1 or 0,
+			AverageSanity = 50,
+			MapFactor = mapFactor,
+		},
 	})
-	local invisible = true
+	local invisible = not initialInvisible
 	for _, speed in ipairs(speeds) do
 		coordinator:Emit({
 			Type = Events.Types.TransparencyChanged,
@@ -94,6 +99,29 @@ for _, invisible in ipairs({true, false, true, false}) do
 end
 expect(findEvent(coordinator, Events.Types.DullahanPattern) == nil, "repeated Phantom x/y cycles must not accumulate into a false Dullahan step pattern")
 expect(coordinator:Resolve({"Dullahan"}).Dullahan.RuledOut == true, "a complete repeating Phantom window should rule Dullahan out immediately")
+
+coordinator:Reset()
+now = 0
+table.clear(jobs)
+local driftingPhantomSpeeds = {}
+for _, scale in ipairs({1, 0.97, 1.03, 0.96, 1.04, 0.98, 1.02}) do
+	-- Start visible in each BA-ordered cycle to verify that phase order does not
+	-- matter. Absolute speeds drift, but each local B:A ratio stays Phantom.
+	table.insert(driftingPhantomSpeeds, 11 * scale)
+	table.insert(driftingPhantomSpeeds, 13.5 * scale)
+end
+visibilityWindow(driftingPhantomSpeeds, 1, true)
+local pairedPhantom = findEvent(coordinator, Events.Types.PhantomPattern)
+expect(pairedPhantom and pairedPhantom.MatchedPairCount == 7,
+	"seven local blink/non-blink AB ratios should identify Phantom despite absolute drift")
+expect(pairedPhantom.Pairs[1].FirstInvisible == false,
+	"Phantom pair math must work when the visible state arrives first")
+for _, pairRatio in ipairs(pairedPhantom.PairRatios) do
+	expect(math.abs(pairRatio - 13.5 / 11) < 0.001,
+		"each Phantom decision must preserve its local AB ratio")
+end
+expect(findEvent(coordinator, Events.Types.DullahanPattern) == nil,
+	"pairwise Phantom ratios must take priority over unequal Dullahan pairs")
 
 coordinator:Reset()
 now = 0
