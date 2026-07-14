@@ -149,6 +149,7 @@ local ghostProxyAddedConnection
 local ghostProxyRemovingConnection
 local observeWalkSpeedChange = function() end
 local analyzePhantom = function() end
+local SALT_PLACEMENT_GRACE = 4
 local perkTrackerState = {
 	ghost = nil,
 	fixedGhostModel = nil,
@@ -5340,7 +5341,9 @@ perkTrackerState.bindSaltLine = function(model, emitDisturbance)
 	perkTrackerState.saltTrackedLines[model] = true
 	perkTrackerState.saltLineStates[model] = {
 		Armed = emitDisturbance ~= true,
-		ReadyAt = emitDisturbance == true and os.clock() + 2 or -math.huge,
+		ReadyAt = emitDisturbance == true
+			and os.clock() + SALT_PLACEMENT_GRACE
+			or -math.huge,
 		WaitingForClear = false,
 	}
 	local function bindTouchPart(part)

@@ -38,11 +38,13 @@ for the `Workspace.Ghost` model. When it exists, the normal in-round GUI loads.
 When it does not exist, only the lobby settings GUI loads. Starting applies the
 selected Job Site only when it differs from the live location frame carrying the
 `Selected` attribute, preventing `ChangeJobSite` from toggling an already-selected
-site back off. It reads the live difficulty label and cycles the server through
-`ChangeDifficulty` until Easy/Medium/Hard/Nightmare/Custom matches. When Custom
-is selected, it waits for the saved preset list to populate, applies the named
-preset once, and waits for `UpdateAllCustomDifficultySettings` to confirm it
-before continuing. Difficulty preset names come from
+site back off. It reads the live difficulty label, chooses the shortest Plus or
+Minus route, and requires the real server `UpdateDifficulty` response after each
+`ChangeDifficulty` step until Easy/Medium/Hard/Nightmare/Custom matches. Once the
+server state is confirmed, it synchronizes the client difficulty page. When
+Custom is selected, it waits for the saved preset list to populate, applies the
+named preset once, and requires a populated `UpdateAllCustomDifficultySettings`
+payload before continuing. Difficulty preset names come from
 `ComputerScreen.JobSite.DifficultySettings.PresetList`; equipment preset names
 come from `ComputerScreen.Equipment.PartyLog.PresetList`. Both lists include only
 Frame entries containing a `Delete` descendant. The selected equipment preset
@@ -95,6 +97,9 @@ to place the salt preview on the door's XZ centre. Salt continues across unique
 doors until `Uses` reaches zero; Holy Oil dispatches up to three times at distinct
 doors. Both placement previews must remain within two studs of the player, touch
 valid room bounds, and pass floor and clearance checks before the remote is fired.
+Each newly spawned salt pile is quarantined for four seconds. Disturbance is still
+observed during that window, but an initial overlap cannot become Wraith or Aswang
+contact evidence unless the ghost clears the mature pile and touches it again.
 
 Turning `Do Round` off immediately releases any door-facing render lock and
 restores a live character's unanchored, rotating humanoid state. Cancellation-aware

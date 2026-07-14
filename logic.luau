@@ -384,6 +384,19 @@ local LOBBY_MACRO_DELAY = 0.75
 local LOBBY_DATA_LOAD_GRACE = 4
 local LOBBY_PRESET_LOAD_TIMEOUT = 10
 local LOBBY_STATE_UPDATE_TIMEOUT = 4
+local LOBBY_DIFFICULTIES = {"Easy", "Medium", "Hard", "Nightmare", "Custom"}
+
+local function difficultyStepDirection(currentDifficulty, selectedDifficulty)
+	local currentIndex = table.find(LOBBY_DIFFICULTIES, currentDifficulty)
+	local selectedIndex = table.find(LOBBY_DIFFICULTIES, selectedDifficulty)
+	if not currentIndex or not selectedIndex then
+		return "Plus"
+	end
+	local count = #LOBBY_DIFFICULTIES
+	local plusSteps = (selectedIndex - currentIndex) % count
+	local minusSteps = (currentIndex - selectedIndex) % count
+	return plusSteps <= minusSteps and "Plus" or "Minus"
+end
 
 local function waitForLobbyDataLoad(cancellationReason)
 	-- game:IsLoaded() only confirms that the place replicated. The game's
@@ -413,6 +426,7 @@ local function runLobbyStartMacro(
 	equipmentPresetExists,
 	readSelectedJobSite,
 	readSelectedDifficulty,
+	customDifficultyMatches,
 	readChallengeStates,
 	readyRevision,
 	autoRevision
@@ -630,6 +644,7 @@ local function runLobbyStartMacro(
 	local changeDifficulty = currentDifficulty ~= selectedDifficulty
 		and requireRemote("ChangeDifficulty")
 		or nil
+	local updateDifficulty = requireRemote("UpdateDifficulty")
 	local applyDifficultyPreset = selectedDifficulty == "Custom"
 		and requireRemote("ApplyDifficultyPreset")
 		or nil
@@ -658,42 +673,77 @@ local function runLobbyStartMacro(
 	end
 
 	if changeDifficulty then
+		local difficultyReport = currentDifficulty
+		local difficultyReportRevision = 0
+		local difficultyReportConnection = updateDifficulty.OnClientEvent:Connect(function(value)
+			value = tostring(value or "")
+			if table.find(LOBBY_DIFFICULTIES, value) then
+				difficultyReport = value
+				difficultyReportRevision = difficultyReportRevision + 1
+			end
+		end)
+		local function stopDifficultyReport()
+			if difficultyReportConnection.Connected then
+				difficultyReportConnection:Disconnect()
+			end
+		end
 		local difficultyAttempts = 0
 		while currentDifficulty ~= selectedDifficulty
-			and difficultyAttempts < 6 do
+			and difficultyAttempts < #LOBBY_DIFFICULTIES + 1 do
 			difficultyAttempts = difficultyAttempts + 1
 			continued, cancelReason = waitForDispatch()
-			if not continued then return false, cancelReason end
-			local previousDifficulty = currentDifficulty
-			changeDifficulty:FireServer("Plus")
+			if not continued then
+				stopDifficultyReport()
+				return false, cancelReason
+			end
+			local previousRevision = difficultyReportRevision
+			changeDifficulty:FireServer(difficultyStepDirection(
+				currentDifficulty,
+				selectedDifficulty
+			))
 			local updateDeadline = os.clock() + LOBBY_STATE_UPDATE_TIMEOUT
-			repeat
-				local reportedDifficulty, reported = readSelectedDifficulty()
-				if reported and reportedDifficulty ~= previousDifficulty then
-					currentDifficulty = reportedDifficulty
-					break
-				end
+			while difficultyReportRevision == previousRevision
+				and os.clock() < updateDeadline do
 				local reason = cancellationReason()
 				if reason then
+					stopDifficultyReport()
 					return false, reason
 				end
 				assertCurrent()
 				task.wait(0.05)
-			until os.clock() >= updateDeadline
-			if currentDifficulty == previousDifficulty then
-				return false, "ChangeDifficulty did not produce a server difficulty update."
 			end
+			if difficultyReportRevision == previousRevision then
+				stopDifficultyReport()
+				return false, "ChangeDifficulty did not produce an UpdateDifficulty server response."
+			end
+			currentDifficulty = difficultyReport
 		end
+		stopDifficultyReport()
 		if currentDifficulty ~= selectedDifficulty then
 			return false, "Could not cycle the server difficulty to " .. selectedDifficulty .. "."
 		end
 	end
+	local confirmedDifficulty, confirmedDifficultyReady = readSelectedDifficulty()
+	if not confirmedDifficultyReady or confirmedDifficulty ~= selectedDifficulty then
+		return false, "The live difficulty page did not confirm " .. selectedDifficulty .. "."
+	end
+	local fireSignal = environment.firesignal or firesignal
+	if type(fireSignal) ~= "function" then
+		return false, "This executor does not provide firesignal to synchronize the difficulty page."
+	end
+	fireSignal(updateDifficulty.OnClientEvent, selectedDifficulty)
 
 	if applyDifficultyPreset then
 		local presetConfirmed = false
 		local presetDispatched = false
-		local presetConfirmation = updateAllCustomDifficultySettings.OnClientEvent:Connect(function()
-			if presetDispatched then
+		local presetSettings
+		local presetMultiplier
+		local presetConfirmation = updateAllCustomDifficultySettings.OnClientEvent:Connect(function(settingsPayload, multiplier)
+			if presetDispatched
+				and type(settingsPayload) == "table"
+				and next(settingsPayload) ~= nil then
+				presetSettings = settingsPayload
+				presetMultiplier = multiplier
 				presetConfirmed = true
 			end
 		end)
@@ -716,7 +766,33 @@ local function runLobbyStartMacro(
 		end
 		presetConfirmation:Disconnect()
 		if not presetConfirmed then
-			return false, "ApplyDifficultyPreset was not confirmed by UpdateAllCustomDifficultySettings."
+			return false, "ApplyDifficultyPreset did not return a populated custom-settings payload."
+		end
+		session.LastCustomDifficultyPreset = selectedCustomPreset
+		session.LastCustomDifficultySettings = presetSettings
+		session.LastCustomDifficultyMultiplier = presetMultiplier
+		local settingsMatch = false
+		local settingsMatchDeadline = os.clock() + LOBBY_STATE_UPDATE_TIMEOUT
+		repeat
+			settingsMatch = type(customDifficultyMatches) == "function"
+				and customDifficultyMatches(presetSettings)
+				or false
+			if settingsMatch then
+				break
+			end
+			local reason = cancellationReason()
+			if reason then
+				return false, reason
+			end
+			assertCurrent()
+			task.wait(0.05)
+		until os.clock() >= settingsMatchDeadline
+		if not settingsMatch then
+			return false, "The preset payload did not populate the Custom difficulty setting indexes."
+		end
+		local presetDifficulty, presetDifficultyReady = readSelectedDifficulty()
+		if not presetDifficultyReady or presetDifficulty ~= "Custom" then
+			return false, "The preset payload loaded, but the difficulty page did not remain on Custom."
 		end
 	end
 
@@ -1000,6 +1076,9 @@ if not shouldLoadRoundGui then
 	local function readSelectedDifficulty()
 		return LobbySettings.ReadSelectedDifficulty(player)
 	end
+	local function customDifficultyMatches(settingsPayload)
+		return LobbySettings.CustomDifficultyMatches(player, settingsPayload)
+	end
 	local function readChallengeStates()
 		return LobbySettings.ReadChallengeStates(player)
 	end
@@ -1029,6 +1108,7 @@ if not shouldLoadRoundGui then
 					equipmentPresetExists,
 					readSelectedJobSite,
 					readSelectedDifficulty,
+					customDifficultyMatches,
 					readChallengeStates,
 					startReadyRevision,
 					startAutoRevision

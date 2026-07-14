@@ -164,6 +164,34 @@ function LobbySettings.ReadSelectedDifficulty(player)
 	return nil, false
 end
 
+function LobbySettings.CustomDifficultyMatches(player, settingsPayload)
+	if type(settingsPayload) ~= "table" or next(settingsPayload) == nil then
+		return false
+	end
+	local playerGui = player and player:FindFirstChild("PlayerGui")
+	local settingsList = findPath(playerGui, {
+		"ComputerScreen",
+		"JobSite",
+		"DifficultySettings",
+		"Content",
+		"SettingsList",
+	})
+	if not settingsList then
+		return false
+	end
+	local compared = 0
+	for settingId, expectedIndex in pairs(settingsPayload) do
+		local settingFrame = settingsList:FindFirstChild(tostring(settingId))
+		if settingFrame and settingFrame:IsA("Frame") then
+			compared = compared + 1
+			if settingFrame:GetAttribute("Index") ~= expectedIndex then
+				return false
+			end
+		end
+	end
+	return compared > 0
+end
+
 function LobbySettings.ReadChallengeStates(player)
 	local playerGui = player and player:FindFirstChild("PlayerGui")
 	local challengeList = findPath(playerGui, {

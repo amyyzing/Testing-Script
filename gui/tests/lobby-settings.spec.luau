@@ -111,6 +111,10 @@ local locations = node("Locations", "Frame", {
 })
 local difficultyLabel = node("DifficultyLabel", "TextLabel")
 difficultyLabel.Text = "Difficulty - Custom"
+local customSettingsList = node("SettingsList", "Frame", {
+	node("GhostWalkSpeedMultiplier", "Frame", {}, {Index = 6}),
+	node("EvidenceGiven", "Frame", {}, {Index = 4}),
+})
 local player = node("Player", "Player", {
 	node("PlayerGui", "PlayerGui", {
 		node("ComputerScreen", "ScreenGui", {
@@ -119,7 +123,10 @@ local player = node("Player", "Player", {
 					node("MapContainer", "Frame", {locations}),
 					node("BottomBar", "Frame", {difficultyLabel}),
 				}),
-				node("DifficultySettings", "Frame", {presetList}),
+				node("DifficultySettings", "Frame", {
+					presetList,
+					node("Content", "Frame", {customSettingsList}),
+				}),
 				node("Challenges", "Frame", {
 					node("Content", "Frame", {challengeList}),
 				}),
@@ -151,6 +158,14 @@ difficultyLabel.Text = "Loading..."
 local missingDifficulty, missingDifficultyReady = LobbySettings.ReadSelectedDifficulty(player)
 expect(missingDifficulty == nil and missingDifficultyReady == false, "uninitialized difficulty label should not report ready")
 difficultyLabel.Text = "Difficulty - Custom"
+
+expect(LobbySettings.CustomDifficultyMatches(player, {
+	GhostWalkSpeedMultiplier = 6,
+	EvidenceGiven = 4,
+}), "matching custom setting indexes should confirm the applied preset")
+expect(not LobbySettings.CustomDifficultyMatches(player, {
+	GhostWalkSpeedMultiplier = 5,
+}), "a mismatched custom setting index must reject preset confirmation")
 
 local challengeStates = LobbySettings.ReadChallengeStates(player)
 expect(challengeStates[1] == true, "Challenge1 ON label should read true")
