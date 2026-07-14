@@ -3480,6 +3480,14 @@ local function startGhostCoordinator(ghost)
 			ReadTransparency = function()
 				return getGhostTransparencyState(ghost)
 			end,
+			ReadCurrentRoom = function()
+				return ghost:GetAttribute("CurrentRoom")
+			end,
+			ReadRoomTemperature = function(roomName)
+				local roomsFolder = findRoomsFolder()
+				local room = findFavouriteRoom(roomsFolder, roomName)
+				return room and room:GetAttribute("Temperature") or nil
+			end,
 		},
 	})
 	ghostCoordinator = created

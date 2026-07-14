@@ -146,7 +146,7 @@ coordinator and its Roblox signal connections, clears the ledger, and constructs
 fresh coordinator; there is no `GhostGeneration` polling tracker.
 
 - Active trackers translate hunt-state and explicit game signals into normalized events.
-- Dormant trackers wake for settled hunt transitions, transparency changes, salt contact, or qualified player deaths. Speed is captured as event-driven visible/invisible pairs and targeted probes, not a continuous 0.1-second stream.
+- Dormant trackers wake for settled hunt transitions, transparency changes, salt contact, qualified player deaths, or the shared quarter-second tick. Speed is captured as event-driven visible/invisible pairs and targeted probes, not a continuous 0.1-second stream. The room-temperature tracker uses that existing tick to collect about 20 readings only after the ghost remains in the same `CurrentRoom` for five seconds; increases and temperatures from other rooms are ignored, while any one-step decrease of at least 0.20°C rules Shadow out at 99%.
 - Discardable trackers read immutable model facts once, emit qualified observations such as model gender, LIDAR state, and the immediate Umbra root-sound check, then stop. Model gender is the only gender observation; Spirit Box voice folders do not add a duplicate male/female score.
 
 Shared analyzers classify Phantom/Dullahan pair patterns and normalize hunting

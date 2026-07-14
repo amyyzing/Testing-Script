@@ -242,7 +242,35 @@ do
 	expect(last(api, "Positive") == nil and last(api, "RuleOut") == nil, "Wisp oil outside a hunt must be ignored")
 end
 
-for _, name in ipairs({"Dybbuk", "Nightmare", "Shadow", "Vesper"}) do
+do
+	local api = newApi()
+	local observer = byName.Shadow.CreateObserver(api)
+	observer:OnEvent({
+		Type = "RoomTemperatureWindow",
+		Qualified = true,
+		SameRoom = true,
+		RoomName = "Library",
+		ResidenceSeconds = 5,
+		SampleCount = 20,
+		MaxDecreaseStep = 0.19,
+		NormalDropObserved = false,
+	})
+	expect(last(api, "RuleOut") == nil, "a slow qualified room window must not prove or rule out Shadow")
+	observer:OnEvent({
+		Type = "RoomTemperatureWindow",
+		Qualified = true,
+		SameRoom = true,
+		RoomName = "Library",
+		ResidenceSeconds = 5.25,
+		SampleCount = 20,
+		MaxDecreaseStep = 0.2,
+		NormalDropObserved = true,
+	})
+	local ruledOut = last(api, "RuleOut")
+	expect(ruledOut ~= nil and ruledOut.Confidence == 99, "a 0.20-degree same-room step must rule Shadow out at 99%")
+end
+
+for _, name in ipairs({"Dybbuk", "Nightmare", "Vesper"}) do
 	local api = newApi()
 	local observer = byName[name].CreateObserver(api)
 	expect(observer:OnEvent({Type = "UnknownBehavior"}) == false, name .. " should remain evidence-only")

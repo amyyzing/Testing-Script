@@ -21,6 +21,7 @@ Events.Types = {
 	HuntContinuedAfterDeath = "HuntContinuedAfterDeath",
 	SaltContact = "SaltContact",
 	SaltDisturbed = "SaltDisturbed",
+	RoomTemperatureWindow = "RoomTemperatureWindow",
 	WalkSpeedChanged = "WalkSpeedChanged",
 	Tick = "Tick",
 }

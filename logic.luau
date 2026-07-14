@@ -172,6 +172,7 @@ local GHOST_PACKAGE_PATHS = {
 	"ghost/trackers/active/signal-bridge.luau",
 	"ghost/trackers/dormant/speed-pairs.luau",
 	"ghost/trackers/dormant/speed-probe.luau",
+	"ghost/trackers/dormant/room-temperature.luau",
 	"ghost/trackers/dormant/observation-window.luau",
 	"ghost/trackers/discardable/static-ghost-facts.luau",
 	"ghost/trackers/discardable/qualified-one-shot.luau",

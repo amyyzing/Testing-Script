@@ -305,7 +305,8 @@ local Profiles = {
 		note("Frequent hunts alone overlap with Demon behavior and difficulty settings.", SOURCE.Revenant, "wiki-documented", false, "Caveat"),
 	})),
 	profile("Shadow", {"EMFLevel5", "GhostWriting", "LaserProjector"}, "wiki-documented", perks({}, {
-		note("A confirmed ghost room changes temperature only by small decimal steps and stays unusually warm.", SOURCE.Shadow, "wiki-documented", false, "Trait"),
+		note("After the ghost remains in the same current room for five seconds, about 20 room-temperature samples showing any one-step drop of at least 0.20°C rule Shadow out at 99%; increases are ignored.", SOURCE.Shadow, "user-observed", false, "RuleOut"),
+		note("A slow temperature window alone is not enough to identify Shadow.", SOURCE.Shadow, "user-observed", false, "Caveat"),
 		note("A controlled light-on versus light-off comparison shows reduced activity in the lit room.", SOURCE.Shadow, "wiki-documented", false, "Weakness"),
 	}, {
 		note("A quiet ghost or a room that is difficult to locate is only absence-based evidence.", SOURCE.Shadow, "wiki-documented", false, "Caveat"),
