@@ -28,17 +28,20 @@ local function windowStats(samples)
 	local minimum = nil
 	local maximum = nil
 	local ignoredIncreases = 0
+	local ignoredUnchanged = 0
 	for index = 2, #samples do
 		local decrease = samples[index - 1].Temperature - samples[index].Temperature
-		-- A non-negative value is a cooling change. Increases do not subtract
-		-- from the cooling average and cannot manufacture a Shadow result.
-		if decrease >= 0 then
+		-- Only strict cooling changes belong in the average. Increasing and
+		-- unchanged pairs are recorded separately and excluded from its divisor.
+		if decrease > 0 then
 			sum = sum + decrease
 			count = count + 1
 			minimum = minimum and math.min(minimum, decrease) or decrease
 			maximum = maximum and math.max(maximum, decrease) or decrease
-		else
+		elseif decrease < 0 then
 			ignoredIncreases = ignoredIncreases + 1
+		else
+			ignoredUnchanged = ignoredUnchanged + 1
 		end
 	end
 	return {
@@ -48,6 +51,7 @@ local function windowStats(samples)
 		DecreaseSum = sum,
 		DecreaseCount = count,
 		IgnoredIncreaseCount = ignoredIncreases,
+		IgnoredUnchangedCount = ignoredUnchanged,
 		ChangeCount = math.max(0, #samples - 1),
 	}
 end
@@ -61,7 +65,7 @@ function RoomTemperature.new(options)
 		SampleInterval = tonumber(options.SampleInterval) or 0.25,
 		ResidenceSeconds = tonumber(options.ResidenceSeconds) or 5,
 		RequiredSamples = math.max(2, math.floor(tonumber(options.RequiredSamples) or 20)),
-		ShadowAverageThreshold = tonumber(options.ShadowAverageThreshold) or 0.06,
+		ShadowAverageThreshold = tonumber(options.ShadowAverageThreshold) or 0.05,
 		RuleOutAverageThreshold = tonumber(options.RuleOutAverageThreshold) or 0.06,
 		MinimumRuleOutDecrease = tonumber(options.MinimumRuleOutDecrease) or 0.05,
 		_context = nil,
@@ -171,6 +175,7 @@ function RoomTemperature:_emitWindow(now)
 			DecreaseCount = stats.DecreaseCount,
 			ChangeCount = stats.ChangeCount,
 			IgnoredIncreaseCount = stats.IgnoredIncreaseCount,
+			IgnoredUnchangedCount = stats.IgnoredUnchangedCount,
 			ShadowAverageThreshold = self.ShadowAverageThreshold,
 			RuleOutAverageThreshold = self.RuleOutAverageThreshold,
 			MinimumRuleOutDecrease = self.MinimumRuleOutDecrease,
@@ -178,6 +183,7 @@ function RoomTemperature:_emitWindow(now)
 			RuleOutPatternObserved = ruleOutObserved,
 			NoDecreaseBelowMinimum = noSmallDecrease,
 			IncreasesIgnored = true,
+			UnchangedIgnored = true,
 			Unrounded = true,
 			Window = self._windowCount,
 		},

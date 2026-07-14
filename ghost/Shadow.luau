@@ -31,7 +31,7 @@ local function createObserver(api)
 			or state.LastSampleCount < 20
 			or not state.LastAverageDecrease then return true end
 
-		local shadowThreshold = tonumber(read(event, "ShadowAverageThreshold")) or 0.06
+		local shadowThreshold = tonumber(read(event, "ShadowAverageThreshold")) or 0.05
 		local ruleOutThreshold = tonumber(read(event, "RuleOutAverageThreshold")) or 0.06
 		local minimumRuleOutDecrease = tonumber(read(event, "MinimumRuleOutDecrease")) or 0.05
 		local shadowObserved = read(event, "ShadowPatternObserved") == true
@@ -111,12 +111,12 @@ return {
 	ObservationEvents = {"RoomTemperatureWindow"},
 	Perks = {
 		["Pretty Sure"] = {
-			"After 20 samples in the ghost's current room, an exact average cooling change below 0.06°C per sample identifies Shadow at 99%.",
+			"After 20 samples in the ghost's current room, an exact strict-decrease average below 0.05°C identifies Shadow at 99%.",
 		},
 		Maybe = {},
 		Idk = {
-			"An exact average above 0.06°C rules Shadow out only when no cooling sample in the set is below 0.05°C; exactly 0.06°C is inconclusive.",
-			"Temperature increases are excluded from the cooling average; samples from any room the ghost is not currently in are discarded.",
+			"An exact strict-decrease average above 0.06°C rules Shadow out only when no cooling sample in the set is below 0.05°C; averages from 0.05°C through 0.06°C are inconclusive.",
+			"Temperature increases and unchanged pairs are excluded from the cooling average; samples from any room the ghost is not currently in are discarded.",
 		},
 	},
 	CreateObserver = createObserver,

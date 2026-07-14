@@ -256,14 +256,14 @@ do
 		RoomName = "Library",
 		ResidenceSeconds = 5,
 		SampleCount = 20,
-		AverageDecrease = 0.059999,
-		MinimumDecrease = 0.059999,
-		ShadowAverageThreshold = 0.06,
+		AverageDecrease = 0.049999,
+		MinimumDecrease = 0.049999,
+		ShadowAverageThreshold = 0.05,
 		ShadowPatternObserved = true,
 	})
 	local matched = last(api, "Positive")
 	expect(matched ~= nil and matched.Confidence == 99,
-		"an exact sub-0.06 same-room average must identify Shadow at 99%")
+		"an exact sub-0.05 same-room average must identify Shadow at 99%")
 end
 
 do
@@ -278,7 +278,7 @@ do
 		SampleCount = 20,
 		AverageDecrease = 0.06,
 		MinimumDecrease = 0.06,
-		ShadowAverageThreshold = 0.06,
+		ShadowAverageThreshold = 0.05,
 		RuleOutAverageThreshold = 0.06,
 		MinimumRuleOutDecrease = 0.05,
 	})
@@ -289,11 +289,26 @@ do
 		Qualified = true,
 		SameRoom = true,
 		RoomName = "Library",
+		ResidenceSeconds = 5.1,
+		SampleCount = 20,
+		AverageDecrease = (0.072 + 0.054 + 0.053) / 3,
+		MinimumDecrease = 0.053,
+		ShadowAverageThreshold = 0.05,
+		RuleOutAverageThreshold = 0.06,
+		MinimumRuleOutDecrease = 0.05,
+	})
+	expect(last(api, "Positive") == nil and last(api, "RuleOut") == nil,
+		"the reproduced 0.059666 middle-band average must remain inconclusive")
+	observer:OnEvent({
+		Type = "RoomTemperatureWindow",
+		Qualified = true,
+		SameRoom = true,
+		RoomName = "Library",
 		ResidenceSeconds = 5.25,
 		SampleCount = 20,
 		AverageDecrease = 0.060001,
 		MinimumDecrease = 0.05,
-		ShadowAverageThreshold = 0.06,
+		ShadowAverageThreshold = 0.05,
 		RuleOutAverageThreshold = 0.06,
 		MinimumRuleOutDecrease = 0.05,
 		NoDecreaseBelowMinimum = true,
@@ -317,7 +332,7 @@ do
 		SampleCount = 20,
 		AverageDecrease = 0.07,
 		MinimumDecrease = 0.049999,
-		ShadowAverageThreshold = 0.06,
+		ShadowAverageThreshold = 0.05,
 		RuleOutAverageThreshold = 0.06,
 		MinimumRuleOutDecrease = 0.05,
 		NoDecreaseBelowMinimum = false,
