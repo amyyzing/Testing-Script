@@ -20,6 +20,10 @@ remote have stayed replicated for one second. A lobby return fires
 
 The script requires an environment that provides `game:HttpGet` and `loadstring`. Some optional features also capability-check executor APIs such as `gethui`, `firesignal`, `getconnections`, and `fireproximityprompt`. It is not a normal Roblox Studio `LocalScript`.
 
+The bootstrap installs one session-scoped `LocalPlayer.Idled` hook that uses
+`VirtualUser` to prevent the normal idle disconnect. Re-executing or destroying
+the session disconnects the old hook before a replacement is installed.
+
 Remote code is fetched at run time. Review the repository before executing it, and follow the game/platform rules that apply to your account.
 
 Before fetching GUI modules, the bootstrap performs a discardable one-shot check
@@ -27,7 +31,7 @@ for the `Workspace.Ghost` model. When it exists, the normal in-round GUI loads.
 When it does not exist, the GUI is skipped and the loader changes the job site to
 School, applies the Minus difficulty change, applies the `john4` difficulty preset
 once, applies the green equipment preset, and changes the player status before
-attempting to start the round. Every macro dispatch has its own 0.5-second safety
+attempting to start the round. Every macro dispatch has its own 0.75-second safety
 delay.
 
 ## Layout
@@ -109,7 +113,7 @@ fresh coordinator; there is no `GhostGeneration` polling tracker.
 
 - Active trackers translate hunt-state and explicit game signals into normalized events.
 - Dormant trackers wake for settled hunt transitions, transparency changes, salt contact, or qualified player deaths. Speed is captured as event-driven visible/invisible pairs and targeted probes, not a continuous 0.1-second stream.
-- Discardable trackers read immutable model facts once, emit qualified observations such as model sex, LIDAR state, and the immediate Umbra root-sound check, then stop.
+- Discardable trackers read immutable model facts once, emit qualified observations such as model gender, LIDAR state, and the immediate Umbra root-sound check, then stop. Model gender is the only gender observation; Spirit Box voice folders do not add a duplicate male/female score.
 
 Shared analyzers classify Phantom/Dullahan pair patterns and normalize hunting
 speed using the Small/Medium/Large map factors. Per-ghost files own conclusions and

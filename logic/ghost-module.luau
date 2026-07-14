@@ -259,7 +259,7 @@ local Profiles = {
 	}, {
 		note("It appears to prioritize the party member with the least energy.", SOURCE.Keres, "wiki-documented", false, "Trait"),
 	}, {
-		note("A feminine model or Spirit Box voice only narrows the ghost to Keres or Siren.", SOURCE.Keres, "wiki-documented", false, "Model"),
+		note("A feminine VisualModel only narrows the ghost to Keres or Siren.", SOURCE.Keres, "wiki-documented", false, "Model"),
 	})),
 	profile("Leviathan", {"GhostOrb", "GhostWriting", "Handprints"}, "wiki-stub", perks({
 		note("Both nearby-equipment flicker and actual light-switch shutoff outside hunts were observed.", SOURCE.Leviathan, "wiki-stub", true, "Ability", "The current wiki recommends observing both because Skinwalker may copy one."),
@@ -316,14 +316,15 @@ local Profiles = {
 	}, {
 		note("The Spirit Box returns - HUMMING -, which can also be a mimicking Skinwalker.", SOURCE.Siren, "wiki-documented", true, "Ability"),
 	}, {
-		note("A feminine Spirit Box response only narrows the ghost to Siren or Keres.", SOURCE.Siren, "wiki-documented", false, "Trait"),
 		note("A feminine model only narrows the ghost to Siren or Keres.", SOURCE.Siren, "wiki-documented", false, "Model"),
+		note("Spirit Box humming paired with a male VisualModel rules Siren out and identifies a mimicking Skinwalker.", SOURCE.Siren, "wiki-documented", false, "Caveat"),
 	})),
 	profile("Skinwalker", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "wiki-disputed", perks({
 		note("Four evidence observations resolve to its three real evidences plus a fake Ghost Orb.", SOURCE.Skinwalker, "wiki-disputed", false, "Trait"),
 		note("A confirmed Ghost Orb completes at least three evidence observations that no normal ghost's real three-evidence set can contain.", SOURCE.Skinwalker, "wiki-disputed", false, "Trait"),
 		note("A Ghost Orb appears in a custom run with all real evidence disabled.", SOURCE.Skinwalker, "wiki-disputed", false, "Trait"),
 		note("It copies Wisp fire-walking but crosses Holy Oil without catching fire.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),
+		note("Spirit Box humming paired with a male VisualModel identifies it mimicking Siren.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),
 		note("Multiple mutually inconsistent ghost abilities are observed in one job.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),
 	}, {
 		note("A single ability looks copied, or an Orb is present with fewer than three total evidence observations.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),

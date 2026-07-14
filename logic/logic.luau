@@ -9687,18 +9687,7 @@ local function rebuildSpiritBoxVoiceIndex()
 		end
 		local key = normalizeSpiritBoxSubtitle(subtitle)
 		if key ~= "" then
-			local voiceInfo = state.spiritBoxVoiceSubtitles[key]
-			if not voiceInfo then
-				voiceInfo = {
-					Female = false,
-				}
-				state.spiritBoxVoiceSubtitles[key] = voiceInfo
-			end
-			local parent = object.Parent
-			local grandparent = parent and parent.Parent
-			if grandparent and grandparent.Name == "Female" then
-				voiceInfo.Female = true
-			end
+			state.spiritBoxVoiceSubtitles[key] = true
 		end
 	end
 	addVoice(voices)
@@ -9709,7 +9698,7 @@ end
 local function updateSpiritBoxLabel()
 	perkTrackerState.updateEvidenceStatuses()
 end
-local function processSpiritBoxRemoteSubtitle(firstArgument, priority, muted, voiceCategory)
+local function processSpiritBoxRemoteSubtitle(firstArgument)
 	if closed or type(firstArgument) ~= "string" then
 		return
 	end
@@ -9718,8 +9707,7 @@ local function processSpiritBoxRemoteSubtitle(firstArgument, priority, muted, vo
 		rebuildSpiritBoxVoiceIndex()
 	end
 	local key = normalizeSpiritBoxSubtitle(firstArgument)
-	local voiceInfo = state.spiritBoxVoiceSubtitles[key]
-	if key == "" or not voiceInfo then
+	if key == "" or not state.spiritBoxVoiceSubtitles[key] then
 		return
 	end
 	evidenceFound.SpiritBox = true
@@ -9761,35 +9749,6 @@ local function processSpiritBoxRemoteSubtitle(firstArgument, priority, muted, vo
 				)
 			end
 		end
-	elseif tostring(voiceCategory or "") == "Female" then
-		if ghostCoordinator then
-			emitGhostObservation({
-				Type = "GhostVoiceSex",
-				Qualified = true,
-				Sex = "Female",
-				Subtitle = firstArgument,
-				Source = "SpiritBoxSubtitleCollector",
-			})
-		else
-			recordPerkDetection(
-				"Keres",
-				"ShowSubtitle identified the Spirit Box voice category as Female",
-				35
-			)
-			recordPerkDetection(
-				"Siren",
-				"ShowSubtitle identified the Spirit Box voice category as Female",
-				35
-			)
-
-			for _, ghostName in ipairs({"Keres", "Siren"}) do
-				local detection = perkDetections[ghostName]
-				if detection and detection.Confidence == 35 then
-					detection.Persistent = true
-					detection.ExpiresAt = nil
-				end
-			end
-		end
 	end
 	updateSpiritBoxLabel()
 	updateGhostIdentification(getGhostModel())
@@ -9810,23 +9769,13 @@ local function bindSpiritBoxRemoteListeners()
 	state.spiritBoxRemoteBound = true
 	rebuildSpiritBoxVoiceIndex()
 	if remote and remote:IsA("RemoteEvent") then
-		connect(remote.OnClientEvent, function(firstArgument, priority, muted, voiceCategory)
-			processSpiritBoxRemoteSubtitle(
-				firstArgument,
-				priority,
-				muted,
-				voiceCategory
-			)
+		connect(remote.OnClientEvent, function(firstArgument)
+			processSpiritBoxRemoteSubtitle(firstArgument)
 		end)
 	end
 	if localEvent and localEvent:IsA("BindableEvent") then
-		connect(localEvent.Event, function(firstArgument, priority, muted, voiceCategory)
-			processSpiritBoxRemoteSubtitle(
-				firstArgument,
-				priority,
-				muted,
-				voiceCategory
-			)
+		connect(localEvent.Event, function(firstArgument)
+			processSpiritBoxRemoteSubtitle(firstArgument)
 		end)
 	end
 	local voices = state.spiritBoxVoiceFolder

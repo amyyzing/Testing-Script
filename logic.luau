@@ -139,6 +139,9 @@ function session:Destroy(keepLoader)
 	if self.TeleportConnection and self.TeleportConnection.Connected then
 		self.TeleportConnection:Disconnect()
 	end
+	if self.IdleConnection and self.IdleConnection.Connected then
+		self.IdleConnection:Disconnect()
+	end
 
 	if ownsSession then
 		environment.DemonologySession = nil
@@ -220,6 +223,26 @@ if teleportConnected then
 	session.TeleportConnection = teleportConnection
 else
 	session.TeleportConnectionFailure = tostring(teleportConnection)
+end
+
+local idleConnected, idleConnection = pcall(function()
+	local virtualUser = game:GetService("VirtualUser")
+	return player.Idled:Connect(function()
+		if not isCurrent() then
+			return
+		end
+		local camera = workspace.CurrentCamera
+		local cameraCFrame = camera and camera.CFrame or CFrame.new()
+		pcall(function()
+			virtualUser:CaptureController()
+			virtualUser:ClickButton2(Vector2.new(0, 0), cameraCFrame)
+		end)
+	end)
+end)
+if idleConnected then
+	session.IdleConnection = idleConnection
+else
+	session.IdleConnectionFailure = tostring(idleConnection)
 end
 
 local LOBBY_MACRO_DELAY = 0.75

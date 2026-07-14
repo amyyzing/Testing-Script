@@ -114,8 +114,32 @@ exercise("Entity", {
 	Type = "GhostTeleportResult", ConfirmedTeleport = true, Completed = true,
 	Qualified = true, FromRoom = "Hall", ToRoom = "Storage",
 }, "Positive")
-exercise("Keres", {Type = "GhostVoiceSex", Qualified = true, Sex = "Female"}, "Positive")
-exercise("Siren", {Type = "GhostVoiceSex", Qualified = true, Sex = "Female"}, "Positive")
+exercise("Keres", {Type = "GhostModelSex", Qualified = true, Sex = "Female"}, "Positive")
+exercise("Siren", {Type = "GhostModelSex", Qualified = true, Sex = "Female"}, "Positive")
+
+do
+	local skinwalkerApi = newApi()
+	local skinwalker = byName.Skinwalker.CreateObserver(skinwalkerApi)
+	skinwalker:OnEvent({Type = "GhostModelSex", Qualified = true, Sex = "Male"})
+	skinwalker:OnEvent({Type = "SpiritBoxResponse", Qualified = true, Response = "- HUMMING -"})
+	local skinwalkerMatch = last(skinwalkerApi, "Positive")
+	expect(skinwalkerMatch ~= nil and skinwalkerMatch.Confidence == 99, "male model plus humming must identify Skinwalker")
+
+	local sirenApi = newApi()
+	local siren = byName.Siren.CreateObserver(sirenApi)
+	siren:OnEvent({Type = "SpiritBoxResponse", Qualified = true, Response = "- HUMMING -"})
+	siren:OnEvent({Type = "GhostModelSex", Qualified = true, Sex = "Male"})
+	local sirenConflict = last(sirenApi, "RuleOut")
+	expect(sirenConflict ~= nil and sirenConflict.Confidence == 99, "humming plus male model must rule Siren out")
+end
+
+do
+	local api = newApi()
+	local observer = byName.Skinwalker.CreateObserver(api)
+	observer:OnEvent({Type = "SpiritBoxResponse", Qualified = true, Response = "- HUMMING -"})
+	observer:OnEvent({Type = "GhostModelSex", Qualified = true, Sex = "Female"})
+	expect(last(api, "Positive") == nil, "humming with a female model must not falsely identify Skinwalker")
+end
 
 do
 	local api = newApi()

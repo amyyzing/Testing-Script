@@ -14,7 +14,7 @@ local function emit(api, method, reason, confidence, event)
 end
 
 local function createObserver(api)
-	local state = {Destroyed = false, LastKillDirection = nil, ModelSex = nil, VoiceSex = nil, KillMatched = false, KillEvidenceId = nil}
+	local state = {Destroyed = false, LastKillDirection = nil, ModelSex = nil, KillMatched = false, KillEvidenceId = nil}
 	local observer = {}
 	local function concludeKill(polarity, reason, confidence, event)
 		local entry
@@ -30,7 +30,7 @@ local function createObserver(api)
 		if state.Destroyed or type(event) ~= "table" then return false end
 		local kind = event.Type or event.Kind
 		if kind ~= "KillSpeedChange" and kind ~= "GhostModelSex"
-			and kind ~= "GhostVoiceSex" and kind ~= "SpeedProbeResult" then return false end
+			and kind ~= "SpeedProbeResult" then return false end
 		emit(api, "Record", nil, nil, event)
 		if kind == "SpeedProbeResult" then
 			local trigger = string.lower(tostring(read(event, "Trigger") or ""))
@@ -51,12 +51,6 @@ local function createObserver(api)
 			elseif delta ~= nil and not state.KillMatched then
 				concludeKill("RuleOut", read(event, "Reason") or "a qualified unique-death probe produced no stable speed decrease", 99, event)
 			end
-		elseif kind == "GhostVoiceSex" then
-			if event.Qualified ~= true then return true end
-			state.VoiceSex = event.Sex
-			if event.Sex == "Female" then
-				emit(api, "Positive", event.Reason or "Spirit Box used a female voice category", 35, event)
-			end
 		elseif kind == "GhostModelSex" then
 			if event.Qualified ~= true then return true end
 			state.ModelSex = event.Sex
@@ -76,8 +70,8 @@ local function createObserver(api)
 		end
 		return true
 	end
-	function observer:Reset() state.LastKillDirection, state.ModelSex, state.VoiceSex, state.KillMatched, state.KillEvidenceId = nil, nil, nil, false, nil end
-	function observer:Snapshot() return {Destroyed = state.Destroyed, LastKillDirection = state.LastKillDirection, ModelSex = state.ModelSex, VoiceSex = state.VoiceSex} end
+	function observer:Reset() state.LastKillDirection, state.ModelSex, state.KillMatched, state.KillEvidenceId = nil, nil, false, nil end
+	function observer:Snapshot() return {Destroyed = state.Destroyed, LastKillDirection = state.LastKillDirection, ModelSex = state.ModelSex} end
 	function observer:Destroy() state.Destroyed = true end
 	return observer
 end
@@ -85,7 +79,7 @@ end
 return {
 	Name = NAME,
 	Evidence = {"Handprints", "SpiritBox", "Wither"},
-	ObservationEvents = {"KillSpeedChange", "GhostModelSex", "GhostVoiceSex", "SpeedProbeResult"},
+	ObservationEvents = {"KillSpeedChange", "GhostModelSex", "SpeedProbeResult"},
 	Perks = { ["Pretty Sure"] = {"Stable speed decreases after a unique player kill."}, Maybe = {"A female VisualModel is weak support."}, Idk = {"Do not probe kill speed when the hunt ended; Revenant owns that result."} },
 	CreateObserver = createObserver,
 }
