@@ -12,6 +12,7 @@ local profiles = {
 	Dullahan = require("../Dullahan"),
 	Oni = require("../Oni"),
 	Wendigo = require("../Wendigo"),
+	Wraith = require("../Wraith"),
 }
 
 local function expect(condition, message)
@@ -145,6 +146,39 @@ for _, scenario in ipairs(scenarios) do
 	expect(persistent.Status == "Supported" and persistent.Conflicted == false, scenario.Name .. " unique positive must survive a later contradictory sample")
 	expect(#scoredEntries(coordinator, scenario.Name) == 2, scenario.Name .. " later noise must not append a contradictory scored decision")
 
+	coordinator:Destroy()
+end
+
+do
+	local coordinator = Coordinator.new({Definitions = {profiles.Wraith}})
+	coordinator:Start({})
+	coordinator:Emit({
+		Type = Events.Types.SaltContact,
+		ContactId = "late-disturbance",
+		DirectContact = true,
+		Time = 10,
+	})
+	coordinator:Emit({Type = Events.Types.Tick, Time = 14.1})
+	expect(
+		coordinator:Resolve({"Wraith"}).Wraith.Status == "Supported",
+		"Wraith should resolve only after the four-second undisturbed grace"
+	)
+	coordinator:Emit({
+		Type = Events.Types.SaltDisturbed,
+		ContactId = "late-disturbance",
+		DirectContact = false,
+		Time = 14.2,
+	})
+	local corrected = coordinator:Resolve({"Wraith"}).Wraith
+	local entries = scoredEntries(coordinator, "Wraith")
+	expect(
+		corrected.RuledOut == true and corrected.Conflicted == false,
+		"a replicated disturbance must supersede an earlier Wraith timeout"
+	)
+	expect(
+		#entries == 2 and entries[2].Supersedes == entries[1].Id,
+		"the Wraith correction must append an explicit supersession"
+	)
 	coordinator:Destroy()
 end
 

@@ -235,8 +235,17 @@ do
 	local api = newApi()
 	local observer = byName.Wraith.CreateObserver(api)
 	observer:OnEvent({Type = "SaltContact", ContactId = "salt-1", DirectContact = true, Time = 10, Hunting = false})
-	observer:OnEvent({Type = "Tick", Time = 11.25})
+	observer:OnEvent({Type = "Tick", Time = 13.9})
+	expect(last(api, "Positive") == nil, "Wraith must wait the full four-second disturbance grace")
+	observer:OnEvent({Type = "Tick", Time = 14.1})
 	expect(last(api, "Positive") ~= nil, "Wraith should resolve undisturbed salt without a hunt gate")
+end
+
+do
+	local api = newApi()
+	local observer = byName.Wraith.CreateObserver(api)
+	observer:OnEvent({Type = "SaltDisturbed", ContactId = "salt-missed-touch", DirectContact = false, Time = 20})
+	expect(last(api, "RuleOut") ~= nil, "a replicated disturbed pile must rule Wraith out when Touched was missed")
 end
 
 do

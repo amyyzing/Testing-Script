@@ -2997,7 +2997,9 @@ local function waitForRoundHuntEnd(generation)
 			local teleported = teleportToBaseCamp(
 				roundTeleportOptions(generation)
 			)
-			escaped = teleported == true
+			-- Confirm the same Base Camp containment used by completion. A moved
+			-- root whose room state has not settled yet must be retried.
+			escaped = teleported == true and playerIsInsideRoundBaseCamp()
 		end
 		doRoundWait(generation, 0.15)
 	end
@@ -3360,6 +3362,7 @@ local function runDoRound(generation)
 			repeat
 				if roundIsHunting() then
 					setDoRoundStatus("Waiting for hunt")
+					waitForRoundHuntEnd(generation)
 				else
 					setDoRoundStatus("Placing room items")
 				end

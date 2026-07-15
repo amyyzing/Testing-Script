@@ -37,6 +37,17 @@ local ruledOut = resolver:ResolveGhost("Phantom")
 expect(ruledOut.Status == "RuledOut", "an effective rule-out without positive support should rule out the ghost")
 expect(ruledOut.Confidence == 0 and ruledOut.NegativeConfidence == 99, "resolver should report positive and negative strength separately")
 
+local rankingLedger = Ledger.new()
+local rankingResolver = Resolver.new(rankingLedger)
+rankingLedger:Positive("Keres", "strong but contradicted support", 99)
+rankingLedger:Negative("Keres", "qualified opposition", 80)
+rankingLedger:Positive("Specter", "unopposed support", 35)
+local ranked = rankingResolver:Rank({"Keres", "Specter"})
+expect(
+	ranked[1].Ghost == "Specter" and ranked[1].Score == 35,
+	"ghost ranking must use net confidence so contradicted raw support cannot override the actual leader"
+)
+
 local normalized = Events.Normalize({
 	Type = "Example",
 	Payload = {Qualified = true, Count = 3},

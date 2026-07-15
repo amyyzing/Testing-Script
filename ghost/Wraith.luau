@@ -1,4 +1,5 @@
 local NAME = "Wraith"
+local UNDISTURBED_GRACE = 4
 
 local function read(event, key)
 	if event[key] ~= nil then return event[key] end
@@ -18,7 +19,10 @@ local function createObserver(api)
 			}
 			state.Contacts[id] = contact
 		end
-		if contact.Resolved then return end
+		if contact.Resolved and contact.Outcome == outcome then return end
+		-- A replicated disturbance is authoritative and may correct an earlier
+		-- timeout; the reverse correction is never allowed.
+		if contact.Resolved and contact.Outcome == "Disturbed" then return end
 		contact.Resolved, contact.Outcome = true, outcome
 		state.LastOutcome = outcome
 		local now = tonumber(read(event, "Time")) or os.clock()
@@ -42,11 +46,17 @@ local function createObserver(api)
 				TriggerEventId = contact.EventId,
 			},
 		}
+		local entry
 		if outcome == "Disturbed" then
-			if api and type(api.RuleOut) == "function" then api:RuleOut(NAME, read(event, "Reason") or "the same directly touched salt pile became disturbed", 99, conclusion) end
+			if contact.EvidenceId and api and type(api.Supersede) == "function" then
+				entry = api:Supersede(NAME, contact.EvidenceId, "RuleOut", read(event, "Reason") or "the contacted salt pile became disturbed", 99, conclusion)
+			elseif api and type(api.RuleOut) == "function" then
+				entry = api:RuleOut(NAME, read(event, "Reason") or "the contacted salt pile became disturbed", 99, conclusion)
+			end
 		else
-			if api and type(api.Positive) == "function" then api:Positive(NAME, read(event, "Reason") or "the directly touched salt pile remained undisturbed for 1.25 seconds", 99, conclusion) end
+			if api and type(api.Positive) == "function" then entry = api:Positive(NAME, read(event, "Reason") or "the directly touched salt pile remained undisturbed for four seconds", 99, conclusion) end
 		end
+		contact.EvidenceId = type(entry) == "table" and entry.Id or contact.EvidenceId
 	end
 
 	function observer:OnEvent(event)
@@ -56,7 +66,7 @@ local function createObserver(api)
 		if kind == "Tick" then
 			local now = tonumber(read(event, "Time")) or os.clock()
 			for id, contact in pairs(state.Contacts) do
-				if type(contact) == "table" and not contact.Resolved and now - contact.Time >= 1.25 then
+				if type(contact) == "table" and not contact.Resolved and now - contact.Time >= UNDISTURBED_GRACE then
 					resolve(id, "Undisturbed", event)
 				end
 			end
@@ -75,13 +85,15 @@ local function createObserver(api)
 			end
 			if read(event, "Disturbed") == true then resolve(id, "Disturbed", event) end
 		elseif kind == "SaltDisturbed" then
-			if state.Contacts[id] ~= nil or read(event, "DirectContact") == true then resolve(id, "Disturbed", event) end
+			-- The DisturbedSaltLine world transition remains conclusive even when
+			-- Roblox did not deliver the original SaltLine.Touched callback.
+			resolve(id, "Disturbed", event)
 		else
 			if read(event, "DirectContact") ~= true then return true end
 			local elapsed = tonumber(read(event, "Elapsed")) or 0
 			if read(event, "Disturbed") == true then
 				resolve(id, "Disturbed", event)
-			elseif read(event, "Disturbed") == false and read(event, "Completed") == true and elapsed >= 1.25 then
+			elseif read(event, "Disturbed") == false and read(event, "Completed") == true and elapsed >= UNDISTURBED_GRACE then
 				resolve(id, "Undisturbed", event)
 			end
 		end
@@ -97,6 +109,6 @@ return {
 	Name = NAME,
 	Evidence = {"EMFLevel5", "LaserProjector", "SpiritBox"},
 	ObservationEvents = {"SaltContactResult", "SaltContact", "SaltDisturbed", "Tick"},
-	Perks = { ["Pretty Sure"] = {"A directly touched salt pile remains undisturbed for 1.25 seconds, regardless of hunt state."}, Maybe = {}, Idk = {"Untouched salt is not evidence; preserve the exact ContactId."} },
+	Perks = { ["Pretty Sure"] = {"A directly touched salt pile remains undisturbed for four seconds, regardless of hunt state."}, Maybe = {}, Idk = {"Untouched salt is not evidence; preserve the exact ContactId."} },
 	CreateObserver = createObserver,
 }

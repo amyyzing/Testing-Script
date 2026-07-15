@@ -149,6 +149,8 @@ local ghostProxyAddedConnection
 local ghostProxyRemovingConnection
 local observeWalkSpeedChange = function() end
 local SALT_PLACEMENT_GRACE = 4
+local SALT_DISTURBANCE_GRACE = 4
+local POST_HUNT_SALT_CONTACT_GRACE = 1.25
 local perkTrackerState = {
 	ghost = nil,
 	fixedGhostModel = nil,
@@ -170,6 +172,7 @@ local perkTrackerState = {
 	lastPosition = nil,
 	lastSampleTime = nil,
 	lastHunting = nil,
+	lastHuntEndedAt = nil,
 	huntingAttributeConnection = nil,
 	motionSamples = {},
 	losSamples = {},
@@ -298,6 +301,8 @@ local perkTrackerState = {
 	journalForcedGhost = nil,
 	journalDesiredApplicability = {},
 	journalMutationBusy = false,
+	journalSyncPending = false,
+	journalPendingForcedGhost = nil,
 	currentGhostGuess = nil,
 	currentGhostGuessScore = 0,
 	currentGhostGuessCertain = false,
@@ -560,14 +565,17 @@ local function syncGhostCoordinatorResults()
 			or (positive and tonumber(positive.Confidence))
 			or 0
 		local netScore = tonumber(state.Score) or supportScore
-		if positive and supportScore > 0 then
+		if positive and netScore > 0 then
 			local existing = perkDetections[ghostName]
 			if not existing
 				or existing.Source == "GhostCoordinator"
-				or supportScore > (tonumber(existing.Confidence) or 0) then
+				or netScore > (tonumber(existing.Confidence) or 0) then
 				perkDetections[ghostName] = {
-					Confidence = supportScore,
-					RawConfidence = state.Confidence,
+					-- Rank projections by the resolver's net result. Using only the
+					-- strongest positive let contradicted, lower-confidence trackers
+					-- overwrite the actual leader in the GUI and Journal.
+					Confidence = netScore,
+					RawConfidence = supportScore,
 					NetConfidence = netScore,
 					NegativeConfidence = state.NegativeConfidence,
 					Reason = positive.Reason,
@@ -1195,7 +1203,12 @@ local function updateGhostIdentification(ghost)
 		selectedGhost = table.concat(candidates, " / ")
 		selectedScore = 35
 	end
-	if previousGuess and previousScore > selectedScore then
+	-- Hysteresis is only for the weak multi-candidate "Idk" label. Retaining an
+	-- older Maybe/Pretty Sure score after its live tracker projection was reduced
+	-- or superseded made stale, lower-quality conclusions override the resolver.
+	if previousGuess
+		and previousScore <= 35
+		and previousScore > selectedScore then
 		local stillCompatible = {}
 		for name in string.gmatch(tostring(previousGuess), "[^/]+") do
 			name = string.gsub(name, "^%s+", "")
@@ -1427,8 +1440,32 @@ perkTrackerState.confirmJournalGhostSelection = function(frame, ghostName)
 	return false
 end
 perkTrackerState.syncJournal = function(forcedGhost)
-	if closed or perkTrackerState.journalMutationBusy then
+	if closed then
 		return false
+	end
+	if perkTrackerState.journalMutationBusy then
+		-- Journal row clicks yield while the game's controller advances through
+		-- nil/selected/crossed-out. Replay a tracker refresh that arrives during
+		-- that yield instead of leaving stale markings until another event occurs.
+		perkTrackerState.journalSyncPending = true
+		if forcedGhost ~= nil then
+			perkTrackerState.journalPendingForcedGhost = forcedGhost
+		end
+		return false
+	end
+	local function finishJournalMutation()
+		perkTrackerState.journalMutationBusy = false
+		if not perkTrackerState.journalSyncPending or closed then
+			return
+		end
+		perkTrackerState.journalSyncPending = false
+		local pendingForced = perkTrackerState.journalPendingForcedGhost
+		perkTrackerState.journalPendingForcedGhost = nil
+		task.defer(function()
+			if not closed then
+				perkTrackerState.syncJournal(pendingForced)
+			end
+		end)
 	end
 	local explicitlyForced = forcedGhost ~= nil
 	if forcedGhost == nil then
@@ -1455,12 +1492,16 @@ perkTrackerState.syncJournal = function(forcedGhost)
 		local ghostTypes = perkTrackerState.findJournalGhostTypes()
 		local frame = ghostTypes and ghostTypes:FindFirstChild(forcedGhost)
 		if not frame or not frame:IsA("Frame") then
-			return false
+			-- The Journal can still be cloning its rows when a very fast tracker
+			-- resolves the ghost. Do not deadlock completion on "Selecting ghost
+			-- guess"; send the same selection remote and retain journalForcedGhost
+			-- so a later UI refresh can apply the visible highlight too.
+			return perkTrackerState.fireJournalGhostSelection(forcedGhost)
 		end
 		perkTrackerState.journalMutationBusy = true
 		local selectedApplied =
 			perkTrackerState.confirmJournalGhostSelection(frame, forcedGhost)
-		perkTrackerState.journalMutationBusy = false
+		finishJournalMutation()
 		if selectedApplied then
 			perkTrackerState.lastJournalSelectedGhost = forcedGhost
 			perkTrackerState.lastJournalVisualGhost = forcedGhost
@@ -1481,6 +1522,17 @@ perkTrackerState.syncJournal = function(forcedGhost)
 	local selectedGhost
 	local guess = perkTrackerState.currentGhostGuess
 	local score = perkTrackerState.currentGhostGuessScore or 0
+	local exactCertainGuess = perkTrackerState.currentGhostGuessCertain == true
+		and type(guess) == "string"
+		and not string.find(guess, "/", 1, true)
+		and GhostModule.Find(guess) ~= nil
+	if exactCertainGuess then
+		-- Exact three-evidence identification is the hard source of truth. A soft
+		-- behavioral rule-out must not make the Journal cross out the same ghost
+		-- that the GUI labels Certain.
+		candidateSet[guess] = true
+		selectedGhost = guess
+	end
 	if not selectedGhost
 		and guess
 		and score >= 80
@@ -1529,7 +1581,7 @@ perkTrackerState.syncJournal = function(forcedGhost)
 					true
 			end
 		end
-		perkTrackerState.journalMutationBusy = false
+		finishJournalMutation()
 		if selectedGhost and selectedApplied then
 			perkTrackerState.lastJournalSelectedGhost = selectedGhost
 			perkTrackerState.lastJournalVisualGhost = selectedGhost
@@ -2295,6 +2347,7 @@ perkTrackerState.resetEvidenceState = function()
 	perkTrackerState.saltOverlapGhost = nil
 	perkTrackerState.saltOverlapParams = nil
 	perkTrackerState.wraithRuledOut = false
+	perkTrackerState.lastHuntEndedAt = nil
 	perkTrackerState.holyOilWallStates = setmetatable({}, {__mode = "k"})
 	perkTrackerState.holyOilScanAccumulator = 0
 	perkTrackerState.ruledOutGhosts = {}
@@ -2945,6 +2998,7 @@ local function resetPerkTrackerForGhost(ghost, preserveFindings)
 		then ghost:GetAttribute("Hunting") == true
 		else nil
 	perkTrackerState.lastHunting = initialHunting
+	perkTrackerState.lastHuntEndedAt = nil
 	perkTrackerState.motionSamples = {}
 	perkTrackerState.losSamples = {}
 	perkTrackerState.energySamples = {}
@@ -3517,9 +3571,16 @@ local function startGhostCoordinator(ghost)
 		if perkTrackerState.fixedGhostModel ~= ghost then
 			return
 		end
+		local hunting = ghost:GetAttribute("Hunting") == true
+		-- Salt disturbance can replicate between this attribute signal and the
+		-- slower compatibility scan. Capture the edge immediately so Aswang's
+		-- post-hunt speed grace is available to that disturbance event.
+		if not hunting and perkTrackerState.lastHunting == true then
+			perkTrackerState.lastHuntEndedAt = os.clock()
+		end
 		emitGhostObservation({
 			Type = GhostPackage.Events.Types.HuntingStateChanged,
-			Hunting = ghost:GetAttribute("Hunting") == true,
+			Hunting = hunting,
 			AverageSanity = getAverageTeamEnergy(),
 			MapFactor = getMapSizeSpeedFactor(),
 			MapSize = getMapSizeName(),
@@ -4082,6 +4143,7 @@ local function handleHuntTransition(ghost, hunting, now)
 		perkTrackerState.sirenSlowObservedThisHunt = false
 		perkTrackerState.motionSamples = {}
 	elseif not hunting and previous then
+		perkTrackerState.lastHuntEndedAt = now
 		perkTrackerState.huntStartedAt = nil
 		if not ghostCoordinator then
 			if perkTrackerState.dullahanPatternDetected
@@ -4845,7 +4907,7 @@ perkTrackerState.markSaltDisturbed = function(disturbedModel)
 			if candidate
 				and not candidate.Disturbed
 				and candidate.Position
-				and now - candidate.StartedAt <= 2.0 then
+				and now - candidate.StartedAt <= SALT_DISTURBANCE_GRACE then
 				local distance = (
 					disturbedPosition - candidate.Position
 				).Magnitude
@@ -4870,13 +4932,45 @@ perkTrackerState.markSaltDisturbed = function(disturbedModel)
 			or not ghostOffset
 			or Vector3.new(ghostOffset.X, 0, ghostOffset.Z).Magnitude > 3.5
 			or math.abs(ghostOffset.Y) > 5 then
+			-- A newly replicated DisturbedSaltLine is itself conclusive against
+			-- Wraith: only the ghost disturbs a placed pile, and this callback is not
+			-- run for piles that already existed when the script attached. Proximity
+			-- remains mandatory below for the stronger hunting-contact Aswang probe.
+			emitGhostObservation({
+				Type = GhostPackage.Events.Types.SaltDisturbed,
+				ContactId = disturbedModel,
+				DirectContact = false,
+				Disturbed = true,
+				SaltDisturbed = true,
+				DisturbedContactId = disturbedModel,
+				Hunting = ghost and ghost:GetAttribute("Hunting") == true or false,
+				HuntingAtContact = false,
+				Source = "SaltPiles.DisturbedSaltLine",
+			})
+			if not ghostCoordinator then
+				perkTrackerState.wraithRuledOut = true
+				perkTrackerState.ruleOutGhost(
+					"Wraith",
+					"a placed SaltLine became DisturbedSaltLine",
+					99
+				)
+				updateGhostIdentification(perkTrackerState.ghost)
+			end
 			return
 		end
 		local preSpeed, preSampleCount, baselineReliable =
 			perkTrackerState.recentSaltPreSpeed(ghost, now)
+		local recentlyEndedHunt = ghost:GetAttribute("Hunting") ~= true
+			and perkTrackerState.lastHuntEndedAt ~= nil
+			and now - perkTrackerState.lastHuntEndedAt
+				<= POST_HUNT_SALT_CONTACT_GRACE
 		observation = {
 			ContactId = disturbedModel,
-			DirectContact = false,
+			-- This fallback exists only after the newly disturbed pile and the
+			-- fixed Ghost pass the strict proximity test above. Treat that as a
+			-- confirmed contact when Roblox omits Touched or replaces the model
+			-- before the callback reaches the client.
+			DirectContact = true,
 			StartedAt = now,
 			TouchAt = now,
 			Position = disturbedPosition,
@@ -4886,7 +4980,8 @@ perkTrackerState.markSaltDisturbed = function(disturbedModel)
 			SpeedSamples = {},
 			LastSpeedSampleAt = nil,
 			Ghost = ghost,
-			HuntingAtTouch = ghost:GetAttribute("Hunting") == true,
+			HuntingAtTouch = ghost:GetAttribute("Hunting") == true
+				or recentlyEndedHunt,
 			Disturbed = false,
 			WraithResolved = false,
 			AswangResolved = false,
@@ -5184,7 +5279,7 @@ perkTrackerState.updateSaltTracker = function(deltaTime, ghost, hunting, now)
 				"the same touched SaltLine became DisturbedSaltLine",
 				99
 			)
-		elseif age >= 1.25 and not observation.WraithResolved then
+		elseif age >= SALT_DISTURBANCE_GRACE and not observation.WraithResolved then
 			observation.WraithResolved = true
 			recordPerkDetection(
 				"Wraith",
@@ -7872,6 +7967,7 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 		end
 		local function waitForNoHunt(returnToFavouriteRoom)
 			local paused = false
+			local nextEscapeAttemptAt = 0
 			while operationIsActive() do
 				local currentGhost = getGhostModel()
 				if not currentGhost
@@ -7882,7 +7978,20 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 				if not paused then
 					paused = true
 					placeRoomItemsButton.Text = COPY.Actions.WaitingForHunt
-					perkTrackerState.teleportToBaseCamp()
+				end
+				local baseRoom = perkTrackerState.findBaseCampRoom()
+				local character = player.Character
+				local insideBase = baseRoom and character
+					and instanceIsInsideRoom(character, baseRoom)
+				if not insideBase and os.clock() >= nextEscapeAttemptAt then
+					-- A failed one-shot escape used to leave the player in the ghost
+					-- room for the rest of the hunt. Retry until containment confirms
+					-- that the character is actually in Base Camp.
+					perkTrackerState.teleportToBaseCamp({
+						ReleaseMovementOnCancel = true,
+						IsActive = operationIsActive,
+					})
+					nextEscapeAttemptAt = os.clock() + 0.15
 				end
 				guardedWait(0.15)
 			end
