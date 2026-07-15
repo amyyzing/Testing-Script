@@ -758,28 +758,39 @@ local function selectHighestConfidenceGuess(options)
 	-- themselves are contradictory.
 	local confirmedEvidence = collectEvidence(options.ConfirmedEvidence)
 	if next(confirmedEvidence) ~= nil then
-		local fewestConflicts = math.huge
-		local evidenceCandidates = {}
-		for _, name in ipairs(candidates) do
-			local conflicts = 0
-			for evidenceKey in pairs(confirmedEvidence) do
-				if not supportsEvidence(name, evidenceKey, {
-					IncludeFalseEvidence = true,
-				}) then
-					conflicts = conflicts + 1
+		local orbCombination = classifyOrbCombination(confirmedEvidence)
+		if orbCombination.Qualified and allowed.Skinwalker then
+			candidates = {"Skinwalker"}
+			allowed = {Skinwalker = true}
+		else
+			local fewestConflicts = math.huge
+			local evidenceCandidates = {}
+			for _, name in ipairs(candidates) do
+				local conflicts = 0
+				for evidenceKey in pairs(confirmedEvidence) do
+					-- Skinwalker's Orb is a false fourth evidence, not part of
+					-- ordinary compatibility. A valid real evidence combination
+					-- must beat it; impossible/fourth Orb combinations are handled
+					-- explicitly above.
+					if not supportsEvidence(name, evidenceKey, {
+						RealOnly = true,
+						IncludeFalseEvidence = false,
+					}) then
+						conflicts = conflicts + 1
+					end
+				end
+				if conflicts < fewestConflicts then
+					fewestConflicts = conflicts
+					evidenceCandidates = {name}
+				elseif conflicts == fewestConflicts then
+					table.insert(evidenceCandidates, name)
 				end
 			end
-			if conflicts < fewestConflicts then
-				fewestConflicts = conflicts
-				evidenceCandidates = {name}
-			elseif conflicts == fewestConflicts then
-				table.insert(evidenceCandidates, name)
+			candidates = evidenceCandidates
+			allowed = {}
+			for _, name in ipairs(candidates) do
+				allowed[name] = true
 			end
-		end
-		candidates = evidenceCandidates
-		allowed = {}
-		for _, name in ipairs(candidates) do
-			allowed[name] = true
 		end
 	end
 

@@ -74,6 +74,33 @@ for _, profile in ipairs(GhostModule.Profiles) do
 	end
 end
 
+local allProfileNames = {}
+for _, profile in ipairs(GhostModule.Profiles) do
+	table.insert(allProfileNames, profile.Name)
+end
+for _, profile in ipairs(GhostModule.Profiles) do
+	local conflictingDetections = {}
+	for _, ghostName in ipairs(allProfileNames) do
+		conflictingDetections[ghostName] = ghostName == profile.Name and 0 or 99
+	end
+	local selected = GhostModule.SelectHighestConfidenceGuess({
+		Candidates = allProfileNames,
+		Detections = conflictingDetections,
+		ConfirmedEvidence = profile.Evidence,
+		RandomIndex = function(count)
+			expect(
+				count == 1,
+				profile.Name .. " exact evidence should leave one timeout choice"
+			)
+			return 1
+		end,
+	})
+	expect(
+		selected == profile.Name,
+		profile.Name .. " exact evidence must beat incompatible 99% detections"
+	)
+end
+
 local sirenCandidates = GhostModule.FilterCandidates({
 	EMFLevel5 = true,
 	SpiritBox = true,
@@ -149,6 +176,20 @@ expect(
 		and fourthOrbEvidence.FourthEvidence == true
 		and fourthOrbEvidence.EvidenceCount == 4,
 	"Skinwalker's three real evidences plus Orb should qualify as fourth evidence"
+)
+
+local impossibleOrbFinalGuess = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = allProfileNames,
+	Detections = {Banshee = 99, Leviathan = 99, Skinwalker = 0},
+	ConfirmedEvidence = {
+		GhostOrb = true,
+		Handprints = true,
+		SpiritBox = true,
+	},
+})
+expect(
+	impossibleOrbFinalGuess == "Skinwalker",
+	"an impossible Orb combination must force Skinwalker despite stronger perks"
 )
 
 local tracker = GhostModule.NewTracker()

@@ -3004,41 +3004,41 @@ local function selectRoundJournalGhost(ghostName, generation)
 	if not doRoundOperationActive(generation) then
 		return false
 	end
-	-- Journal visuals are advisory here. A busy/stale Journal mutation must not
-	-- deadlock an otherwise completed round in "Selecting ghost guess". Apply
-	-- the normal UI state, then independently dispatch the authoritative guess.
-	local visualCall, visualResult = pcall(
-		perkTrackerState.syncJournal,
-		ghostName
-	)
-	local visualApplied = visualCall and visualResult == true
-	if not doRoundOperationActive(generation) then
-		return false
-	end
-	local remoteCall, remoteResult = pcall(
-		perkTrackerState.fireJournalGhostSelection,
-		ghostName
-	)
-	local remoteSent = remoteCall and remoteResult == true
-	local ghostTypes = perkTrackerState.findJournalGhostTypes()
-	if not ghostTypes then
-		return visualApplied or remoteSent
-	end
-	local frame = ghostTypes:FindFirstChild(ghostName)
-	if not frame or not frame:IsA("Frame") then
-		return visualApplied or remoteSent
-	end
-	local deadline = os.clock() + 0.75
+	-- The server queries GetSelectedGhost, whose answer comes from the Journal
+	-- controller's local row table. EvidenceMarkedInJournal alone does not update
+	-- that table, so keep using the real click path until the intended row is the
+	-- only selected row. A cloning/busy Journal is a retry state, not success.
+	local deadline = os.clock() + 1.5
 	repeat
-		if perkTrackerState.readJournalRowState(frame) == true then
-			return true
+		pcall(perkTrackerState.syncJournal, ghostName)
+		if not doRoundOperationActive(generation) then
+			return false
 		end
-		task.wait(0.03)
+		local ghostTypes = perkTrackerState.findJournalGhostTypes()
+		local frame = ghostTypes and ghostTypes:FindFirstChild(ghostName)
+		if perkTrackerState.journalMutationBusy ~= true
+			and frame and frame:IsA("Frame")
+			and perkTrackerState.readJournalRowState(frame) == true then
+			local conflictingSelection = false
+			for _, otherFrame in ipairs(ghostTypes:GetChildren()) do
+				if otherFrame ~= frame and otherFrame:IsA("Frame")
+					and perkTrackerState.readJournalRowState(otherFrame) == true then
+					conflictingSelection = true
+					pcall(
+						perkTrackerState.applyJournalRowState,
+						otherFrame,
+						nil
+					)
+				end
+			end
+			if not conflictingSelection then
+				return true
+			end
+		end
+		task.wait(0.05)
 	until not doRoundOperationActive(generation)
 		or os.clock() >= deadline
-	-- FireServer has no acknowledgement. Once dispatch succeeds, lobby return
-	-- must proceed even if the Journal UI did not repaint within this frame.
-	return remoteSent or visualApplied
+	return false
 end
 
 	local setEnabled
@@ -3098,7 +3098,7 @@ local function waitForRoundHuntEnd(generation)
 	return escaped
 end
 
-local function requestRoundReturnToLobby(generation)
+local function requestRoundReturnToLobby(generation, ghostName)
 	local events = Services.ReplicatedStorage:FindFirstChild("Events")
 	local remote = events and events:FindFirstChild("RequestReturnToLobby")
 	if not remote or not remote:IsA("RemoteEvent") then
@@ -3146,6 +3146,14 @@ local function requestRoundReturnToLobby(generation)
 			doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
 			-- Displacement during the safety delay invalidates this attempt. Hunt
 			-- state is deliberately irrelevant once identification is confident.
+			if not playerIsInsideRoundBaseCamp() then
+				continue
+			end
+			if not selectRoundJournalGhost(ghostName, generation) then
+				setDoRoundStatus("Selecting ghost guess")
+				doRoundWait(generation, 0.1)
+				continue
+			end
 			if not playerIsInsideRoundBaseCamp() then
 				continue
 			end
@@ -3248,7 +3256,7 @@ local function chooseRoundTimeoutFallback()
 	local fallbackScore = fallbackDetection
 		and tonumber(fallbackDetection.Confidence)
 		or 0
-	if guess and string.find(guess, fallback, 1, true) then
+	if guess == fallback then
 		fallbackScore = math.max(fallbackScore, score)
 	end
 	return fallback, math.max(fallbackScore, 1)
@@ -3287,14 +3295,21 @@ local function finishRoundWithGhost(
 	end
 	setGhostIdentificationLabel(ghostName, confidence, certain == true)
 	setDoRoundStatus("Selecting ghost guess")
-	-- Journal mutation is bounded best-effort. Missing rows, a stale visual
-	-- controller, or a rejected EvidenceMarkedInJournal remote must never gate
-	-- the safety teleport or RequestReturnToLobby loop.
-	pcall(selectRoundJournalGhost, ghostName, generation)
+	local selectedCall, selected = pcall(
+		selectRoundJournalGhost,
+		ghostName,
+		generation
+	)
+	if not selectedCall or selected ~= true then
+		return false, "the final ghost is not selected in the Journal yet"
+	end
 	if not doRoundOperationActive(generation) then
 		return false, "Do-Round cancelled before lobby return"
 	end
-	local returned, returnReason = requestRoundReturnToLobby(generation)
+	local returned, returnReason = requestRoundReturnToLobby(
+		generation,
+		ghostName
+	)
 	if returned then
 		setEnabled(false, finalPhase)
 		return true
@@ -3340,7 +3355,18 @@ local function currentConfidentRoundIdentification()
 	local certain = perkTrackerState.currentGhostGuessCertain == true
 	local singleGuess = guess
 		and not string.find(guess, "/", 1, true)
-	if singleGuess and (certain or score >= 80) then
+	local eligible = false
+	if singleGuess then
+		for _, candidate in ipairs(
+			perkTrackerState.getRemainingCandidates(certain)
+		) do
+			if candidate == guess then
+				eligible = true
+				break
+			end
+		end
+	end
+	if singleGuess and eligible and (certain or score >= 80) then
 		return guess, score, certain
 	end
 	return nil

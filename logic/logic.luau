@@ -1398,8 +1398,10 @@ perkTrackerState.confirmJournalGhostSelection = function(frame, ghostName)
 	-- Preserve the older compatible path: apply the visible row through its
 	-- normal click handler and independently send the authoritative selection.
 	local visualApplied = perkTrackerState.applyJournalRowState(frame, true)
-	local remoteSent = perkTrackerState.fireJournalGhostSelection(ghostName)
-	return visualApplied or remoteSent
+	perkTrackerState.fireJournalGhostSelection(ghostName)
+	-- GetSelectedGhost reads the Journal controller's local row state. Merely
+	-- dispatching EvidenceMarkedInJournal does not select that row locally.
+	return visualApplied
 end
 perkTrackerState.syncJournal = function(forcedGhost)
 	if closed then
@@ -1455,21 +1457,23 @@ perkTrackerState.syncJournal = function(forcedGhost)
 		local frame = ghostTypes and ghostTypes:FindFirstChild(forcedGhost)
 		if not frame or not frame:IsA("Frame") then
 			-- The Journal can still be cloning its rows when a very fast tracker
-			-- resolves the ghost. Do not deadlock completion on "Selecting ghost
-			-- guess"; send the same selection remote and retain journalForcedGhost
-			-- so a later UI refresh can apply the visible highlight too.
-			return perkTrackerState.fireJournalGhostSelection(forcedGhost)
+			-- resolves the ghost. Retain journalForcedGhost and report the local
+			-- selection as incomplete so completion retries after the row exists.
+			return false
 		end
 		perkTrackerState.journalMutationBusy = true
-		local selectedApplied =
-			perkTrackerState.confirmJournalGhostSelection(frame, forcedGhost)
+		local mutationCall, selectedApplied = pcall(
+			perkTrackerState.confirmJournalGhostSelection,
+			frame,
+			forcedGhost
+		)
 		finishJournalMutation()
-		if selectedApplied then
+		if mutationCall and selectedApplied then
 			perkTrackerState.lastJournalSelectedGhost = forcedGhost
 			perkTrackerState.lastJournalVisualGhost = forcedGhost
 			perkTrackerState.journalDesiredApplicability[forcedGhost] = true
 		end
-		return selectedApplied
+		return mutationCall and selectedApplied == true
 	end
 	local candidates = perkTrackerState.getRemainingCandidates(false)
 	if #candidates == 0 then
@@ -1506,50 +1510,52 @@ perkTrackerState.syncJournal = function(forcedGhost)
 		perkTrackerState.findJournalGhostTypes()
 	if ghostTypes then
 		perkTrackerState.journalMutationBusy = true
-		local selectedApplied = selectedGhost == nil
-		local function applyProfileState(profile)
-			local ghostName = profile.Name
-			local applicable = candidateSet[ghostName] == true
-			local desiredState = false
-			if applicable then
-				desiredState = nil
-			end
-			local frame = ghostTypes:FindFirstChild(ghostName)
-			if frame and frame:IsA("Frame") then
-				perkTrackerState.applyJournalRowState(
-					frame,
-					desiredState
-				)
-			end
-			perkTrackerState.journalDesiredApplicability[ghostName] =
-				applicable
-		end
-		for _, profile in ipairs(GHOST_PROFILES) do
-			if profile.Name ~= selectedGhost then
-				applyProfileState(profile)
-			end
-		end
-		-- Select last. If the game's journal controller clears a highlight while
-		-- another row is changed, no later cross-out click can undo the winner.
-		if selectedGhost then
-			local selectedProfile = GhostModule.Find(selectedGhost)
-			if selectedProfile then
-				local frame = ghostTypes:FindFirstChild(selectedGhost)
-				if frame and frame:IsA("Frame") then
-					selectedApplied =
-						perkTrackerState.applyJournalRowState(frame, true)
+		local mutationCall, selectedApplied = pcall(function()
+			local applied = selectedGhost == nil
+			local function applyProfileState(profile)
+				local ghostName = profile.Name
+				local applicable = candidateSet[ghostName] == true
+				local desiredState = false
+				if applicable then
+					desiredState = nil
 				end
-				perkTrackerState.journalDesiredApplicability[selectedGhost] =
-					true
+				local frame = ghostTypes:FindFirstChild(ghostName)
+				if frame and frame:IsA("Frame") then
+					perkTrackerState.applyJournalRowState(
+						frame,
+						desiredState
+					)
+				end
+				perkTrackerState.journalDesiredApplicability[ghostName] =
+					applicable
 			end
-		end
+			for _, profile in ipairs(GHOST_PROFILES) do
+				if profile.Name ~= selectedGhost then
+					applyProfileState(profile)
+				end
+			end
+			-- Select last. If the game's journal controller clears a highlight while
+			-- another row is changed, no later cross-out click can undo the winner.
+			if selectedGhost then
+				local selectedProfile = GhostModule.Find(selectedGhost)
+				if selectedProfile then
+					local frame = ghostTypes:FindFirstChild(selectedGhost)
+					if frame and frame:IsA("Frame") then
+						applied = perkTrackerState.applyJournalRowState(frame, true)
+					end
+					perkTrackerState.journalDesiredApplicability[selectedGhost] =
+						true
+				end
+			end
+			return applied
+		end)
 		finishJournalMutation()
-		if selectedGhost and selectedApplied then
+		if mutationCall and selectedGhost and selectedApplied then
 			perkTrackerState.lastJournalSelectedGhost = selectedGhost
 			perkTrackerState.lastJournalVisualGhost = selectedGhost
 			return true
 		end
-		if not selectedGhost then
+		if mutationCall and not selectedGhost then
 			perkTrackerState.lastJournalVisualGhost = nil
 			return true
 		end
@@ -7847,36 +7853,39 @@ perkTrackerState.teleportToBaseCamp = function(options)
 	local succeeded, teleported, reason = pcall(function()
 		if type(options.PreferredPositions) ~= "table"
 			or #options.PreferredPositions == 0 then
-			local preferredPosition
-			local doors = workspace:FindFirstChild("Doors")
-			if doors then
-				for _, object in ipairs(doors:GetDescendants()) do
-					local normalized = string.lower(object.Name):gsub("[^%w]", "")
-					local doorType = string.lower(tostring(
-						object:GetAttribute("DoorType")
-							or object:GetAttribute("Type")
-							or ""
-					)):gsub("[^%w]", "")
-					if string.find(normalized, "exitdoor", 1, true)
-						or object:GetAttribute("IsExitDoor") == true
-						or object:GetAttribute("ExitDoor") == true
-						or doorType == "exit"
-						or doorType == "exitdoor" then
-						preferredPosition = getInstanceWorldPosition(object)
-						if preferredPosition then
-							break
+			local baseCamp = workspace:FindFirstChild("BaseCamp")
+				or workspace:FindFirstChild("Base Camp")
+			local truck = baseCamp and baseCamp:FindFirstChild("Truck", true)
+				or room:FindFirstChild("Truck", true)
+				or workspace:FindFirstChild("Truck", true)
+			local preferredPosition = getInstanceWorldPosition(truck)
+			if not preferredPosition then
+				local doors = workspace:FindFirstChild("Doors")
+				if doors then
+					for _, object in ipairs(doors:GetDescendants()) do
+						local normalized = string.lower(object.Name):gsub("[^%w]", "")
+						local doorType = string.lower(tostring(
+							object:GetAttribute("DoorType")
+								or object:GetAttribute("Type")
+								or ""
+						)):gsub("[^%w]", "")
+						if string.find(normalized, "exitdoor", 1, true)
+							or object:GetAttribute("IsExitDoor") == true
+							or object:GetAttribute("ExitDoor") == true
+							or doorType == "exit"
+							or doorType == "exitdoor" then
+							preferredPosition = getInstanceWorldPosition(object)
+							if preferredPosition then
+								break
+							end
 						end
 					end
 				end
 			end
-			if not preferredPosition then
-				local truck = room:FindFirstChild("Truck", true)
-					or workspace:FindFirstChild("Truck", true)
-				preferredPosition = getInstanceWorldPosition(truck)
-			end
 			if preferredPosition then
-				-- Candidate safety still wins; this only chooses the safest Base Camp
-				-- bound/point nearest the exit, with Truck as the requested fallback.
+				-- Candidate safety still wins; among open, grounded Base Camp
+				-- destinations prefer the point nearest Truck. The exit is only a
+				-- fallback when this map does not expose BaseCamp.Truck.
 				options.PreferredPositions = {preferredPosition}
 			end
 		end
