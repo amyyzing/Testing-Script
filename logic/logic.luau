@@ -1391,53 +1391,14 @@ perkTrackerState.fireJournalGhostSelection = function(ghostName)
 	end
 	return sent
 end
-perkTrackerState.readJournalSelectedGhost = function()
-	local events = Services.ReplicatedStorage:FindFirstChild("Events")
-	local getSelected = events and events:FindFirstChild("GetSelectedGhost")
-	if not getSelected or not getSelected:IsA("RemoteFunction") then
-		return nil, false
-	end
-	local callback = getSelected.OnClientInvoke
-	if typeof(callback) ~= "function" then
-		return nil, false
-	end
-	local read, selectedGhost = pcall(callback)
-	if not read then
-		return nil, false
-	end
-	return selectedGhost, true
-end
 perkTrackerState.confirmJournalGhostSelection = function(frame, ghostName)
-	local selectedGhost, readable =
-		perkTrackerState.readJournalSelectedGhost()
-	if not readable then
-		-- The controller callback may not be readable during Journal startup.
-		-- Its normal row handler still owns the state transition and remote fire.
-		return perkTrackerState.applyJournalRowState(frame, true)
-	end
-	if selectedGhost == ghostName then
-		return true
-	end
-	-- The game's Journal controller owns the actual selection table. Cycle the
-	-- requested row through its normal click handler until that table selects it;
-	-- the handler fires EvidenceMarkedInJournal only on the transition to true.
-	for _ = 1, 3 do
-		if not perkTrackerState.triggerJournalClick(frame) then
-			return false
-		end
-		local deadline = os.clock() + 0.25
-		repeat
-			task.wait(0.02)
-			selectedGhost, readable =
-				perkTrackerState.readJournalSelectedGhost()
-		until not readable
-			or selectedGhost == ghostName
-			or os.clock() >= deadline
-		if readable and selectedGhost == ghostName then
-			return true
-		end
-	end
-	return false
+	-- OnClientInvoke is a write-only callback member in Roblox/executor
+	-- environments, so it cannot be used to query the Journal controller.
+	-- Preserve the older compatible path: apply the visible row through its
+	-- normal click handler and independently send the authoritative selection.
+	local visualApplied = perkTrackerState.applyJournalRowState(frame, true)
+	local remoteSent = perkTrackerState.fireJournalGhostSelection(ghostName)
+	return visualApplied or remoteSent
 end
 perkTrackerState.syncJournal = function(forcedGhost)
 	if closed then

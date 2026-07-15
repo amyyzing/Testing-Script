@@ -2970,10 +2970,7 @@ local function selectRoundJournalGhost(ghostName, generation)
 	end
 	local deadline = os.clock() + 0.75
 	repeat
-		local selectedGhost, readable =
-			perkTrackerState.readJournalSelectedGhost()
-		if (readable and selectedGhost == ghostName)
-			or perkTrackerState.readJournalRowState(frame) == true then
+		if perkTrackerState.readJournalRowState(frame) == true then
 			return true
 		end
 		task.wait(0.03)
@@ -3038,9 +3035,7 @@ local function requestRoundReturnToLobby(generation)
 			end
 		end)
 	end)
-	if not connected then
-		return false, "LocalPlayer.OnTeleport could not be observed"
-	end
+	if not connected then teleportConnection = nil end
 	local function disconnectTeleportListener()
 		if teleportConnection and teleportConnection.Connected then
 			teleportConnection:Disconnect()

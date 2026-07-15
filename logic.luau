@@ -332,13 +332,24 @@ function session:PrepareTeleport(context)
 	if type(queueOnTeleport) ~= "function" then
 		return false, "this executor does not provide queue_on_teleport"
 	end
-	if not self.TeleportConnection then
-		return false, self.TeleportConnectionFailure
-			or "the teleport listener could not be connected"
+	local nextContext = tostring(context or "Teleport")
+	if self.TeleportQueued and self.PendingTeleportContext == nextContext then
+		return true
 	end
-	self.PendingTeleportContext = tostring(context or "Teleport")
-	self.TeleportQueued = false
+	self.PendingTeleportContext = nextContext
 	self.TeleportQueueFailure = nil
+	-- Queue before the teleport request. Waiting for LocalPlayer.OnTeleport can
+	-- miss the executor handoff entirely when the place transition is immediate.
+	local queued, queueFailure = pcall(
+		queueOnTeleport,
+		queuedLoaderSource(nextContext)
+	)
+	if not queued then
+		self.TeleportQueued = false
+		self.TeleportQueueFailure = tostring(queueFailure)
+		return false, self.TeleportQueueFailure
+	end
+	self.TeleportQueued = true
 	return true
 end
 
@@ -1168,7 +1179,10 @@ if not shouldLoadRoundGui then
 	view = builtView
 	session.LobbyView = view
 	persistSettings(lobbySettings)
-	if session.Auto then
+	-- Auto means "continue the loop" after an automated return. A first manual
+	-- execution in the lobby must wait for the user to click Start Round even if
+	-- the saved Auto toggle is enabled.
+	if session.Auto and arrivalContext == "ReturnToLobby" then
 		task.defer(function()
 			beginLobbyStart(true)
 		end)
