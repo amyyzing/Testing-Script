@@ -13,7 +13,7 @@ local function createObserver(api)
 		LastRoom = nil,
 		LastAverageDecrease = nil,
 		LastDecreaseCount = 0,
-		LastSampleCount = 0,
+		LastWindow = 0,
 	}
 	local observer = {}
 
@@ -23,20 +23,19 @@ local function createObserver(api)
 		state.LastRoom = read(event, "RoomName")
 		state.LastAverageDecrease = tonumber(read(event, "AverageDecrease"))
 		state.LastDecreaseCount = tonumber(read(event, "DecreaseCount")) or 0
-		state.LastSampleCount = tonumber(read(event, "SampleCount")) or 0
+		state.LastWindow = tonumber(read(event, "Window")) or 0
 		if state.Outcome
 			or read(event, "Qualified") ~= true
+			or read(event, "Completed") ~= true
 			or read(event, "SameRoom") ~= true
 			or (tonumber(read(event, "ResidenceSeconds")) or 0) < 5
-			or state.LastSampleCount < 20
 			or not state.LastAverageDecrease then return true end
 
-		local minimumCoolingChanges = math.max(
-			3,
-			math.floor(tonumber(read(event, "MinimumCoolingChanges")) or 3)
+		local requiredCoolingChanges = math.max(
+			20,
+			math.floor(tonumber(read(event, "RequiredCoolingChanges")) or 20)
 		)
-		if state.LastDecreaseCount < minimumCoolingChanges
-			or read(event, "SufficientCoolingChanges") ~= true then return true end
+		if state.LastDecreaseCount < requiredCoolingChanges then return true end
 		local outcome = tostring(read(event, "Outcome") or "Inconclusive")
 		local shadowThreshold = tonumber(read(event, "ShadowAverageThreshold")) or 0.05
 		local ruleOutThreshold = tonumber(read(event, "RuleOutAverageThreshold")) or 0.06
@@ -84,7 +83,7 @@ local function createObserver(api)
 		state.LastRoom = nil
 		state.LastAverageDecrease = nil
 		state.LastDecreaseCount = 0
-		state.LastSampleCount = 0
+		state.LastWindow = 0
 	end
 
 	function observer:Snapshot()
@@ -94,7 +93,7 @@ local function createObserver(api)
 			LastRoom = state.LastRoom,
 			LastAverageDecrease = state.LastAverageDecrease,
 			LastDecreaseCount = state.LastDecreaseCount,
-			LastSampleCount = state.LastSampleCount,
+			LastWindow = state.LastWindow,
 		}
 	end
 
@@ -109,12 +108,12 @@ return {
 	ObservationEvents = {"RoomTemperatureWindow"},
 	Perks = {
 		["Pretty Sure"] = {
-			"After 20 readings in the ghost's current room, at least three strict cooling changes with an exact average below 0.05°C identify Shadow at 99%.",
+			"After 20 actual cooling changes in the ghost's current room, an exact average below 0.05°C identifies Shadow at 99%.",
 		},
 		Maybe = {},
 		Idk = {
-			"With at least three cooling changes, an exact average above 0.06°C rules Shadow out; averages from 0.05°C through 0.06°C are inconclusive.",
-			"Every decreasing change, including outliers, stays in the average. Increases and unchanged pairs are excluded, and temperatures from other rooms are discarded.",
+			"Two consecutive independent 20-change averages above 0.06°C are required to rule Shadow out; one high window is only a candidate.",
+			"Every cooling change stays in its full-window arithmetic average. Increases and unchanged readings are excluded, and temperatures from other rooms are discarded.",
 		},
 	},
 	CreateObserver = createObserver,

@@ -31,143 +31,113 @@ local function reset(roomName, temperature)
 	tick(0)
 end
 
-reset("Library", 12)
-for index = 1, 20 do
-	if index == 6 then
-		temperatures.Library = temperatures.Library + 0.4
-	else
-		temperatures.Library = temperatures.Library - 0.049999
+local function cool(amount, count)
+	for _ = 1, count do
+		temperatures[currentRoom] = temperatures[currentRoom] - amount
+		tick(0.25)
 	end
-	tick(0.25)
 end
 
-expect(#emitted == 1, "a five-second same-room window should emit once")
+reset("Library", 12)
+cool(0.049999, 20)
+expect(#emitted == 1, "20 actual cooling changes over five seconds should complete one window")
 local shadow = emitted[1].Payload
 expect(shadow.RoomName == "Library" and shadow.SameRoom == true,
 	"the window must retain the ghost's current room")
-expect(shadow.SampleCount == 20 and shadow.ResidenceSeconds >= 5,
-	"the window must require 20 samples and five seconds")
+expect(shadow.SampleCount == 20 and shadow.DecreaseCount == 20 and shadow.ResidenceSeconds >= 5,
+	"a completed window must contain 20 actual cooling changes after five seconds")
+expect(#shadow.CoolingChanges == 20 and shadow.ReadingCount == 21,
+	"the payload must preserve the complete cooling set and baseline reading")
 expect(shadow.AverageDecrease < 0.05 and shadow.AverageDecrease > 0.049,
-	"the exact unrounded average below 0.05 should be retained")
+	"the exact unrounded arithmetic average below 0.05 should be retained")
 expect(shadow.ShadowPatternObserved == true and shadow.RuleOutPatternObserved == false,
-	"an exact strict-decrease average below 0.05 must identify Shadow")
-expect(shadow.SufficientCoolingChanges == true and shadow.Outcome == "Shadow",
-	"the tracker should authoritatively classify a sufficiently populated average")
-expect(shadow.IgnoredIncreaseCount == 1 and shadow.IncreasesIgnored == true,
-	"temperature increases must be excluded from the cooling average")
-expect(shadow.Unrounded == true, "the event must explicitly retain unrounded statistics")
+	"an exact full-window average below 0.05 must identify Shadow")
+expect(shadow.Outcome == "Shadow" and tracker:Snapshot().Resolved == true,
+	"the tracker should resolve only after its full cooling window")
+
+reset("Library", 15)
+cool(0.049999, 10)
+temperatures.Library = temperatures.Library + 0.4
+tick(0.25)
+tick(0.25)
+tick(0.25)
+expect(#emitted == 0, "increases and unchanged readings must not count toward the 20-change window")
+cool(0.049999, 9)
+expect(#emitted == 0, "19 actual cooling changes must not complete a window")
+cool(0.049999, 1)
+expect(#emitted == 1, "the twentieth actual cooling change must complete the window")
+local ignored = emitted[1].Payload
+expect(ignored.DecreaseCount == 20 and ignored.IgnoredIncreaseCount == 1,
+	"the average set must exclude the temperature increase")
+expect(ignored.IgnoredUnchangedCount == 2 and ignored.AverageDecrease < 0.05,
+	"unchanged readings must be counted as ignored without diluting the average")
 
 reset("Library", 10)
-for _ = 1, 10 do
-	temperatures.Library = temperatures.Library - 0.049999
-	tick(0.25)
-end
+cool(0.049999, 10)
 currentRoom = "Hallway"
 temperatures.Hallway = 18
 tick(0.25)
-for _ = 1, 19 do
-	temperatures.Hallway = temperatures.Hallway - 0.049999
-	tick(0.25)
-end
-expect(#emitted == 0,
-	"changing rooms must discard the previous room's residence and samples")
-temperatures.Hallway = temperatures.Hallway - 0.049999
-tick(0.25)
+cool(0.049999, 19)
+expect(#emitted == 0, "changing rooms must discard the previous room's cooling changes")
+cool(0.049999, 1)
 expect(#emitted == 1 and emitted[1].Payload.RoomName == "Hallway",
-	"only the new room may complete its own five-second window")
-expect(emitted[1].Payload.ShadowPatternObserved == true,
-	"the new room's exact sub-0.05 average should identify Shadow")
+	"only the new room may complete its own 20-change window")
 
-reset("Library", 5.5)
-local sparseDrops = {
-	[5] = 0.072,
-	[10] = 0.054,
-	[15] = 0.053,
-}
-for index = 1, 20 do
-	temperatures.Library = temperatures.Library - (sparseDrops[index] or 0)
-	tick(0.25)
-end
-local sparse = emitted[1].Payload
-local expectedSparseAverage = (0.072 + 0.054 + 0.053) / 3
-expect(sparse.DecreaseCount == 3 and sparse.IgnoredUnchangedCount == 16,
-	"only the three strict cooling pairs should enter the sparse-window average")
-expect(math.abs(sparse.AverageDecrease - expectedSparseAverage) <= 1e-9,
-	"unchanged pairs must not dilute 0.072, 0.054, and 0.053 below their true average")
-expect(sparse.AverageDecrease > 0.059 and sparse.AverageDecrease < 0.06,
-	"the reproduced three-pair average should remain about 0.059666 without truncation")
-expect(sparse.ShadowPatternObserved == false
-	and sparse.RuleOutPatternObserved == false,
-	"the reproduced 0.05-to-0.06 average must remain inconclusive")
+reset("Library", 20)
+cool(0.055, 20)
+local middle = emitted[1].Payload
+expect(middle.AverageDecrease > 0.05 and middle.AverageDecrease < 0.06,
+	"the full 0.05-to-0.06 average must be preserved without truncation")
+expect(middle.Outcome == "Inconclusive" and tracker:Snapshot().Resolved == false,
+	"a middle-band window must remain inconclusive and continue monitoring")
 
 reset("Library", 30)
-for _ = 1, 20 do
-	temperatures.Library = temperatures.Library - 0.060001
-	tick(0.25)
-end
-local normal = emitted[1].Payload
-expect(normal.AverageDecrease > 0.06 and normal.AverageDecrease < 0.061,
-	"the exact unrounded average above 0.06 should be retained")
-expect(normal.RuleOutPatternObserved == true and normal.ShadowPatternObserved == false,
-	"a sufficiently populated average above 0.06 must rule Shadow out")
-expect(normal.Outcome == "RuleOut", "the tracker should authoritatively emit the average outcome")
+cool(0.060001, 20)
+local firstHigh = emitted[1].Payload
+expect(firstHigh.Outcome == "RuleOutCandidate" and firstHigh.RuleOutStreak == 1,
+	"one high-average window must only create a rule-out candidate")
+expect(firstHigh.RuleOutPatternObserved == false and tracker:Snapshot().Resolved == false,
+	"the first high window must not permanently rule Shadow out")
+cool(0.060001, 20)
+local secondHigh = emitted[2].Payload
+expect(secondHigh.Outcome == "RuleOut" and secondHigh.RuleOutStreak == 2,
+	"two consecutive independent high-average windows must rule Shadow out")
+expect(secondHigh.RuleOutPatternObserved == true and tracker:Snapshot().Resolved == true,
+	"the confirmed two-window rule-out should resolve the tracker")
 
 reset("Library", 40)
-for index = 1, 20 do
-	local decrease = index == 6 and 0.049999 or 0.07
-	temperatures.Library = temperatures.Library - decrease
-	tick(0.25)
-end
-local guarded = emitted[1].Payload
-expect(guarded.AverageDecrease > 0.06 and guarded.MinimumDecrease < 0.05,
-	"the outlier window should preserve both its high average and exact small value")
-expect(guarded.RuleOutPatternObserved == true and guarded.ShadowPatternObserved == false,
-	"one low cooling outlier must not veto an average-based Shadow rule-out")
-
-reset("Library", 45)
-for index = 1, 20 do
-	temperatures.Library = temperatures.Library - (index == 10 and 0.07 or 0)
-	tick(0.25)
-end
-local singleHighOutlier = emitted[1].Payload
-expect(singleHighOutlier.DecreaseCount == 1
-	and singleHighOutlier.SufficientCoolingChanges == false
-	and singleHighOutlier.Outcome == "Inconclusive",
-	"one high cooling outlier must not rule Shadow out without an average set")
-
-reset("Library", 55)
-for index = 1, 20 do
-	temperatures.Library = temperatures.Library - (index == 10 and 0.04 or 0)
-	tick(0.25)
-end
-local singleLowOutlier = emitted[1].Payload
-expect(singleLowOutlier.DecreaseCount == 1
-	and singleLowOutlier.SufficientCoolingChanges == false
-	and singleLowOutlier.Outcome == "Inconclusive",
-	"one low cooling outlier must not identify Shadow without an average set")
+cool(0.04, 19)
+cool(0.5, 1)
+local abnormal = emitted[1].Payload
+expect(abnormal.AverageDecrease > 0.06 and abnormal.MaximumDecrease == 0.5,
+	"an abnormal value must remain in the complete arithmetic average")
+expect(abnormal.Outcome == "RuleOutCandidate" and tracker:Snapshot().Resolved == false,
+	"one abnormal high-average window must not permanently rule Shadow out")
+cool(0.04, 20)
+expect(emitted[2].Payload.Outcome == "Shadow" and emitted[2].Payload.RuleOutStreak == 0,
+	"a following Shadow window must reset the candidate and identify Shadow")
 
 reset("Library", 50)
-for _ = 1, 20 do
-	temperatures.Library = temperatures.Library - 0.06
-	tick(0.25)
-end
-local boundary = emitted[1].Payload
-expect(math.abs(boundary.AverageDecrease - 0.06) <= 1e-9,
-	"the exact 0.06 boundary should be preserved")
-expect(boundary.ShadowPatternObserved == false
-	and boundary.RuleOutPatternObserved == false,
-	"exactly 0.06 must remain inconclusive")
+cool(0.060001, 20)
+cool(0.055, 20)
+expect(emitted[2].Payload.Outcome == "Inconclusive" and emitted[2].Payload.RuleOutStreak == 0,
+	"a non-high second window must reset the rule-out streak")
+cool(0.060001, 20)
+expect(emitted[3].Payload.Outcome == "RuleOutCandidate" and emitted[3].Payload.RuleOutStreak == 1,
+	"a high average after a reset must begin a new candidate streak")
 
 reset("Library", 60)
-for _ = 1, 20 do
-	temperatures.Library = temperatures.Library - 0.05
-	tick(0.25)
-end
-local shadowBoundary = emitted[1].Payload
-expect(math.abs(shadowBoundary.AverageDecrease - 0.05) <= 1e-9,
+cool(0.06, 20)
+expect(math.abs(emitted[1].Payload.AverageDecrease - 0.06) <= 1e-9,
+	"the exact 0.06 boundary should be preserved")
+expect(emitted[1].Payload.Outcome == "Inconclusive",
+	"exactly 0.06 must remain inconclusive")
+
+reset("Library", 70)
+cool(0.05, 20)
+expect(math.abs(emitted[1].Payload.AverageDecrease - 0.05) <= 1e-9,
 	"the exact 0.05 boundary should be preserved")
-expect(shadowBoundary.ShadowPatternObserved == false
-	and shadowBoundary.RuleOutPatternObserved == false,
+expect(emitted[1].Payload.Outcome == "Inconclusive",
 	"exactly 0.05 must remain inconclusive")
 
-print("core-room-temperature.spec: exact strict-decrease Shadow averages passed")
+print("core-room-temperature.spec: full-window Shadow averages passed")
