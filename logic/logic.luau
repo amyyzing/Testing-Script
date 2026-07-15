@@ -1378,6 +1378,52 @@ perkTrackerState.fireJournalGhostSelection = function(ghostName)
 	end
 	return sent
 end
+perkTrackerState.readJournalSelectedGhost = function()
+	local events = Services.ReplicatedStorage:FindFirstChild("Events")
+	local getSelected = events and events:FindFirstChild("GetSelectedGhost")
+	if not getSelected or not getSelected:IsA("RemoteFunction") then
+		return nil, false
+	end
+	local callback = getSelected.OnClientInvoke
+	if typeof(callback) ~= "function" then
+		return nil, false
+	end
+	local read, selectedGhost = pcall(callback)
+	if not read then
+		return nil, false
+	end
+	return selectedGhost, true
+end
+perkTrackerState.confirmJournalGhostSelection = function(frame, ghostName)
+	local selectedGhost, readable =
+		perkTrackerState.readJournalSelectedGhost()
+	if not readable then
+		return perkTrackerState.readJournalRowState(frame) == true
+	end
+	if selectedGhost == ghostName then
+		return true
+	end
+	-- The game's Journal controller owns the actual selection table. Cycle the
+	-- requested row through its normal click handler until that table selects it;
+	-- the handler fires EvidenceMarkedInJournal only on the transition to true.
+	for _ = 1, 3 do
+		if not perkTrackerState.triggerJournalClick(frame) then
+			return false
+		end
+		local deadline = os.clock() + 0.25
+		repeat
+			task.wait(0.02)
+			selectedGhost, readable =
+				perkTrackerState.readJournalSelectedGhost()
+		until not readable
+			or selectedGhost == ghostName
+			or os.clock() >= deadline
+		if readable and selectedGhost == ghostName then
+			return true
+		end
+	end
+	return false
+end
 perkTrackerState.syncJournal = function(forcedGhost)
 	if closed or perkTrackerState.journalMutationBusy then
 		return false
@@ -1464,6 +1510,13 @@ perkTrackerState.syncJournal = function(forcedGhost)
 				if frame and frame:IsA("Frame") then
 					selectedApplied =
 						perkTrackerState.applyJournalRowState(frame, true)
+					if explicitlyForced then
+						selectedApplied =
+							perkTrackerState.confirmJournalGhostSelection(
+								frame,
+								selectedGhost
+							)
+					end
 				end
 				perkTrackerState.journalDesiredApplicability[selectedGhost] =
 					true
@@ -1473,19 +1526,22 @@ perkTrackerState.syncJournal = function(forcedGhost)
 		if selectedGhost and selectedApplied then
 			perkTrackerState.lastJournalSelectedGhost = selectedGhost
 			perkTrackerState.lastJournalVisualGhost = selectedGhost
-			-- A highlighted row only proves that the local Journal UI changed. The
-			-- server still needs the final ghost choice before the round can end.
-			-- Forced selections come from round automation, so always dispatch the
-			-- authoritative selection even when the row was already highlighted.
-			if explicitlyForced then
-				return perkTrackerState.fireJournalGhostSelection(selectedGhost)
-			end
 			return true
 		end
 		if not selectedGhost then
 			perkTrackerState.lastJournalVisualGhost = nil
 			return true
 		end
+		if explicitlyForced then
+			-- Do not bypass the Journal controller with another direct remote. A
+			-- retry must preserve its selected/crossed-out/neutral state machine.
+			return false
+		end
+	end
+	if explicitlyForced then
+		-- Wait for the Journal UI/controller instead of reporting a direct remote
+		-- as a successful choice without updating GetSelectedGhost's local table.
+		return false
 	end
 	if selectedGhost then
 		return perkTrackerState.fireJournalGhostSelection(selectedGhost)
