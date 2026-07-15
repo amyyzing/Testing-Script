@@ -8,6 +8,7 @@ return function(dependencies: any)
 	local getInstanceWorldPosition: any = assert(dependencies.GetInstanceWorldPosition, "round-automation requires GetInstanceWorldPosition")
 	local getRoomBoundingParts: any = assert(dependencies.GetRoomBoundingParts, "round-automation requires GetRoomBoundingParts")
 	local pointIsInsidePart: any = assert(dependencies.PointIsInsidePart, "round-automation requires PointIsInsidePart")
+	local teleportation: any = assert(dependencies.Teleportation, "round-automation requires Teleportation")
 	local teleportToRoomBoundingBoxCenter: any = assert(dependencies.TeleportToRoom, "round-automation requires TeleportToRoom")
 	local teleportToBaseCamp: any = assert(dependencies.TeleportToBaseCamp, "round-automation requires TeleportToBaseCamp")
 	local teleportToFavouriteRoom: any = assert(dependencies.TeleportToFavouriteRoom, "round-automation requires TeleportToFavouriteRoom")
@@ -51,8 +52,7 @@ local POWERED_ROOM_ITEMS = {
 }
 local ROUND_HELD_ITEMS = {"Salt Canister", "Holy Oil"}
 local ROUND_DOOR_MAX_PLAYER_DISTANCE = 2
-local ROUND_DOOR_MIN_PLAYER_DISTANCE = 2
-local ROUND_DOOR_STAND_DISTANCE = 2
+local ROUND_DOOR_MIN_PLAYER_DISTANCE = 1.35
 local ROUND_PLACEMENT_MAX_PLAYER_DISTANCE = 2
 local ROUND_PICKUP_MAX_DISTANCE = 8
 local ROUND_REMOTE_SAFETY_DELAY = 0.1
@@ -453,32 +453,7 @@ local function roundPlacementHasFloor(instance, maximumDrop)
 end
 
 local function roundApproachPositions(target, distance)
-	local frame, size = roundTargetCFrame(target)
-	if not frame then
-		return {}, nil
-	end
-	local horizontalSize = size and math.max(size.X, size.Z) or 2
-	local offset = distance
-		or math.clamp(horizontalSize * 0.5 + 3.25, 4.25, 6.5)
-	local center = frame.Position
-	local right = Vector3.new(frame.RightVector.X, 0, frame.RightVector.Z)
-	local look = Vector3.new(frame.LookVector.X, 0, frame.LookVector.Z)
-	if right.Magnitude < 0.05 then
-		right = Vector3.new(1, 0, 0)
-	else
-		right = right.Unit
-	end
-	if look.Magnitude < 0.05 then
-		look = Vector3.new(0, 0, -1)
-	else
-		look = look.Unit
-	end
-	return {
-		center + look * offset,
-		center - look * offset,
-		center + right * offset,
-		center - right * offset,
-	}, center
+	return teleportation.ApproachPositions(target, distance)
 end
 
 local function horizontalUnit(vector, fallback)
@@ -551,21 +526,16 @@ local function roundDoorGeometry(target)
 		wideLength = size.Z
 		thickness = size.X
 	end
-	local maximumDistance = math.min(
-		thickness * 0.5 + ROUND_DOOR_STAND_DISTANCE,
-		ROUND_DOOR_MAX_PLAYER_DISTANCE
-	)
-	local minimumDistance = math.min(
-		math.max(
-			thickness * 0.5 + ROUND_DOOR_MIN_PLAYER_DISTANCE,
-			ROUND_DOOR_MIN_PLAYER_DISTANCE
-		),
-		ROUND_DOOR_MAX_PLAYER_DISTANCE
+	local maximumDistance = ROUND_DOOR_MAX_PLAYER_DISTANCE
+	local minimumDistance = math.clamp(
+		thickness * 0.5 + 1.05,
+		ROUND_DOOR_MIN_PLAYER_DISTANCE,
+		math.min(1.75, maximumDistance)
 	)
 	local standDistance = math.clamp(
-		thickness * 0.5 + ROUND_DOOR_STAND_DISTANCE,
+		thickness * 0.5 + 1.5,
 		minimumDistance,
-		maximumDistance
+		math.min(1.85, maximumDistance)
 	)
 	return {
 		Reference = reference,
@@ -617,10 +587,19 @@ local function roundDoorApproaches(target, placementDistance)
 			and {0, -0.2, 0.2}
 			or {0, -0.35, 0.35, -0.7, 0.7}) do
 			for _, normalAdjustment in ipairs({0, 0.2, -0.2}) do
+				-- Keep every ripple point inside the two-stud radius. Previously the
+				-- normal component was fixed at two studs, so every non-zero lateral
+				-- fallback was rejected by the final distance validator.
+				local radialMaximum = math.sqrt(math.max(
+					0.25,
+					ROUND_DOOR_MAX_PLAYER_DISTANCE ^ 2 - lateral ^ 2
+				))
+				local allowedMaximum = math.min(maximumDistance, radialMaximum)
+				local allowedMinimum = math.min(minimumDistance, allowedMaximum)
 				local distance = math.clamp(
 					standDistance + normalAdjustment,
-					minimumDistance,
-					maximumDistance
+					allowedMinimum,
+					allowedMaximum
 				)
 				table.insert(
 					positions,
@@ -646,44 +625,7 @@ local function roundDoorApproaches(target, placementDistance)
 end
 
 local function roomForRoundTarget(target, preferredPositions)
-	local rooms = findRoomsFolder()
-	if not rooms then
-		return nil
-	end
-	local targetPosition = getInstanceWorldPosition(target)
-	local distancePositions = preferredPositions
-	if not distancePositions or #distancePositions == 0 then
-		distancePositions = targetPosition and {targetPosition} or {}
-	end
-	local bestRoom
-	local bestInsideCount = -1
-	local bestDistance = math.huge
-	for _, room in ipairs(rooms:GetChildren()) do
-		local insideCount = 0
-		local distance = math.huge
-		for _, boundingPart in ipairs(getRoomBoundingParts(room)) do
-			for _, position in ipairs(preferredPositions or {}) do
-				if pointIsInsidePart(boundingPart, position) then
-					insideCount = insideCount + 1
-				end
-			end
-			for _, referencePosition in ipairs(distancePositions) do
-				local localPosition =
-					boundingPart.CFrame:PointToObjectSpace(referencePosition)
-				local half = boundingPart.Size * 0.5
-				local dx = math.max(math.abs(localPosition.X) - half.X, 0)
-				local dz = math.max(math.abs(localPosition.Z) - half.Z, 0)
-				distance = math.min(distance, math.sqrt(dx ^ 2 + dz ^ 2))
-			end
-		end
-		if insideCount > bestInsideCount
-			or (insideCount == bestInsideCount and distance < bestDistance) then
-			bestRoom = room
-			bestInsideCount = insideCount
-			bestDistance = distance
-		end
-	end
-	return bestRoom
+	return teleportation.FindRoomForTarget(target, preferredPositions)
 end
 
 local function teleportNearRoundTarget(target, preferredPosition, generation)
@@ -1203,18 +1145,23 @@ local function enforceRoundDoorCameraFacing(context)
 		) <= ROUND_WIDE_AXIS_DOT_MAX
 end
 
-local function facePlayerTowardRoundDoor(target)
-	local context, geometry, root = roundDoorFacingContext(target)
-	return enforceRoundDoorFacing(context), geometry, root
-end
-
-local function beginRoundDoorFacingLock(target)
+local function beginRoundDoorFacingLock(target, generation)
+	local movementLease, movementReason = teleportation.Acquire({
+		IsActive = function()
+			return generation == nil or roundActionIsSafe(generation)
+		end,
+	})
+	if not movementLease then
+		return nil, movementReason or "player movement was unavailable"
+	end
 	local context = roundDoorFacingContext(target)
 	if not context then
+		movementLease:Release()
 		return nil, "player could not face the door"
 	end
 	local camera = workspace.CurrentCamera
 	if not camera then
+		movementLease:Release()
 		return nil, "player camera was unavailable"
 	end
 	context.Camera = camera
@@ -1227,6 +1174,7 @@ local function beginRoundDoorFacingLock(target)
 		RenderStepName = nil,
 		HeartbeatPass = 0,
 		RenderPass = 0,
+		MovementLease = movementLease,
 	}
 	doRoundState.facingLocks = doRoundState.facingLocks
 		or setmetatable({}, {__mode = "k"})
@@ -1293,6 +1241,10 @@ local function beginRoundDoorFacingLock(target)
 			pcall(function()
 				camera.CameraType = self.OriginalCameraType
 			end)
+		end
+		if self.MovementLease then
+			self.MovementLease:Release()
+			self.MovementLease = nil
 		end
 	end
 	local disabled = pcall(function()
@@ -1612,7 +1564,7 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 	local dispatchPreviewPosition
 	local dispatchAccepted = false
 	local dispatchFailure
-	local facingLock, facingReason = beginRoundDoorFacingLock(target)
+	local facingLock, facingReason = beginRoundDoorFacingLock(target, generation)
 	if not facingLock then
 		return false, facingReason
 	end
@@ -1838,7 +1790,6 @@ end
 		PrepareDoor = prepareRoundDoorForPlacement,
 		TeleportNearTarget = teleportNearRoundTarget,
 		TeleportToDoorFace = teleportToRoundDoorFace,
-		FacePlayerToDoor = facePlayerTowardRoundDoor,
 		Shuffle = shuffleRoundList,
 		IsHunting = roundIsHunting,
 		IdentityIsCurrent = roundIdentityIsCurrent,
@@ -1888,7 +1839,6 @@ local setDoRoundEnabled = (function()
 	local prepareRoundDoorForPlacement = roundUtilities.PrepareDoor
 	local teleportNearRoundTarget = roundUtilities.TeleportNearTarget
 	local teleportToRoundDoorFace = roundUtilities.TeleportToDoorFace
-	local facePlayerTowardRoundDoor = roundUtilities.FacePlayerToDoor
 	local shuffleRoundList = roundUtilities.Shuffle
 	local roundIsHunting = roundUtilities.IsHunting
 	local roundIdentityIsCurrent = roundUtilities.IdentityIsCurrent
@@ -1922,6 +1872,7 @@ local setDoRoundEnabled = (function()
 	local function roundTeleportOptions(generation)
 		return {
 			ReleaseMovementOnCancel = true,
+			ForcePreferredPosition = true,
 			IsActive = function()
 				return doRoundOperationActive(generation)
 			end,
@@ -1945,14 +1896,16 @@ local setDoRoundEnabled = (function()
 	end
 	local function returnRoundToBase(generation)
 		local failedAttempts = 0
+		local preferredPositionAttempted = false
 		while doRoundOperationActive(generation) do
-			if playerIsInsideRoundBaseCamp() then
+			if preferredPositionAttempted and playerIsInsideRoundBaseCamp() then
 				return true
 			end
 			setDoRoundStatus("Returning to Base Camp")
 			local teleported = teleportToBaseCamp(
 				roundTeleportOptions(generation)
 			)
+			preferredPositionAttempted = true
 			if teleported then
 				Services.RunService.Heartbeat:Wait()
 			end
@@ -2448,7 +2401,7 @@ local function placeRoundToolsAtDoors(generation)
 					approach,
 					generation
 				)
-				if teleported and facePlayerTowardRoundDoor(door) then
+				if teleported then
 					placed, placementReason, dispatched, observedUses =
 						fireRoundPlaceable(toolName, door, generation)
 					if placed or dispatched then
@@ -3118,15 +3071,17 @@ local function requestRoundReturnToLobby(generation, ghostName)
 	end
 	local completed, returned, returnReason = xpcall(function()
 		local queueWarningShown = false
+		local basePositionPrepared = false
 		local roundStartedAt = doRoundState.exitOpenedAt
 			or doRoundState.startedAt
 			or os.clock()
 		local earliestReturnAt = roundStartedAt + ROUND_MINIMUM_LEAVE_AGE
 		while doRoundOperationActive(generation) do
-			if not playerIsInsideRoundBaseCamp()
+			if (not basePositionPrepared or not playerIsInsideRoundBaseCamp())
 				and not returnRoundToBase(generation) then
 				return false, "Do-Round cancelled before the Base Camp return"
 			end
+			basePositionPrepared = true
 			if not playerIsInsideRoundBaseCamp() then
 				doRoundWait(generation, 0.1)
 				continue
@@ -3386,8 +3341,7 @@ local function completeIdentifiedRound(generation, guess, score, certain)
 	cancelRoundTask("timeoutThread")
 	cancelDoRoundSetupWork()
 	setDoRoundStatus("Identified; returning to Base Camp")
-	if not playerIsInsideRoundBaseCamp()
-		and not returnRoundToBase(completionGeneration) then
+	if not returnRoundToBase(completionGeneration) then
 		return false
 	end
 	while doRoundOperationActive(completionGeneration) do

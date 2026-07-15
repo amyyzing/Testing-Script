@@ -13,6 +13,10 @@ return function(dependencies)
 		dependencies.RoundAutomation,
 		"logic/logic.luau requires RoundAutomation"
 	)
+	local createTeleportation = assert(
+		dependencies.Teleportation,
+		"logic/logic.luau requires Teleportation"
+	)
 	local view = assert(dependencies.View, "logic/logic.luau requires View")
 	local presenter = dependencies.Presenter
 
@@ -3390,6 +3394,15 @@ local function instanceIsInsideRoom(instance, room)
 	end
 	return false
 end
+local teleportation = createTeleportation({
+	Services = Services,
+	Player = player,
+	RuntimeIsActive = runtimeIsActive,
+	FindRoomsFolder = findRoomsFolder,
+	GetInstanceWorldPosition = getInstanceWorldPosition,
+	GetRoomBoundingParts = getRoomBoundingParts,
+	PointIsInsidePart = pointIsInsidePart,
+})
 local function _findRoomContainingInstance(instance)
 	local roomsFolder = findRoomsFolder()
 	if not roomsFolder or not instance then
@@ -6746,7 +6759,7 @@ perkTrackerState.findBaseCampRoom = function()
 		or roomsFolder:FindFirstChild("BaseCamp")
 		or findFavouriteRoom(roomsFolder, "Base Camp")
 end
-perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
+perkTrackerState.performRoomTeleport = function(room, options)
 	options = options or {}
 	local teleportSequence
 	local function teleportOwnsCharacter()
@@ -6780,6 +6793,9 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 			break
 		end
 		task.wait(0.05)
+		if not teleportIsActive() then
+			return false, "teleport was cancelled"
+		end
 		boundingParts = getRoomBoundingParts(room)
 	end
 
@@ -6825,6 +6841,14 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	local targetPosition = options.TargetPosition
 	local maximumTargetDistance = tonumber(options.MaximumTargetDistance)
 	local maximumPreferredDistance = tonumber(options.MaximumPreferredDistance)
+	local minimumOpenClearance = math.max(
+		0,
+		tonumber(options.MinimumOpenClearance) or 0
+	)
+	local strictSearchExpansion = math.max(
+		0,
+		tonumber(options.StrictSearchExpansion) or 0.05
+	)
 	local candidateValidator = options.CandidateValidator
 	local function candidatePassesCustomValidation(position)
 		if type(candidateValidator) ~= "function" then
@@ -7192,6 +7216,7 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 		candidate.StrictSafe = candidate.NormalY >= 0.62
 			and candidate.FlatSupportHits == #footprintOffsets
 			and candidate.BlockerCount == 0
+			and clearance >= minimumOpenClearance
 		candidate.Risk = calculateRisk(
 			bodyInspection,
 			footprintInspection,
@@ -7292,6 +7317,9 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	-- Build the original adaptive coverage, but inspect it like a ripple:
 	-- exact center first, then each progressively farther center ring.
 	for _, boundingPart in ipairs(boundingParts) do
+		if not teleportIsActive() then
+			return false, "teleport was cancelled"
+		end
 		local usableX =
 			math.max(0, boundingPart.Size.X - horizontalInset * 2)
 		local usableZ =
@@ -7359,6 +7387,9 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 				)
 				if rippleOrder % 12 == 0 then
 					Services.RunService.Heartbeat:Wait()
+					if not teleportIsActive() then
+						return false, "teleport was cancelled"
+					end
 				end
 			end
 		end
@@ -7439,7 +7470,12 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	local candidates = {}
 	local evaluated = setmetatable({}, {__mode = "k"})
 	local evaluationCount = 0
+	local evaluationCancelled = false
 	local function evaluateCandidate(candidate)
+		if not teleportIsActive() then
+			evaluationCancelled = true
+			return
+		end
 		if not candidate or evaluated[candidate] then
 			return
 		end
@@ -7469,6 +7505,9 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 		local completionRadius
 		for index, candidate in ipairs(pool) do
 			evaluateCandidate(candidate)
+			if evaluationCancelled then
+				return false
+			end
 			if candidate.StrictSafe and candidate.CoreBlockers == 0 then
 				strictCandidateCount = strictCandidateCount + 1
 				if strictCandidateCount >= 3 and not completionRadius then
@@ -7477,7 +7516,8 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 			end
 			if completionRadius
 				and index < #pool
-				and pool[index + 1].SearchDistance > completionRadius + 0.05 then
+				and pool[index + 1].SearchDistance
+					> completionRadius + strictSearchExpansion then
 				return true
 			end
 		end
@@ -7489,6 +7529,10 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	-- the risk fallback truly is the safest assessed option.
 	for _, pool in ipairs(candidatePools) do
 		evaluatePool(pool)
+		if evaluationCancelled then
+			destroyBodyGeometryProbe()
+			return false, "teleport was cancelled"
+		end
 		if strictCandidateCount >= 3 then
 			break
 		end
@@ -7513,6 +7557,10 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 			return left.StrictSafe
 		end
 		if left.StrictSafe then
+			if options.PreferOpenSpace == true
+				and math.abs(left.Clearance - right.Clearance) > 0.35 then
+				return left.Clearance > right.Clearance
+			end
 			if math.abs(left.PreferredDistance - right.PreferredDistance) > 0.05 then
 				return left.PreferredDistance < right.PreferredDistance
 			end
@@ -7709,6 +7757,7 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 				== #footprintOffsets
 			and bodyInspection.BlockerCount == 0
 			and bodyInspection.CoreBlockers == 0
+			and clearance >= minimumOpenClearance
 
 		if requireStrict then
 			return settledStrict
@@ -7858,17 +7907,90 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	return true, nil
 end
 
+perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
+	options = options or {}
+	return teleportation.RunExclusive(options, function()
+		return perkTrackerState.performRoomTeleport(room, options)
+	end)
+end
+
 perkTrackerState.teleportToBaseCamp = function(options)
 	local room = perkTrackerState.findBaseCampRoom()
 	if not room then
 		return false, "Base Camp room was not found"
 	end
 	options = table.clone(options or {})
+	if options.MinimumOpenClearance == nil then
+		options.MinimumOpenClearance = 2.1
+	end
+	if options.StrictSearchExpansion == nil then
+		options.StrictSearchExpansion = 5
+	end
+	if options.PreferOpenSpace == nil then
+		options.PreferOpenSpace = true
+	end
+	local preferredPosition
+	if type(options.PreferredPositions) ~= "table"
+		or #options.PreferredPositions == 0 then
+		local baseCamp = workspace:FindFirstChild("BaseCamp")
+			or workspace:FindFirstChild("Base Camp")
+		local truck = baseCamp and baseCamp:FindFirstChild("Truck", true)
+			or room:FindFirstChild("Truck", true)
+			or workspace:FindFirstChild("Truck", true)
+		preferredPosition = getInstanceWorldPosition(truck)
+		if not preferredPosition then
+			local doors = workspace:FindFirstChild("Doors")
+			if doors then
+				for _, object in ipairs(doors:GetDescendants()) do
+					local normalized = string.lower(object.Name):gsub("[^%w]", "")
+					local doorType = string.lower(tostring(
+						object:GetAttribute("DoorType")
+							or object:GetAttribute("Type")
+							or ""
+					)):gsub("[^%w]", "")
+					if string.find(normalized, "exitdoor", 1, true)
+						or object:GetAttribute("IsExitDoor") == true
+						or object:GetAttribute("ExitDoor") == true
+						or doorType == "exit"
+						or doorType == "exitdoor" then
+						preferredPosition = getInstanceWorldPosition(object)
+						if preferredPosition then
+							break
+						end
+					end
+				end
+			end
+		end
+		if preferredPosition then
+			options.PreferredPositions = {preferredPosition}
+		end
+	else
+		preferredPosition = options.PreferredPositions[1]
+	end
 	local function alreadyInsideBaseCamp()
 		local character = player.Character
 		return character ~= nil and instanceIsInsideRoom(character, room)
 	end
-	if alreadyInsideBaseCamp() then
+	local function alreadyAtBaseCampDestination()
+		if not alreadyInsideBaseCamp() then
+			return false
+		end
+		if options.ForcePreferredPosition ~= true or not preferredPosition then
+			return true
+		end
+		local root = player.Character
+			and player.Character:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return false
+		end
+		local offset = Vector3.new(
+			root.Position.X - preferredPosition.X,
+			0,
+			root.Position.Z - preferredPosition.Z
+		)
+		return offset.Magnitude <= 6
+	end
+	if alreadyAtBaseCampDestination() then
 		return true, nil
 	end
 	while perkTrackerState.baseCampTeleportBusy do
@@ -7879,50 +8001,12 @@ perkTrackerState.teleportToBaseCamp = function(options)
 		end
 		Services.RunService.Heartbeat:Wait()
 	end
-	if alreadyInsideBaseCamp() then
+	if alreadyAtBaseCampDestination() then
 		return true, nil
 	end
 
 	perkTrackerState.baseCampTeleportBusy = true
 	local succeeded, teleported, reason = pcall(function()
-		if type(options.PreferredPositions) ~= "table"
-			or #options.PreferredPositions == 0 then
-			local baseCamp = workspace:FindFirstChild("BaseCamp")
-				or workspace:FindFirstChild("Base Camp")
-			local truck = baseCamp and baseCamp:FindFirstChild("Truck", true)
-				or room:FindFirstChild("Truck", true)
-				or workspace:FindFirstChild("Truck", true)
-			local preferredPosition = getInstanceWorldPosition(truck)
-			if not preferredPosition then
-				local doors = workspace:FindFirstChild("Doors")
-				if doors then
-					for _, object in ipairs(doors:GetDescendants()) do
-						local normalized = string.lower(object.Name):gsub("[^%w]", "")
-						local doorType = string.lower(tostring(
-							object:GetAttribute("DoorType")
-								or object:GetAttribute("Type")
-								or ""
-						)):gsub("[^%w]", "")
-						if string.find(normalized, "exitdoor", 1, true)
-							or object:GetAttribute("IsExitDoor") == true
-							or object:GetAttribute("ExitDoor") == true
-							or doorType == "exit"
-							or doorType == "exitdoor" then
-							preferredPosition = getInstanceWorldPosition(object)
-							if preferredPosition then
-								break
-							end
-						end
-					end
-				end
-			end
-			if preferredPosition then
-				-- Candidate safety still wins; among open, grounded Base Camp
-				-- destinations prefer the point nearest Truck. The exit is only a
-				-- fallback when this map does not expose BaseCamp.Truck.
-				options.PreferredPositions = {preferredPosition}
-			end
-		end
 		return perkTrackerState.teleportToRoomBoundingBoxCenter(room, options)
 	end)
 	perkTrackerState.baseCampTeleportBusy = false
@@ -8489,60 +8573,24 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 		end
 		local function moveNearWorldItem(model)
 			assertOperationActive()
-			local character = player.Character
-			local root = character
-				and character:FindFirstChild("HumanoidRootPart")
-			local humanoid = character
-				and character:FindFirstChildOfClass("Humanoid")
-			if not model
-				or not model.Parent
-				or not character
-				or not root
-				or not humanoid then
+			if not model or not model.Parent then
 				return false
 			end
-			local originalAnchored = root.Anchored
-			local originalAutoRotate = humanoid.AutoRotate
-			local originalPlatformStand = humanoid.PlatformStand
-			humanoid.Sit = false
-			humanoid.PlatformStand = false
-			humanoid.AutoRotate = false
-			root.Anchored = true
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-			local itemCFrame
-			if model:IsA("BasePart") then
-				itemCFrame = model.CFrame
-			else
-				local ok, pivot = pcall(function()
-					return model:GetPivot()
-				end)
-				itemCFrame = ok and pivot or nil
-			end
-			if not itemCFrame then
-				root.Anchored = originalAnchored
-				humanoid.PlatformStand = originalPlatformStand
-				humanoid.AutoRotate = originalAutoRotate
+			local preferred, center = teleportation.ApproachPositions(model, 3.5)
+			if not center or #preferred == 0 then
 				return false
 			end
-			assertOperationActive()
-			character:PivotTo(
-				itemCFrame * CFrame.new(0, 3.5, 0)
-			)
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-			Services.RunService.Heartbeat:Wait()
-			if operationIsActive() then
-				root.Anchored = originalAnchored
-				humanoid.PlatformStand = originalPlatformStand
-				humanoid.AutoRotate = originalAutoRotate
-			else
-				root.Anchored = false
-				humanoid.PlatformStand = false
-				humanoid.AutoRotate = true
+			local room = teleportation.FindRoomForTarget(model, preferred)
+			if not room then
 				return false
 			end
-			return true
+			local options = operationTeleportOptions()
+			options.PreferredPositions = preferred
+			options.TargetPosition = center
+			options.MaximumTargetDistance = 7.5
+			options.LookAtPosition = center
+			options.RequireStrict = true
+			return perkTrackerState.teleportToRoomBoundingBoxCenter(room, options)
 		end
 		local function equipItem(slotNumber, returnToFavouriteRoom)
 			waitForNoHunt(returnToFavouriteRoom == true)
@@ -9286,6 +9334,7 @@ doRoundState.roundAutomation = createRoundAutomation({
 	GetInstanceWorldPosition = getInstanceWorldPosition,
 	GetRoomBoundingParts = getRoomBoundingParts,
 	PointIsInsidePart = pointIsInsidePart,
+	Teleportation = teleportation,
 	TeleportToRoom = perkTrackerState.teleportToRoomBoundingBoxCenter,
 	TeleportToBaseCamp = perkTrackerState.teleportToBaseCamp,
 	TeleportToFavouriteRoom = perkTrackerState.teleportToFavouriteRoom,
@@ -9970,37 +10019,33 @@ function Controller:ToggleFuseBox()
 
 		if not changed then
 			local character = player.Character
-			local root = character and character:FindFirstChild("HumanoidRootPart")
-			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 			local anchor = fuseBox:FindFirstChild("PromptAnchor", true)
 				or fuseBox:FindFirstChildWhichIsA("BasePart", true)
 
-			if character and root and humanoid and anchor and anchor:IsA("BasePart") then
-				local original = character:GetPivot()
-				local originalAnchored = root.Anchored
-				local mutated = false
-				local function restoreCharacter()
-					if not mutated then
-						return
-					end
-					pcall(function()
-						if character.Parent and root.Parent then
-							character:PivotTo(original)
-							root.AssemblyLinearVelocity = Vector3.zero
-							root.AssemblyAngularVelocity = Vector3.zero
-							root.Anchored = originalAnchored
-						end
-					end)
-				end
-
+			if character and anchor and anchor:IsA("BasePart") then
+				local originalPosition = character:GetPivot().Position
+				local originalRoom = _findRoomContainingInstance(character)
 				local succeeded, actionError = xpcall(function()
-					root.Anchored = true
-					mutated = true
-					root.AssemblyLinearVelocity = Vector3.zero
-					root.AssemblyAngularVelocity = Vector3.zero
-					character:PivotTo(anchor.CFrame * CFrame.new(0, 2.5, 3))
+					local preferred, center = teleportation.ApproachPositions(anchor, 3.5)
+					local targetRoom = teleportation.FindRoomForTarget(anchor, preferred)
+					if not targetRoom or not center then
+						error("No room bounds were found near the fuse box", 0)
+					end
+					local moved, moveReason =
+						perkTrackerState.teleportToRoomBoundingBoxCenter(targetRoom, {
+							PreferredPositions = preferred,
+							TargetPosition = center,
+							MaximumTargetDistance = 8,
+							LookAtPosition = center,
+							RequireStrict = true,
+							ReleaseMovementOnCancel = true,
+							IsActive = runtimeIsActive,
+						})
+					if not moved then
+						error("Fuse box teleport failed: " .. tostring(moveReason), 0)
+					end
 					Services.RunService.Heartbeat:Wait()
-					if not runtimeIsActive() then
+					if not runtimeIsActive() or player.Character ~= character then
 						return
 					end
 					pcall(remote.FireServer, remote)
@@ -10023,7 +10068,21 @@ function Controller:ToggleFuseBox()
 						changed = fuseBox:GetAttribute("Enabled") ~= before
 					end
 				end, debug.traceback)
-				restoreCharacter()
+				if originalRoom and runtimeIsActive()
+					and player.Character == character then
+					local restored = perkTrackerState.teleportToRoomBoundingBoxCenter(
+						originalRoom,
+						{
+							PreferredPositions = {originalPosition},
+							RequireStrict = true,
+							ReleaseMovementOnCancel = true,
+							IsActive = runtimeIsActive,
+						}
+					)
+					if not restored and not actionFailure then
+						actionFailure = "Could not return from the fuse box safely"
+					end
+				end
 				if not succeeded then
 					actionFailure = tostring(actionError):match("^[^\n]+")
 				end

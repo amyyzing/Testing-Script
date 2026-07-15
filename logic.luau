@@ -189,6 +189,7 @@ local RUNTIME_MODULE_PATHS = {
 	"gui/aesthetic.luau",
 	"gui/gui-logic.luau",
 	"logic/ghost-module.luau",
+	"logic/teleportation.luau",
 	"logic/round-automation.luau",
 	"logic/logic.luau",
 }
@@ -1371,7 +1372,9 @@ local ok, failure = xpcall(function()
 	})
 	assertCurrent()
 
-	loader:SetStage("Loading round automation…", 3, 9)
+	loader:SetStage("Loading teleportation and round automation…", 3, 9)
+	local createTeleportation = loadRemoteModule("logic/teleportation.luau")
+	assertCurrent()
 	local createRoundAutomation = loadRemoteModule("logic/round-automation.luau")
 	assertCurrent()
 
@@ -1413,6 +1416,7 @@ local ok, failure = xpcall(function()
 		Generation = generation,
 		GhostModule = GhostModule,
 		GhostPackage = GhostPackage,
+		Teleportation = createTeleportation,
 		RoundAutomation = createRoundAutomation,
 		View = view,
 		Presenter = presenter,
