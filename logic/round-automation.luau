@@ -2122,11 +2122,96 @@ local function roundDoorDistanceToRoom(doorModel, room)
 	return math.huge
 end
 
+local function acquireRoundHeldTool(itemName, generation)
+	if getRoundEquippedItem(itemName)
+		or getRoundInventoryItem(itemName)
+		or findRoundHotbarSlot(itemName) then
+		return true
+	end
+	local itemsFolder = workspace:FindFirstChild("Items")
+	if not itemsFolder then
+		return false, "Workspace.Items was unavailable"
+	end
+	local normalized = normalizeRoundItemName(itemName)
+	local candidates = {}
+	for _, model in ipairs(itemsFolder:GetChildren()) do
+		if model:IsA("Model")
+			and normalizeRoundItemName(roundItemName(model)) == normalized
+			and tonumber(model:GetAttribute("Uses")) ~= 0 then
+			table.insert(candidates, model)
+		end
+	end
+	if #candidates == 0 then
+		return false, itemName .. " was not found in Workspace.Items"
+	end
+	local root = player.Character
+		and player.Character:FindFirstChild("HumanoidRootPart")
+	table.sort(candidates, function(first, second)
+		local firstPosition = getInstanceWorldPosition(first)
+		local secondPosition = getInstanceWorldPosition(second)
+		local origin = root and root.Position or Vector3.zero
+		local firstDistance = firstPosition
+			and (firstPosition - origin).Magnitude
+			or math.huge
+		local secondDistance = secondPosition
+			and (secondPosition - origin).Magnitude
+			or math.huge
+		return firstDistance < secondDistance
+	end)
+	local events = Services.ReplicatedStorage:FindFirstChild("Events")
+	local pickup = events and events:FindFirstChild("RequestItemPickup")
+	if not pickup or not pickup:IsA("RemoteEvent") then
+		return false, "RequestItemPickup RemoteEvent was not found"
+	end
+	local lastReason = itemName .. " could not be approached for pickup"
+	for _, model in ipairs(candidates) do
+		if not roundActionIsSafe(generation) then
+			return false, roundUnsafeReason(generation)
+		end
+		for _, approach in ipairs(roundApproachPositions(model, 3.5)) do
+			if not roundActionIsSafe(generation) then
+				return false, roundUnsafeReason(generation)
+			end
+			if teleportNearRoundTarget(model, approach, generation) then
+				root = player.Character
+					and player.Character:FindFirstChild("HumanoidRootPart")
+				local itemPosition = getInstanceWorldPosition(model)
+				if root and itemPosition
+					and (root.Position - itemPosition).Magnitude
+						<= ROUND_PICKUP_MAX_DISTANCE then
+					beginAutomationMutation(4)
+					doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
+					if not roundActionIsSafe(generation) then
+						return false, roundUnsafeReason(generation)
+					end
+					if pcall(pickup.FireServer, pickup, model) then
+						local deadline = os.clock() + 2
+						repeat
+							if getRoundEquippedItem(itemName)
+								or getRoundInventoryItem(itemName)
+								or findRoundHotbarSlot(itemName) then
+								return true
+							end
+							doRoundWait(generation, 0.05)
+						until os.clock() >= deadline
+						lastReason = itemName .. " pickup was not confirmed"
+					else
+						lastReason = "RequestItemPickup failed for " .. itemName
+					end
+					break
+				end
+			end
+		end
+	end
+	return false, lastReason
+end
+
 local function placeRoundToolsAtDoors(generation)
 	local rejectedDoors = setmetatable({}, {__mode = "k"})
 	local doorInstanceIds = setmetatable({}, {__mode = "k"})
 	local nextDoorInstanceId = 0
 	local equipFailures = {}
+	local doorRetryPasses = {}
 	local warnings = {}
 	local warningKeys = {}
 	local function doorInstanceKey(doorModel)
@@ -2213,9 +2298,24 @@ local function placeRoundToolsAtDoors(generation)
 					or getRoundInventoryItem(toolName)
 				local slot = findRoundHotbarSlot(toolName)
 				if not stored and not slot then
-					addWarning(toolKey .. ":missing", reason)
-					doRoundState.completedDoorTools[toolKey] = true
-					break
+					local acquired, acquireReason =
+						acquireRoundHeldTool(toolName, generation)
+					if acquired then
+						equipFailures[toolKey] = 0
+						continue
+					end
+					if acquireReason == "hunt started"
+						or acquireReason == "ghost unavailable"
+						or acquireReason == "Do-Round cancelled" then
+						return false, acquireReason
+					end
+					addWarning(
+						toolKey .. ":missing",
+						acquireReason or reason
+					)
+					setDoRoundStatus("Waiting for " .. toolName)
+					doRoundWait(generation, 0.75)
+					continue
 				end
 				equipFailures[toolKey] = (equipFailures[toolKey] or 0) + 1
 				if equipFailures[toolKey] >= 4 then
@@ -2245,8 +2345,9 @@ local function placeRoundToolsAtDoors(generation)
 					toolKey .. ":uses",
 					toolName .. " Uses attribute was unavailable"
 				)
-				doRoundState.completedDoorTools[toolKey] = true
-				break
+				setDoRoundStatus("Waiting for " .. toolName .. " Uses")
+				doRoundWait(generation, 0.5)
+				continue
 			end
 			doRoundState.doorToolUses[toolKey] = uses
 			if uses <= 0 then
@@ -2256,15 +2357,24 @@ local function placeRoundToolsAtDoors(generation)
 
 			local selectedDoor, selectedKey, selectedInstanceKey = selectDoor(toolKey)
 			if not selectedDoor then
-				doRoundState.completedDoorTools[toolKey] = true
+				doorRetryPasses[toolKey] = (doorRetryPasses[toolKey] or 0) + 1
 				addWarning(
 					toolKey .. ":doors",
 					toolName
 						.. " still has Uses="
 						.. tostring(uses)
-						.. ", but no unused, safe, non-exit door model was available"
+						.. "; retrying the non-exit doors"
 				)
-				break
+				-- A failed pass is not successful placement. Door geometry, previews,
+				-- and replicated models can become ready later, so allow another pass
+				-- instead of advancing to the normal round with unused tools.
+				rejectedDoors = setmetatable({}, {__mode = "k"})
+				setDoRoundStatus("Retrying " .. toolName .. " doors")
+				doRoundWait(
+					generation,
+					math.min(1.5, 0.35 + doorRetryPasses[toolKey] * 0.15)
+				)
+				continue
 			end
 
 			setDoRoundStatus(
@@ -2345,20 +2455,10 @@ local function placeRoundToolsAtDoors(generation)
 					doRoundState.completedDoorTools[toolKey] = true
 				end
 			end
-			if dispatched then
+			if placed then
+				doorRetryPasses[toolKey] = 0
 				doRoundState.reservedDoorModels[selectedDoor] = true
 				doRoundState.reservedDoorNames[selectedKey] = true
-				-- An accepted Holy Oil remote counts toward the three-pour cap even
-				-- when the Uses/world-pile confirmation arrives late. This prevents
-				-- an ambiguous replication result from pouring more than three times.
-				if toolKey == "holy oil" and not placed then
-					doRoundState.doorToolPlacements[toolKey] =
-						(doRoundState.doorToolPlacements[toolKey] or 0) + 1
-					doRoundState.usedHolyOilDoorModels[selectedDoor] = true
-					doRoundState.usedHolyOilDoorNames[selectedKey] = true
-				end
-			end
-			if placed then
 				doRoundState.doorToolPlacements[toolKey] =
 					(doRoundState.doorToolPlacements[toolKey] or 0) + 1
 				doRoundState.usedDoorNames[selectedKey] = true
