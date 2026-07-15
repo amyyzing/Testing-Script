@@ -258,14 +258,14 @@ do
 		ResidenceSeconds = 5,
 		SampleCount = 20,
 		DecreaseCount = 20,
-		AverageDecrease = 0.049999,
+		AverageDecrease = 0.059999,
 		RequiredCoolingChanges = 20,
 		Outcome = "Shadow",
-		ShadowAverageThreshold = 0.05,
+		ShadowAverageThreshold = 0.06,
 	})
 	local matched = last(api, "Positive")
 	expect(matched ~= nil and matched.Confidence == 99,
-		"an exact sub-0.05 full cooling window must identify Shadow at 99%")
+		"an exact sub-0.06 full cooling window must identify Shadow at 99%")
 end
 
 do
@@ -280,13 +280,13 @@ do
 		ResidenceSeconds = 5,
 		SampleCount = 20,
 		DecreaseCount = 20,
-		AverageDecrease = 0.07,
+		AverageDecrease = 0.09,
 		RequiredCoolingChanges = 20,
 		RequiredRuleOutWindows = 2,
 		RuleOutStreak = 1,
 		Outcome = "RuleOutCandidate",
-		ShadowAverageThreshold = 0.05,
-		RuleOutAverageThreshold = 0.06,
+		ShadowAverageThreshold = 0.06,
+		RuleOutAverageThreshold = 0.08,
 	})
 	expect(last(api, "Positive") == nil and last(api, "RuleOut") == nil,
 		"one high-average window must not rule Shadow out")
@@ -299,13 +299,13 @@ do
 		ResidenceSeconds = 10,
 		SampleCount = 20,
 		DecreaseCount = 20,
-		AverageDecrease = 0.065,
+		AverageDecrease = 0.085,
 		RequiredCoolingChanges = 20,
 		RequiredRuleOutWindows = 2,
 		RuleOutStreak = 2,
 		Outcome = "RuleOut",
-		ShadowAverageThreshold = 0.05,
-		RuleOutAverageThreshold = 0.06,
+		ShadowAverageThreshold = 0.06,
+		RuleOutAverageThreshold = 0.08,
 	})
 	local ruledOut = last(api, "RuleOut")
 	expect(ruledOut ~= nil and ruledOut.Confidence == 99,

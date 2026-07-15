@@ -37,8 +37,8 @@ local function createObserver(api)
 		)
 		if state.LastDecreaseCount < requiredCoolingChanges then return true end
 		local outcome = tostring(read(event, "Outcome") or "Inconclusive")
-		local shadowThreshold = tonumber(read(event, "ShadowAverageThreshold")) or 0.05
-		local ruleOutThreshold = tonumber(read(event, "RuleOutAverageThreshold")) or 0.06
+		local shadowThreshold = tonumber(read(event, "ShadowAverageThreshold")) or 0.06
+		local ruleOutThreshold = tonumber(read(event, "RuleOutAverageThreshold")) or 0.08
 
 		if outcome == "Shadow" then
 			state.Outcome = "Matched"
@@ -108,12 +108,12 @@ return {
 	ObservationEvents = {"RoomTemperatureWindow"},
 	Perks = {
 		["Pretty Sure"] = {
-			"After 20 actual cooling changes in the ghost's current room, an exact average below 0.05°C identifies Shadow at 99%.",
+			"After the exit door opens, 20 actual cooling changes in the ghost's current room with an exact average below 0.06°C identify Shadow at 99%.",
 		},
 		Maybe = {},
 		Idk = {
-			"Two consecutive independent 20-change averages above 0.06°C are required to rule Shadow out; one high window is only a candidate.",
-			"Every cooling change stays in its full-window arithmetic average. Increases and unchanged readings are excluded, and temperatures from other rooms are discarded.",
+			"Two consecutive independent 20-change averages above 0.08°C are required to rule Shadow out as a normal-cooling ghost; one high window is only a candidate.",
+			"Setup-phase temperatures are discarded. Every post-opening cooling change stays in its full-window arithmetic average; increases and unchanged readings are excluded.",
 		},
 	},
 	CreateObserver = createObserver,

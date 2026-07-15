@@ -66,9 +66,10 @@ return function(dependencies)
 				2,
 				math.floor(tonumber(options.RequiredRuleOutWindows) or 2)
 			),
-			ShadowAverageThreshold = tonumber(options.ShadowAverageThreshold) or 0.05,
-			RuleOutAverageThreshold = tonumber(options.RuleOutAverageThreshold) or 0.06,
+			ShadowAverageThreshold = tonumber(options.ShadowAverageThreshold) or 0.06,
+			RuleOutAverageThreshold = tonumber(options.RuleOutAverageThreshold) or 0.08,
 			_context = nil,
+			_roundStarted = false,
 			_roomName = nil,
 			_enteredAt = nil,
 			_lastSampleAt = nil,
@@ -154,6 +155,15 @@ return function(dependencies)
 			temperature = tonumber(self._context.ReadRoomTemperature(roomName))
 		end
 		return temperature
+	end
+
+	function RoomTemperature:_readRoundStarted(event)
+		local started = Events.Read(event, "RoundStarted")
+		if type(started) ~= "boolean"
+			and type(self._context.ReadRoundStarted) == "function" then
+			started = self._context.ReadRoundStarted()
+		end
+		return started == true
 	end
 
 	function RoomTemperature:_emitWindow(now)
@@ -264,6 +274,15 @@ return function(dependencies)
 		if type(event) ~= "table"
 			or (event.Type or event.Kind) ~= Events.Types.Tick then return false end
 		local now = self:_now(event)
+		if not self._roundStarted then
+			if not self:_readRoundStarted(event) then
+				self:_clearResidence("WaitingForRoundStart")
+				return true
+			end
+			-- Latch the first open state. Closing the exit door again must not
+			-- turn a running investigation back into setup-phase sampling.
+			self._roundStarted = true
+		end
 		local roomName = self:_readRoomName(event)
 		if not roomName then
 			self:_clearResidence("Dormant")
@@ -279,10 +298,17 @@ return function(dependencies)
 		return true
 	end
 
-	function RoomTemperature:Stop() self:_clearResidence("Stopped") end
-	function RoomTemperature:Reset() self:_clearResidence("Idle") end
+	function RoomTemperature:Stop()
+		self._roundStarted = false
+		self:_clearResidence("Stopped")
+	end
+	function RoomTemperature:Reset()
+		self._roundStarted = false
+		self:_clearResidence("Idle")
+	end
 
 	function RoomTemperature:Destroy()
+		self._roundStarted = false
 		self:_clearResidence("Destroyed")
 		self._context = nil
 	end
@@ -292,6 +318,7 @@ return function(dependencies)
 			Name = self.Name,
 			Category = self.Category,
 			Status = self.Status,
+			RoundStarted = self._roundStarted,
 			RoomName = self._roomName,
 			ResidenceSeconds = self._enteredAt and math.max(
 				0,

@@ -36,6 +36,7 @@ local currentRoomName
 local previousTemperature
 local decreaseSum = 0
 local decreaseCount = 0
+local roundStarted = false
 
 local function findRoom(rooms, roomName)
 	if not rooms or type(roomName) ~= "string" or roomName == "" then
@@ -62,7 +63,41 @@ local function reset(roomName, temperature)
 	label.Text = "Average drop rate: -- °C/sample"
 end
 
+local function exitDoorIsOpen()
+	local doors = workspace:FindFirstChild("Doors")
+	if not doors then
+		return false
+	end
+	for _, candidate in ipairs(doors:GetChildren()) do
+		local normalized = string.lower(candidate.Name):gsub("[^%w]", "")
+		local doorType = string.lower(tostring(
+			candidate:GetAttribute("DoorType")
+				or candidate:GetAttribute("Type")
+				or ""
+		)):gsub("[^%w]", "")
+		local isExit = string.find(normalized, "exitdoor", 1, true) ~= nil
+			or candidate:GetAttribute("IsExitDoor") == true
+			or candidate:GetAttribute("ExitDoor") == true
+			or doorType == "exit"
+			or doorType == "exitdoor"
+		if isExit and candidate:GetAttribute("DoorClosed") == false then
+			return true
+		end
+	end
+	return false
+end
+
 while screenGui.Parent do
+	if not roundStarted then
+		if exitDoorIsOpen() then
+			roundStarted = true
+			reset(nil, nil)
+		else
+			reset(nil, nil)
+			task.wait(0.25)
+			continue
+		end
+	end
 	local ghost = workspace:FindFirstChild("Ghost")
 	local map = workspace:FindFirstChild("Map")
 	local rooms = map and map:FindFirstChild("Rooms")

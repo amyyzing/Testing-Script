@@ -3405,6 +3405,27 @@ local function startGhostCoordinator(ghost)
 			ReadCurrentRoom = function()
 				return ghost:GetAttribute("CurrentRoom")
 			end,
+			ReadRoundStarted = function()
+				local doors = workspace:FindFirstChild("Doors")
+				if not doors then return false end
+				for _, candidate in ipairs(doors:GetChildren()) do
+					local normalized = string.lower(candidate.Name):gsub("[^%w]", "")
+					local doorType = string.lower(tostring(
+						candidate:GetAttribute("DoorType")
+							or candidate:GetAttribute("Type")
+							or ""
+					)):gsub("[^%w]", "")
+					local isExit = string.find(normalized, "exitdoor", 1, true) ~= nil
+						or candidate:GetAttribute("IsExitDoor") == true
+						or candidate:GetAttribute("ExitDoor") == true
+						or doorType == "exit"
+						or doorType == "exitdoor"
+					if isExit and candidate:GetAttribute("DoorClosed") == false then
+						return true
+					end
+				end
+				return false
+			end,
 			ReadRoomTemperature = function(roomName)
 				local roomsFolder = findRoomsFolder()
 				local room = findFavouriteRoom(roomsFolder, roomName)
