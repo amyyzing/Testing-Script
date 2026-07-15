@@ -305,11 +305,11 @@ local Profiles = {
 		note("Frequent hunts alone overlap with Demon behavior and difficulty settings.", SOURCE.Revenant, "wiki-documented", false, "Caveat"),
 	})),
 	profile("Shadow", {"EMFLevel5", "GhostWriting", "LaserProjector"}, "wiki-documented", perks({
-		note("After the exit door opens, 20 actual unrounded cooling changes in the ghost's current room with an exact arithmetic average below 0.06°C identify Shadow at 99%.", SOURCE.Shadow, "user-observed", false, "Trait"),
+		note("After the exit door opens, seven actual unrounded cooling changes in the ghost's current room with an exact arithmetic average below 0.06°C identify Shadow at 99%.", SOURCE.Shadow, "user-observed", false, "Trait"),
 	}, {
 		note("A controlled light-on versus light-off comparison shows reduced activity in the lit room.", SOURCE.Shadow, "wiki-documented", false, "Weakness"),
 	}, {
-		note("Setup-phase temperatures are discarded. Every post-opening cooling change, including outliers, enters the full 20-change arithmetic average. Increases and unchanged readings are ignored. One average above 0.08°C is only a candidate; two consecutive independent high-average windows rule Shadow out, while a middle-band window resets the streak.", SOURCE.Shadow, "user-observed", false, "RuleOut"),
+		note("Setup-phase temperatures are discarded. Every post-opening cooling change, including outliers, enters the full seven-change arithmetic average. Increases and unchanged readings are ignored. One average above 0.08°C is only a candidate; two consecutive independent high-average windows rule Shadow out, while a middle-band window resets the streak.", SOURCE.Shadow, "user-observed", false, "RuleOut"),
 		note("A quiet ghost or a room that is difficult to locate is only absence-based evidence.", SOURCE.Shadow, "wiki-documented", false, "Caveat"),
 	})),
 	profile("Siren", {"EMFLevel5", "SpiritBox", "Wither"}, "wiki-documented", perks({

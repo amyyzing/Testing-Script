@@ -32,8 +32,8 @@ local function createObserver(api)
 			or not state.LastAverageDecrease then return true end
 
 		local requiredCoolingChanges = math.max(
-			20,
-			math.floor(tonumber(read(event, "RequiredCoolingChanges")) or 20)
+			7,
+			math.floor(tonumber(read(event, "RequiredCoolingChanges")) or 7)
 		)
 		if state.LastDecreaseCount < requiredCoolingChanges then return true end
 		local outcome = tostring(read(event, "Outcome") or "Inconclusive")
@@ -108,11 +108,11 @@ return {
 	ObservationEvents = {"RoomTemperatureWindow"},
 	Perks = {
 		["Pretty Sure"] = {
-			"After the exit door opens, 20 actual cooling changes in the ghost's current room with an exact average below 0.06°C identify Shadow at 99%.",
+			"After the exit door opens, seven actual cooling changes in the ghost's current room with an exact average below 0.06°C identify Shadow at 99%.",
 		},
 		Maybe = {},
 		Idk = {
-			"Two consecutive independent 20-change averages above 0.08°C are required to rule Shadow out as a normal-cooling ghost; one high window is only a candidate.",
+			"Two consecutive independent seven-change averages above 0.08°C are required to rule Shadow out as a normal-cooling ghost; one high window is only a candidate.",
 			"Setup-phase temperatures are discarded. Every post-opening cooling change stays in its full-window arithmetic average; increases and unchanged readings are excluded.",
 		},
 	},

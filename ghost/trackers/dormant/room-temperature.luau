@@ -59,8 +59,8 @@ return function(dependencies)
 			SampleInterval = tonumber(options.SampleInterval) or 0.25,
 			ResidenceSeconds = tonumber(options.ResidenceSeconds) or 5,
 			RequiredCoolingChanges = math.max(
-				20,
-				math.floor(tonumber(options.RequiredCoolingChanges) or 20)
+				7,
+				math.floor(tonumber(options.RequiredCoolingChanges) or 7)
 			),
 			RequiredRuleOutWindows = math.max(
 				2,

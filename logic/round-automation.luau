@@ -3185,8 +3185,82 @@ local function finishTimedRound(generation)
 	)
 end
 
+local function currentConfidentRoundIdentification()
+	if doRoundState.completionClaimed then
+		return nil
+	end
+	local guess = perkTrackerState.currentGhostGuess
+	local score = perkTrackerState.currentGhostGuessScore or 0
+	local certain = perkTrackerState.currentGhostGuessCertain == true
+	local singleGuess = guess
+		and not string.find(guess, "/", 1, true)
+	if singleGuess and (certain or score >= 80) then
+		return guess, score, certain
+	end
+	return nil
+end
+
+local function completeIdentifiedRound(generation, guess, score, certain)
+	if not doRoundOperationActive(generation)
+		or doRoundState.completionClaimed then
+		return false
+	end
+	doRoundState.completionClaimed = true
+	-- Completion takes ownership before any setup worker can pick up an item.
+	-- The fresh generation invalidates all pre-round placement and door work.
+	doRoundState.generation = doRoundState.generation + 1
+	local completionGeneration = doRoundState.generation
+	doRoundState.identificationThread = nil
+	doRoundState.timeoutThread = nil
+	cancelDoRoundSetupWork()
+	setDoRoundStatus("Identified; returning to Base Camp")
+	if not playerIsInsideRoundBaseCamp()
+		and not returnRoundToBase(completionGeneration) then
+		return false
+	end
+	while doRoundOperationActive(completionGeneration) do
+		local completedCall, completed, completionFailure = xpcall(
+			function()
+				return finishRoundWithGhost(
+					guess,
+					score,
+					certain,
+					completionGeneration,
+					"Identified " .. guess
+				)
+			end,
+			debug.traceback
+		)
+		if completedCall and completed then
+			return true
+		end
+		if not doRoundOperationActive(completionGeneration) then
+			return false
+		end
+		if presenter and presenter.Notify then
+			presenter:Notify(
+				tostring(completionFailure or completed):match("^[^\n]+")
+					or "Identified lobby return failed; retrying"
+			)
+		end
+		task.wait(0.5)
+	end
+	return false
+end
+
 local function runDoRound(generation)
 	local success, failure = xpcall(function()
+		local identifiedGhost, identifiedScore, identifiedCertain =
+			currentConfidentRoundIdentification()
+		if identifiedGhost then
+			completeIdentifiedRound(
+				generation,
+				identifiedGhost,
+				identifiedScore,
+				identifiedCertain
+			)
+			return
+		end
 		setDoRoundStatus("Checking ghost room")
 		local ghost
 		local favouriteRoom
@@ -3209,11 +3283,28 @@ local function runDoRound(generation)
 		end
 
 		waitForRoundHuntEnd(generation)
+		if not doRoundOperationActive(generation) then
+			return
+		end
+		identifiedGhost, identifiedScore, identifiedCertain =
+			currentConfidentRoundIdentification()
+		if identifiedGhost then
+			completeIdentifiedRound(
+				generation,
+				identifiedGhost,
+				identifiedScore,
+				identifiedCertain
+			)
+			return
+		end
 		setDoRoundStatus("Placing room items")
 		while roomItemPlacementState.busy
 			and doRoundOperationActive(generation) do
 			setDoRoundStatus("Waiting for room item setup")
 			doRoundWait(generation, 0.15)
+		end
+		if not doRoundOperationActive(generation) then
+			return
 		end
 		local started, placementGeneration =
 			placeItemsInFavouriteRoom("DoRound")
@@ -3402,49 +3493,9 @@ local function startRoundIdentificationWatchdog(generation)
 	doRoundState.identificationThread = task.spawn(function()
 		while doRoundOperationActive(generation)
 			and not doRoundState.completionClaimed do
-			local guess = perkTrackerState.currentGhostGuess
-			local score = perkTrackerState.currentGhostGuessScore or 0
-			local certain = perkTrackerState.currentGhostGuessCertain == true
-			local singleGuess = guess
-				and not string.find(guess, "/", 1, true)
-			if singleGuess and (certain or score >= 80) then
-				doRoundState.completionClaimed = true
-				-- Completion owns a fresh generation so it interrupts room setup,
-				-- door placement, maintenance, and Hunt Escape immediately. Hunt
-				-- state is intentionally absent from this decision.
-				doRoundState.generation = doRoundState.generation + 1
-				local completionGeneration = doRoundState.generation
-				doRoundState.identificationThread = nil
-				doRoundState.timeoutThread = nil
-				cancelDoRoundSetupWork()
-				setDoRoundStatus("Identified; skipping setup")
-				while doRoundOperationActive(completionGeneration) do
-					local completedCall, completed, completionFailure = xpcall(
-						function()
-							return finishRoundWithGhost(
-								guess,
-								score,
-								certain,
-								completionGeneration,
-								"Identified " .. guess
-							)
-						end,
-						debug.traceback
-					)
-					if completedCall and completed then
-						return
-					end
-					if not doRoundOperationActive(completionGeneration) then
-						return
-					end
-					if presenter and presenter.Notify then
-						presenter:Notify(
-							tostring(completionFailure or completed):match("^[^\n]+")
-								or "Identified lobby return failed; retrying"
-						)
-					end
-					task.wait(0.5)
-				end
+			local guess, score, certain = currentConfidentRoundIdentification()
+			if guess then
+				completeIdentifiedRound(generation, guess, score, certain)
 				return
 			end
 			task.wait(0.1)
