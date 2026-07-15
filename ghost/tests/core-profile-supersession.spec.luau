@@ -182,4 +182,74 @@ do
 	coordinator:Destroy()
 end
 
+do
+	local coordinator = Coordinator.new({Definitions = {require("../Specter")}})
+	coordinator:Start({})
+	local function trial(id, outcome)
+		coordinator:Emit({
+			Type = "SpecterTrial",
+			TrialId = id,
+			Qualified = true,
+			Completed = true,
+			FavouriteRoomUnchanged = true,
+			ArmedSeconds = 5,
+			Outcome = outcome,
+		})
+	end
+
+	trial("residence-1", "Residence")
+	local supported = coordinator:Resolve({"Specter"}).Specter
+	expect(
+		supported.Status == "Supported" and supported.Confidence == 35,
+		"one Specter residence should produce one effective 35% positive"
+	)
+
+	trial("departure-1", "Departure")
+	local rejected = coordinator:Resolve({"Specter"}).Specter
+	local decisions = scoredEntries(coordinator, "Specter")
+	expect(
+		rejected.RuledOut == true and rejected.Conflicted == false,
+		"a Specter departure must supersede the stale residence positive"
+	)
+	expect(
+		#decisions == 2 and decisions[2].Supersedes == decisions[1].Id,
+		"the Specter rule-out must explicitly supersede its prior positive"
+	)
+
+	trial("residence-after-rule-out", "Residence")
+	expect(
+		#scoredEntries(coordinator, "Specter") == 2
+			and coordinator:Resolve({"Specter"}).Specter.RuledOut == true,
+		"later residence noise must not resurrect a ruled-out Specter"
+	)
+	coordinator:Destroy()
+end
+
+do
+	local coordinator = Coordinator.new({Definitions = {require("../Specter")}})
+	coordinator:Start({})
+	for index = 1, 2 do
+		coordinator:Emit({
+			Type = "SpecterTrial",
+			TrialId = "residence-upgrade-" .. tostring(index),
+			Qualified = true,
+			Completed = true,
+			FavouriteRoomUnchanged = true,
+			ArmedSeconds = 5,
+			Outcome = "Residence",
+		})
+	end
+	local upgraded = coordinator:Resolve({"Specter"}).Specter
+	local decisions = scoredEntries(coordinator, "Specter")
+	expect(
+		upgraded.Status == "Supported" and upgraded.Confidence == 65,
+		"two Specter residences should expose the upgraded 65% decision"
+	)
+	expect(
+		#decisions == 2 and decisions[2].Supersedes == decisions[1].Id,
+		"the 65% Specter decision must replace rather than duplicate 35%"
+	)
+	coordinator:Destroy()
+end
+
 print("core-profile-supersession.spec: real coordinator supersession, persistent positives, and durable qualifiers passed")
