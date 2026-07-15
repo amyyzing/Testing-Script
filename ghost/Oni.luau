@@ -28,8 +28,6 @@ local function createObserver(api)
 			local requiredPairs = math.max(7, math.floor(tonumber(read(event, "RequiredPairs")) or 7))
 			if math.floor(tonumber(read(event, "PairCount")) or 0) < requiredPairs then return true end
 		end
-		local fits = read(event, "Fits")
-		local oniFit = type(fits) == "table" and fits.Oni or nil
 		local best = read(event, "Best")
 		local base = tonumber(read(event, "BaseSpeed"))
 		if base == nil and kind == "NormalizedHuntSpeed" then
@@ -37,8 +35,10 @@ local function createObserver(api)
 		end
 		local tolerance = math.max(0.05, tonumber(event.Tolerance) or 0.3)
 		state.LastBaseSpeed = base
+		-- HuntSpeedMathResult can contain overlapping tolerance fits. Only its
+		-- winning classification is conclusive; accepting any Oni fit made an
+		-- exact Normal result such as 13.75 incorrectly identify Oni as well.
 		local matched = event.Outcome == "Oni" or best == "Oni"
-			or (type(oniFit) == "table" and (oniFit.Matched == true or oniFit.Fits == true))
 			or (kind == "NormalizedHuntSpeed" and base and math.abs(base - 13.5) <= tolerance)
 		if matched then
 			state.Outcome = "Matched"

@@ -8,6 +8,7 @@ local SpeedProbe = require("../trackers/dormant/speed-probe")({Events = Events})
 local SpeedPattern = require("../analyzers/speed-pattern")({Events = Events})
 local SpeedMath = require("../analyzers/speed-math")({Events = Events})
 local DullahanProfile = require("../Dullahan")
+local OniProfile = require("../Oni")
 local WendigoProfile = require("../Wendigo")
 
 local function expect(condition, message)
@@ -201,6 +202,28 @@ visibilityWindow(ordinarySpeeds, 1)
 local ordinaryMath = findEvent(coordinator, Events.Types.HuntSpeedMathResult)
 expect(ordinaryMath and ordinaryMath.Best == "Normal",
 	"seven flat base-speed pairs should classify the normal hunting-speed pattern")
+
+do
+	local oniCoordinator = Coordinator.new({Definitions = {OniProfile}})
+	oniCoordinator:Start({})
+	oniCoordinator:Emit({
+		Type = Events.Types.HuntSpeedMathResult,
+		Hunting = true,
+		Qualified = true,
+		Completed = true,
+		PairCount = 7,
+		RequiredPairs = 7,
+		Best = "Normal",
+		BaseSpeed = 13.75,
+		Fits = {Normal = {Matched = true}, Oni = {Matched = true}},
+	})
+	local ambiguousOni = oniCoordinator:Resolve({"Oni"}).Oni
+	expect(
+		ambiguousOni.RuledOut == true and ambiguousOni.Status ~= "Supported",
+		"an overlapping Oni tolerance must not override the best Normal speed fit"
+	)
+	oniCoordinator:Destroy()
+end
 
 coordinator:Reset()
 now = 0

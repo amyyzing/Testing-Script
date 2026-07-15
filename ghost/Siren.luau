@@ -14,18 +14,18 @@ local function createObserver(api)
 		LosOutcome = nil,
 		ModelSex = nil,
 		HummingMaleResolved = false,
+		HummingEvidenceId = nil,
 	}
 	local observer = {}
 	local function resolveHummingModelConflict(event)
 		if state.Humming and state.ModelSex == "Male" and not state.HummingMaleResolved then
 			state.HummingMaleResolved = true
-			emit(
-				api,
-				"RuleOut",
-				"Spirit Box humming paired with a male VisualModel identifies a Skinwalker mimic rather than Siren",
-				99,
-				event
-			)
+			local reason = "Spirit Box humming paired with a male VisualModel identifies a Skinwalker mimic rather than Siren"
+			if state.HummingEvidenceId and api and type(api.Supersede) == "function" then
+				api:Supersede(NAME, state.HummingEvidenceId, "RuleOut", reason, 99, event)
+			elseif api and type(api.RuleOut) == "function" then
+				api:RuleOut(NAME, reason, 99, event)
+			end
 		end
 	end
 	function observer:OnEvent(event)
@@ -36,8 +36,13 @@ local function createObserver(api)
 		emit(api, "Record", nil, nil, event)
 		if kind == "SpiritBoxResponse" and event.Qualified == true and event.Response == "- HUMMING -" then
 			state.Humming = true
-			emit(api, "Positive", event.Reason or "Spirit Box returned - HUMMING -", event.MimicPossible == true and 60 or 99, event)
-			resolveHummingModelConflict(event)
+			if state.ModelSex == "Male" then
+				resolveHummingModelConflict(event)
+			elseif api and type(api.Positive) == "function" then
+				local entry = api:Positive(NAME, event.Reason or "Spirit Box returned - HUMMING -", event.MimicPossible == true and 60 or 99, event)
+				state.HummingEvidenceId = type(entry) == "table" and entry.Id
+					or state.HummingEvidenceId
+			end
 		elseif kind == "LineOfSightPlayerSpeed" and event.Hunting == true and event.Qualified == true then
 			if event.Slowed == true then
 				state.LosOutcome = "Slowed"
@@ -49,13 +54,16 @@ local function createObserver(api)
 		elseif kind == "GhostModelSex" and event.Qualified == true then
 			state.ModelSex = event.Sex
 			if event.Sex == "Female" then emit(api, "Positive", event.Reason or "the ghost uses a female VisualModel", 25, event)
-			elseif event.Sex == "Male" then emit(api, "Negative", event.Reason or "the ghost uses a male VisualModel", 25, event) end
+			elseif event.Sex == "Male" and not state.Humming then
+				emit(api, "Negative", event.Reason or "the ghost uses a male VisualModel", 25, event)
+			end
 			resolveHummingModelConflict(event)
 		end
 		return true
 	end
 	function observer:Reset()
 		state.Humming, state.LosOutcome, state.ModelSex, state.HummingMaleResolved = false, nil, nil, false
+		state.HummingEvidenceId = nil
 	end
 	function observer:Snapshot()
 		return {
@@ -64,6 +72,7 @@ local function createObserver(api)
 			LosOutcome = state.LosOutcome,
 			ModelSex = state.ModelSex,
 			HummingMaleResolved = state.HummingMaleResolved,
+			HummingEvidenceId = state.HummingEvidenceId,
 		}
 	end
 	function observer:Destroy() state.Destroyed = true end

@@ -9,7 +9,7 @@ local function createObserver(api)
 		local count, window = tonumber(event.Count) or 0, tonumber(event.Window) or math.huge
 		state.LastCount = count
 		if event.Qualified == true and count >= 2 and window <= 2.5 and api and type(api.Positive) == "function" then
-			api:Positive(NAME, event.Reason or "at least two new BrokenGlass models appeared within 2.5 seconds", 85, event)
+			api:Positive(NAME, event.Reason or "at least two new BrokenGlass models appeared within 2.5 seconds", 60, event)
 		end
 		return true
 	end
@@ -23,6 +23,6 @@ return {
 	Name = NAME,
 	Evidence = {"FreezingTemperatures", "GhostOrb", "Handprints"},
 	ObservationEvents = {"BrokenGlassBurst"},
-	Perks = { ["Pretty Sure"] = {"Two or more distinct new BrokenGlass models form one short burst."}, Maybe = {}, Idk = {"One glass break is not diagnostic."} },
+	Perks = { ["Pretty Sure"] = {}, Maybe = {"Two or more distinct new BrokenGlass models form one short burst."}, Idk = {"One glass break is not diagnostic; a qualified wail is the stronger tell."} },
 	CreateObserver = createObserver,
 }

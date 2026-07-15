@@ -35,14 +35,16 @@ local function schedule(context, delaySeconds, callback)
 	return function() end
 end
 
-local function readSpeed(context, event)
+local function readSpeed(context, event, preferLive)
+	if preferLive and type(context.ReadWalkSpeed) == "function" then
+		local live = tonumber(context.ReadWalkSpeed())
+		if live then return live end
+	end
 	local explicit = tonumber(
 		Events.Read(event, "SettledSpeed")
 			or Events.Read(event, "CurrentSpeed")
 	)
-	if explicit then
-		return explicit
-	end
+	if explicit then return explicit end
 	if type(context.ReadWalkSpeed) == "function" then
 		return tonumber(context.ReadWalkSpeed())
 	end
@@ -56,6 +58,7 @@ function SpeedPairs.new(options)
 		Category = "Dormant",
 		Status = "Idle",
 		SettleDelay = tonumber(options.SettleDelay) or 0.095,
+		PhaseConfirmDelay = tonumber(options.PhaseConfirmDelay) or 0.04,
 		RequiredPairs = math.max(1, math.floor(tonumber(options.RequiredPairs) or 7)),
 		_context = nil,
 		_hunting = false,
@@ -127,14 +130,14 @@ function SpeedPairs:_endHunt()
 	table.clear(self._huntMeta)
 end
 
-function SpeedPairs:_recordSample(invisible, event, token)
+function SpeedPairs:_recordSample(invisible, event, token, settledSpeed)
 	if not self._hunting or token ~= self._token or invisible ~= self._lastInvisible then
 		return
 	end
 	if self._windowCount > 0 then
 		return
 	end
-	local speed = readSpeed(self._context, event)
+	local speed = settledSpeed or readSpeed(self._context, event, true)
 	if not speed or speed <= 0 then
 		return
 	end
@@ -212,7 +215,8 @@ function SpeedPairs:_recordSample(invisible, event, token)
 end
 
 function SpeedPairs:OnEvent(event)
-	if type(event) ~= "table" then
+	if self.Status == "Stopped" or self.Status == "Destroyed"
+		or type(event) ~= "table" then
 		return
 	end
 	local kind = event.Type or event.Kind
@@ -249,8 +253,26 @@ function SpeedPairs:OnEvent(event)
 	self._lastInvisible = invisible
 	local token = self._token
 	self._cancelPending = schedule(self._context, self.SettleDelay, function()
-		self._cancelPending = nil
-		self:_recordSample(invisible, event, token)
+		if not self._hunting or token ~= self._token
+			or invisible ~= self._lastInvisible then
+			self._cancelPending = nil
+			return
+		end
+		-- Confirm that the same binary blink phase is still active before taking
+		-- its speed. A single post-edge read could capture the previous phase's
+		-- WalkSpeed and turn one Phantom pair into a false Dullahan window.
+		self._cancelPending = schedule(self._context, self.PhaseConfirmDelay, function()
+			self._cancelPending = nil
+			if not self._hunting or token ~= self._token
+				or invisible ~= self._lastInvisible then return end
+			if type(self._context.ReadTransparency) == "function" then
+				local qualified, liveInvisible = Events.IsBinaryTransparency(
+					self._context.ReadTransparency()
+				)
+				if not qualified or liveInvisible ~= invisible then return end
+			end
+			self:_recordSample(invisible, event, token, readSpeed(self._context, event, true))
+		end)
 	end)
 end
 
@@ -288,6 +310,7 @@ function SpeedPairs:Snapshot()
 		Samples = copyArray(self._samples),
 		WindowCount = self._windowCount,
 		RequiredPairs = self.RequiredPairs,
+		PhaseConfirmDelay = self.PhaseConfirmDelay,
 		PendingSettledRead = self._cancelPending ~= nil,
 	}
 end

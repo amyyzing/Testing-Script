@@ -68,7 +68,8 @@ local function readWalkSpeed()
 	speedReadCount = speedReadCount + 1
 	if speedReadCount == 1 then return nil end
 	if speedReadCount == 2 then return 0 end
-	return 11
+	if speedReadCount <= 4 then return 11 end
+	return 9
 end
 
 local huntState = HuntState.new({SettleDelay = 0.1})
@@ -128,14 +129,16 @@ runNextJob()
 expect(speedReadCount == 2 and trackerSnapshot(coordinator, "SpeedProbe").QueuedProbeCount == 1, "second invalid settled read must retry without dropping the queued probe")
 runAllJobs()
 
-expect(speedReadCount == 3, "settled baseline retry should stop after the first valid read")
+expect(speedReadCount == 5,
+	"baseline retry should require two stable valid reads, then the queued salt probe should take one fresh live read")
 local armed = trackerSnapshot(coordinator, "SpeedProbe")
 expect(armed.Status == "Armed" and armed.BaselineSpeed == 11 and armed.QueuedProbeCount == 0, "valid retry must arm SpeedProbe and flush its queue")
 local saltResult = findEvent(coordinator, Events.Types.SpeedProbeResult, function(event)
 	return event.Trigger == Events.Types.SaltContact
 end)
 expect(saltResult ~= nil, "queued salt event must produce a probe result after baseline recovery")
-expect(saltResult.BaselineSpeed == 11 and saltResult.CurrentSpeed == 9 and saltResult.Delta == -2, "flushed probe must use the recovered hunt baseline")
+expect(saltResult.BaselineSpeed == 11 and saltResult.CurrentSpeed == 9 and saltResult.Delta == -2,
+	"flushed probe must compare the recovered hunt baseline with a fresh delayed WalkSpeed read")
 expect(saltResult.DirectContact == true and saltResult.SaltDisturbed == true, "flushed probe must retain event-time salt qualifiers")
 
 expect(findEvent(coordinator, Events.Types.SpeedProbeResult, function(event)

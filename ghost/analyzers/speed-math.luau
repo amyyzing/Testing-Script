@@ -240,7 +240,8 @@ return function(dependencies)
 	end
 
 	function SpeedMath:OnEvent(event)
-		if type(event) ~= "table" then
+		if self.Status == "Stopped" or self.Status == "Destroyed"
+			or type(event) ~= "table" then
 			return
 		end
 		local kind = event.Type or event.Kind

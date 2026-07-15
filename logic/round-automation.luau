@@ -67,6 +67,11 @@ local ROUND_ROOM_VERTICAL_TOLERANCE = 0.6
 local ROUND_ITEM_OUTSIDE_GRACE = 1.75
 local ROUND_MAINTENANCE_INTERVAL = 1.25
 local ROUND_MAINTENANCE_RETRY_BACKOFF = 1.5
+local ROUND_MISSING_TOOL_RETRY_LIMIT = 5
+local ROUND_MISSING_USES_RETRY_LIMIT = 3
+local ROUND_DOOR_RETRY_PASS_LIMIT = 3
+local ROUND_BASE_CAMP_RETRY_MIN = 0.25
+local ROUND_BASE_CAMP_RETRY_MAX = 2
 local ROUND_CHARACTER_FACING_DOT = 0.995
 local ROUND_CAMERA_FACING_DOT = 0.995
 local ROUND_WIDE_AXIS_DOT_MAX = 0.05
@@ -1298,13 +1303,6 @@ local function beginRoundDoorFacingLock(target)
 		lock:Release()
 		return nil, "player facing lock could not disable AutoRotate"
 	end
-	local preSimulationConnected, preSimulationConnection = pcall(function()
-		return Services.RunService.PreSimulation:Connect(function()
-			if not lock:Enforce() then
-				lock:Release()
-			end
-		end)
-	end)
 	local heartbeatConnected, heartbeatConnection = pcall(function()
 		return Services.RunService.Heartbeat:Connect(function()
 			if lock:Enforce() then
@@ -1314,13 +1312,10 @@ local function beginRoundDoorFacingLock(target)
 			end
 		end)
 	end)
-	if preSimulationConnected then
-		table.insert(lock.Connections, preSimulationConnection)
-	end
 	if heartbeatConnected then
 		table.insert(lock.Connections, heartbeatConnection)
 	end
-	if not preSimulationConnected or not heartbeatConnected then
+	if not heartbeatConnected then
 		lock:Release()
 		return nil, "player facing lock could not bind to simulation"
 	end
@@ -1866,6 +1861,11 @@ end
 		ItemOutsideGrace = ROUND_ITEM_OUTSIDE_GRACE,
 		MaintenanceInterval = ROUND_MAINTENANCE_INTERVAL,
 		MaintenanceRetryBackoff = ROUND_MAINTENANCE_RETRY_BACKOFF,
+		MissingToolRetryLimit = ROUND_MISSING_TOOL_RETRY_LIMIT,
+		MissingUsesRetryLimit = ROUND_MISSING_USES_RETRY_LIMIT,
+		DoorRetryPassLimit = ROUND_DOOR_RETRY_PASS_LIMIT,
+		BaseCampRetryMin = ROUND_BASE_CAMP_RETRY_MIN,
+		BaseCampRetryMax = ROUND_BASE_CAMP_RETRY_MAX,
 	}
 end)()
 
@@ -1911,6 +1911,14 @@ local setDoRoundEnabled = (function()
 	local ROUND_MAINTENANCE_INTERVAL = roundUtilities.MaintenanceInterval
 	local ROUND_MAINTENANCE_RETRY_BACKOFF =
 		roundUtilities.MaintenanceRetryBackoff
+	local ROUND_MISSING_TOOL_RETRY_LIMIT =
+		roundUtilities.MissingToolRetryLimit
+	local ROUND_MISSING_USES_RETRY_LIMIT =
+		roundUtilities.MissingUsesRetryLimit
+	local ROUND_DOOR_RETRY_PASS_LIMIT =
+		roundUtilities.DoorRetryPassLimit
+	local ROUND_BASE_CAMP_RETRY_MIN = roundUtilities.BaseCampRetryMin
+	local ROUND_BASE_CAMP_RETRY_MAX = roundUtilities.BaseCampRetryMax
 	local function roundTeleportOptions(generation)
 		return {
 			ReleaseMovementOnCancel = true,
@@ -1936,7 +1944,11 @@ local setDoRoundEnabled = (function()
 			and instanceIsInsideRoom(character, room)
 	end
 	local function returnRoundToBase(generation)
+		local failedAttempts = 0
 		while doRoundOperationActive(generation) do
+			if playerIsInsideRoundBaseCamp() then
+				return true
+			end
 			setDoRoundStatus("Returning to Base Camp")
 			local teleported = teleportToBaseCamp(
 				roundTeleportOptions(generation)
@@ -1947,7 +1959,12 @@ local setDoRoundEnabled = (function()
 			if teleported and playerIsInsideRoundBaseCamp() then
 				return true
 			end
-			task.wait(0.15)
+			failedAttempts = failedAttempts + 1
+			local retryDelay = math.min(
+				ROUND_BASE_CAMP_RETRY_MAX,
+				ROUND_BASE_CAMP_RETRY_MIN * (2 ^ math.min(failedAttempts - 1, 3))
+			)
+			doRoundWait(generation, retryDelay)
 		end
 		return false
 	end
@@ -2153,6 +2170,8 @@ local function placeRoundToolsAtDoors(generation)
 	local doorInstanceIds = setmetatable({}, {__mode = "k"})
 	local nextDoorInstanceId = 0
 	local equipFailures = {}
+	local missingToolFailures = {}
+	local missingUsesFailures = {}
 	local doorRetryPasses = {}
 	local warnings = {}
 	local warningKeys = {}
@@ -2251,10 +2270,24 @@ local function placeRoundToolsAtDoors(generation)
 						or acquireReason == "Do-Round cancelled" then
 						return false, acquireReason
 					end
+					missingToolFailures[toolKey] =
+						(missingToolFailures[toolKey] or 0) + 1
 					addWarning(
 						toolKey .. ":missing",
 						acquireReason or reason
 					)
+					if missingToolFailures[toolKey]
+						>= ROUND_MISSING_TOOL_RETRY_LIMIT then
+						doRoundState.completedDoorTools[toolKey] = true
+						addWarning(
+							toolKey .. ":missing-final",
+							toolName
+								.. " was unavailable after "
+								.. tostring(ROUND_MISSING_TOOL_RETRY_LIMIT)
+								.. " checks; continuing without it"
+						)
+						break
+					end
 					setDoRoundStatus("Waiting for " .. toolName)
 					doRoundWait(generation, 0.75)
 					continue
@@ -2270,6 +2303,7 @@ local function placeRoundToolsAtDoors(generation)
 				continue
 			end
 			equipFailures[toolKey] = 0
+			missingToolFailures[toolKey] = 0
 			local uses = tonumber(equipped:GetAttribute("Uses"))
 			if uses == nil then
 				local usesDeadline = os.clock() + 1
@@ -2283,14 +2317,27 @@ local function placeRoundToolsAtDoors(generation)
 				until uses ~= nil or os.clock() >= usesDeadline
 			end
 			if uses == nil then
+				missingUsesFailures[toolKey] =
+					(missingUsesFailures[toolKey] or 0) + 1
 				addWarning(
 					toolKey .. ":uses",
 					toolName .. " Uses attribute was unavailable"
 				)
+				if missingUsesFailures[toolKey]
+					>= ROUND_MISSING_USES_RETRY_LIMIT then
+					doRoundState.completedDoorTools[toolKey] = true
+					addWarning(
+						toolKey .. ":uses-final",
+						toolName
+							.. " never published Uses; continuing without door placement"
+					)
+					break
+				end
 				setDoRoundStatus("Waiting for " .. toolName .. " Uses")
 				doRoundWait(generation, 0.5)
 				continue
 			end
+			missingUsesFailures[toolKey] = 0
 			doRoundState.doorToolUses[toolKey] = uses
 			if uses <= 0 then
 				doRoundState.completedDoorTools[toolKey] = true
@@ -2307,6 +2354,19 @@ local function placeRoundToolsAtDoors(generation)
 						.. tostring(uses)
 						.. "; retrying the non-exit doors"
 				)
+				if doorRetryPasses[toolKey]
+					>= ROUND_DOOR_RETRY_PASS_LIMIT then
+					doRoundState.completedDoorTools[toolKey] = true
+					addWarning(
+						toolKey .. ":doors-final",
+						"No unused eligible door remained for "
+							.. toolName
+							.. "; continuing after "
+							.. tostring(ROUND_DOOR_RETRY_PASS_LIMIT)
+							.. " complete passes"
+					)
+					break
+				end
 				-- A failed pass is not successful placement. Door geometry, previews,
 				-- and replicated models can become ready later, so allow another pass
 				-- instead of advancing to the normal round with unused tools.
@@ -2982,6 +3042,13 @@ local function selectRoundJournalGhost(ghostName, generation)
 end
 
 	local setEnabled
+	local function cancelRoundTask(fieldName)
+		local thread = doRoundState[fieldName]
+		doRoundState[fieldName] = nil
+		if thread and thread ~= coroutine.running() then
+			pcall(task.cancel, thread)
+		end
+	end
 	local function releaseRoundMovement()
 		for lock in pairs(doRoundState.facingLocks or {}) do
 			pcall(lock.Release, lock)
@@ -2992,6 +3059,8 @@ end
 
 local function waitForRoundHuntEnd(generation)
 	local escaped = false
+	local escapeFailures = 0
+	local nextEscapeAttemptAt = 0
 	while doRoundOperationActive(generation) do
 		if workspace:FindFirstChild("Map") ~= doRoundState.roundMap then
 			error("the round map changed", 0)
@@ -3005,13 +3074,21 @@ local function waitForRoundHuntEnd(generation)
 		end
 		doRoundState.questionsActive = false
 		setDoRoundStatus(currentGhost and "Hunt escape" or "Waiting for ghost")
-		if not escaped then
+		if not escaped and os.clock() >= nextEscapeAttemptAt then
 			local teleported = teleportToBaseCamp(
 				roundTeleportOptions(generation)
 			)
 			-- Confirm the same Base Camp containment used by completion. A moved
 			-- root whose room state has not settled yet must be retried.
 			escaped = teleported == true and playerIsInsideRoundBaseCamp()
+			if not escaped then
+				escapeFailures = escapeFailures + 1
+				nextEscapeAttemptAt = os.clock() + math.min(
+					ROUND_BASE_CAMP_RETRY_MAX,
+					ROUND_BASE_CAMP_RETRY_MIN
+						* (2 ^ math.min(escapeFailures - 1, 3))
+				)
+			end
 		end
 		doRoundWait(generation, 0.15)
 	end
@@ -3027,12 +3104,10 @@ local function requestRoundReturnToLobby(generation)
 	if not remote or not remote:IsA("RemoteEvent") then
 		return false, "RequestReturnToLobby RemoteEvent was not found"
 	end
-	local teleportBegan = false
+	local lastTeleportState
 	local connected, teleportConnection = pcall(function()
 		return player.OnTeleport:Connect(function(state)
-			if state ~= Enum.TeleportState.Failed then
-				teleportBegan = true
-			end
+			lastTeleportState = state
 		end)
 	end)
 	if not connected then teleportConnection = nil end
@@ -3041,63 +3116,75 @@ local function requestRoundReturnToLobby(generation)
 			teleportConnection:Disconnect()
 		end
 	end
-	local queueWarningShown = false
-	local roundStartedAt = doRoundState.exitOpenedAt
-		or doRoundState.startedAt
-		or os.clock()
-	local earliestReturnAt = roundStartedAt + ROUND_MINIMUM_LEAVE_AGE
-	while doRoundOperationActive(generation) do
-		if not playerIsInsideRoundBaseCamp()
-			and not returnRoundToBase(generation) then
-			disconnectTeleportListener()
-			return false, "Do-Round cancelled before the Base Camp return"
-		end
-		if not playerIsInsideRoundBaseCamp() then
-			doRoundWait(generation, 0.1)
-			continue
-		end
-		local leaveWait = earliestReturnAt - os.clock()
-		if leaveWait > 0 then
-			setDoRoundStatus("Waiting safely until 0:30")
-			doRoundWait(generation, math.min(0.25, leaveWait))
-			continue
-		end
-		setDoRoundStatus("Returning to lobby")
-		doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
-		-- Displacement during the safety delay invalidates this attempt. Hunt
-		-- state is deliberately irrelevant once identification is confident.
-		if not playerIsInsideRoundBaseCamp() then
-			continue
-		end
-		local preparedCall, prepared, prepareFailure = pcall(
-			prepareTeleport,
-			"ReturnToLobby"
-		)
-		if (not preparedCall or prepared == false)
-			and not queueWarningShown
-			and presenter and presenter.Notify then
-			queueWarningShown = true
-			presenter:Notify(
-				not preparedCall
-					and ("return teleport preparation failed: " .. tostring(prepared))
-					or tostring(prepareFailure
-						or "return teleport execution was not prepared")
+	local completed, returned, returnReason = xpcall(function()
+		local queueWarningShown = false
+		local roundStartedAt = doRoundState.exitOpenedAt
+			or doRoundState.startedAt
+			or os.clock()
+		local earliestReturnAt = roundStartedAt + ROUND_MINIMUM_LEAVE_AGE
+		while doRoundOperationActive(generation) do
+			if not playerIsInsideRoundBaseCamp()
+				and not returnRoundToBase(generation) then
+				return false, "Do-Round cancelled before the Base Camp return"
+			end
+			if not playerIsInsideRoundBaseCamp() then
+				doRoundWait(generation, 0.1)
+				continue
+			end
+			local leaveWait = earliestReturnAt - os.clock()
+			if leaveWait > 0 then
+				setDoRoundStatus("Waiting safely until 0:30")
+				doRoundWait(generation, math.min(0.25, leaveWait))
+				continue
+			end
+			if lastTeleportState == Enum.TeleportState.Failed then
+				setDoRoundStatus("Lobby return failed; retrying")
+				lastTeleportState = nil
+			else
+				setDoRoundStatus("Returning to lobby")
+			end
+			doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
+			-- Displacement during the safety delay invalidates this attempt. Hunt
+			-- state is deliberately irrelevant once identification is confident.
+			if not playerIsInsideRoundBaseCamp() then
+				continue
+			end
+			local preparedCall, prepared, prepareFailure = pcall(
+				prepareTeleport,
+				"ReturnToLobby"
 			)
+			if (not preparedCall or prepared == false)
+				and not queueWarningShown
+				and presenter and presenter.Notify then
+				queueWarningShown = true
+				presenter:Notify(
+					not preparedCall
+						and ("return teleport preparation failed: " .. tostring(prepared))
+						or tostring(prepareFailure
+							or "return teleport execution was not prepared")
+				)
+			end
+			pcall(remote.FireServer, remote)
+			-- Started/InProgress is not a terminal success signal. Teleport can still
+			-- fail after either state, so retain ownership and retry every four
+			-- seconds until this runtime is actually replaced or the user cancels.
+			local nextFireAt = os.clock() + ROUND_LOBBY_RETRY_SECONDS
+			while doRoundOperationActive(generation)
+				and os.clock() < nextFireAt do
+				task.wait(math.min(0.05, math.max(0, nextFireAt - os.clock())))
+			end
 		end
-		pcall(remote.FireServer, remote)
-		local nextFireAt = os.clock() + ROUND_LOBBY_RETRY_SECONDS
-		while doRoundOperationActive(generation)
-			and not teleportBegan
-			and os.clock() < nextFireAt do
-			task.wait(math.min(0.05, math.max(0, nextFireAt - os.clock())))
-		end
-		if teleportBegan then
-			disconnectTeleportListener()
-			return true
-		end
-	end
+		return false, "Do-Round cancelled before returning to the lobby"
+	end, debug.traceback)
 	disconnectTeleportListener()
-	return false, "Do-Round cancelled before returning to the lobby"
+	if not completed then
+		if not doRoundOperationActive(generation) then
+			return false, "Do-Round cancelled before returning to the lobby"
+		end
+		return false,
+			tostring(returned):match("^[^\n]+") or "Lobby return failed"
+	end
+	return returned, returnReason
 end
 
 local function chooseRoundTimeoutFallback()
@@ -3199,21 +3286,20 @@ local function finishRoundWithGhost(
 		)
 	end
 	setGhostIdentificationLabel(ghostName, confidence, certain == true)
-	while doRoundOperationActive(generation) do
-		setDoRoundStatus("Selecting ghost guess")
-		if selectRoundJournalGhost(ghostName, generation) then
-			local returned, returnReason = requestRoundReturnToLobby(generation)
-			if returned then
-				setEnabled(false, finalPhase)
-				return true
-			end
-			if not doRoundOperationActive(generation) then
-				return false, returnReason
-			end
-		end
-		task.wait(0.2)
+	setDoRoundStatus("Selecting ghost guess")
+	-- Journal mutation is bounded best-effort. Missing rows, a stale visual
+	-- controller, or a rejected EvidenceMarkedInJournal remote must never gate
+	-- the safety teleport or RequestReturnToLobby loop.
+	pcall(selectRoundJournalGhost, ghostName, generation)
+	if not doRoundOperationActive(generation) then
+		return false, "Do-Round cancelled before lobby return"
 	end
-	return false, "Do-Round cancelled before lobby return"
+	local returned, returnReason = requestRoundReturnToLobby(generation)
+	if returned then
+		setEnabled(false, finalPhase)
+		return true
+	end
+	return false, returnReason
 end
 
 local function cancelDoRoundSetupWork()
@@ -3270,8 +3356,8 @@ local function completeIdentifiedRound(generation, guess, score, certain)
 	-- The fresh generation invalidates all pre-round placement and door work.
 	doRoundState.generation = doRoundState.generation + 1
 	local completionGeneration = doRoundState.generation
-	doRoundState.identificationThread = nil
-	doRoundState.timeoutThread = nil
+	cancelRoundTask("identificationThread")
+	cancelRoundTask("timeoutThread")
 	cancelDoRoundSetupWork()
 	setDoRoundStatus("Identified; returning to Base Camp")
 	if not playerIsInsideRoundBaseCamp()
@@ -3474,11 +3560,17 @@ local function runDoRound(generation)
 							.. "/3)"
 					)
 				end
-				if exitAttempts >= 3 then
-					error(reason or "Exit door failed after three attempts", 0)
+					if exitAttempts >= 3 then
+						-- Exit replication and door remotes can be transiently late. Do not
+						-- switch automation off at an arbitrary early timestamp; remain safe,
+						-- back off, and let identification/the three-minute watchdog retain
+						-- ownership of round completion.
+						exitAttempts = 0
+						doRoundWait(generation, 1.5)
+					else
+						doRoundWait(generation, 0.5)
+					end
 				end
-				doRoundWait(generation, 0.5)
-			end
 		until exitOpened
 
 		waitForRoundHuntEnd(generation)
@@ -3578,6 +3670,7 @@ local function startRoundTimeoutWatchdog(generation)
 		doRoundState.generation = doRoundState.generation + 1
 		local completionGeneration = doRoundState.generation
 		doRoundState.timeoutThread = nil
+		cancelRoundTask("identificationThread")
 		cancelDoRoundSetupWork()
 		while doRoundOperationActive(completionGeneration) do
 			local completedCall, completed, completionFailure = xpcall(
@@ -3607,6 +3700,8 @@ setEnabled = function(enabled, finalPhase)
 	enabled = enabled == true
 	if doRoundState.enabled == enabled then
 		if not enabled then
+			cancelRoundTask("timeoutThread")
+			cancelRoundTask("identificationThread")
 			releaseRoundMovement()
 		end
 		if finalPhase then
@@ -3617,6 +3712,8 @@ setEnabled = function(enabled, finalPhase)
 	doRoundState.generation = doRoundState.generation + 1
 	doRoundState.enabled = enabled
 	if enabled then
+		cancelRoundTask("timeoutThread")
+		cancelRoundTask("identificationThread")
 		perkTrackerState.journalForcedGhost = nil
 		if presenter and presenter.SetGhostIdentificationLock then
 			presenter:SetGhostIdentificationLock(nil)
@@ -3689,6 +3786,8 @@ setEnabled = function(enabled, finalPhase)
 			runDoRound(generation)
 		end)
 	else
+		cancelRoundTask("timeoutThread")
+		cancelRoundTask("identificationThread")
 		if presenter and presenter.SetGhostIdentificationLock then
 			presenter:SetGhostIdentificationLock(nil)
 		end
@@ -3724,8 +3823,6 @@ setEnabled = function(enabled, finalPhase)
 		doRoundState.questionsActive = false
 		refreshAutoSpiritBoxEnabled()
 		doRoundState.thread = nil
-		doRoundState.timeoutThread = nil
-		doRoundState.identificationThread = nil
 		doRoundState.completionClaimed = false
 		doRoundState.completionGhost = nil
 		doRoundState.completionScore = nil

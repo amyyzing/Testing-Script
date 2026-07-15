@@ -112,8 +112,8 @@ return {
 		},
 		Maybe = {},
 		Idk = {
-			"Two consecutive independent seven-change averages above 0.08°C are required to rule Shadow out as a normal-cooling ghost; one high window is only a candidate.",
-			"Setup-phase temperatures are discarded. Every post-opening cooling change stays in its full-window arithmetic average; increases and unchanged readings are excluded.",
+			"One qualified seven-change average above 0.08°C rules Shadow out as a normal-cooling ghost.",
+			"Setup-phase temperatures are discarded. Every post-opening cooling change is normalized to the configured sample interval before averaging; increases and unchanged readings are excluded.",
 		},
 	},
 	CreateObserver = createObserver,

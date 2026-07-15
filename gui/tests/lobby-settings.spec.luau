@@ -166,6 +166,10 @@ expect(LobbySettings.CustomDifficultyMatches(player, {
 expect(not LobbySettings.CustomDifficultyMatches(player, {
 	GhostWalkSpeedMultiplier = 5,
 }), "a mismatched custom setting index must reject preset confirmation")
+expect(not LobbySettings.CustomDifficultyMatches(player, {
+	GhostWalkSpeedMultiplier = 6,
+	MissingSetting = 1,
+}), "a missing custom setting frame must reject the complete preset payload")
 
 local challengeStates = LobbySettings.ReadChallengeStates(player)
 expect(challengeStates[1] == true, "Challenge1 ON label should read true")

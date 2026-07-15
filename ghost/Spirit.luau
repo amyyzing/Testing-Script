@@ -13,10 +13,18 @@ local function createObserver(api)
 			state.Models[id] = "Blue"
 			local previous = state.EvidenceIds[id]
 			local entry
+			local skinwalker = api and type(api.Resolve) == "function"
+				and api:Resolve("Skinwalker") or nil
+			local skinwalkerExcluded = type(skinwalker) == "table"
+				and skinwalker.RuledOut == true
+			local confidence = skinwalkerExcluded and 99 or 60
+			local reason = event.Reason or (skinwalkerExcluded
+				and "eligible burning Holy Oil produced a stable blue fire color after Skinwalker was excluded"
+				or "eligible burning Holy Oil produced a stable blue fire color while Skinwalker remains possible")
 			if previous and api and type(api.Supersede) == "function" then
-				entry = api:Supersede(NAME, previous, "Positive", event.Reason or "eligible burning Holy Oil produced a stable blue fire color", 99, event)
+				entry = api:Supersede(NAME, previous, "Positive", reason, confidence, event)
 			elseif api and type(api.Positive) == "function" then
-				entry = api:Positive(NAME, event.Reason or "eligible burning Holy Oil produced a stable blue fire color", 99, event)
+				entry = api:Positive(NAME, reason, confidence, event)
 			end
 			state.EvidenceIds[id] = type(entry) == "table" and entry.Id or previous
 		elseif event.Blue == false and state.Models[id] == nil then
@@ -38,6 +46,6 @@ return {
 	Name = NAME,
 	Evidence = {"GhostWriting", "Handprints", "SpiritBox"},
 	ObservationEvents = {"HolyOilColor"},
-	Perks = { ["Pretty Sure"] = {"Eligible stable Holy Oil fire is blue."}, Maybe = {}, Idk = {"An unlit or transitioning effect is not a negative."} },
+	Perks = { ["Pretty Sure"] = {"Eligible stable Holy Oil fire is blue after Skinwalker is excluded."}, Maybe = {"One stable blue flame while Skinwalker remains possible."}, Idk = {"An unlit or transitioning effect is not a negative."} },
 	CreateObserver = createObserver,
 }

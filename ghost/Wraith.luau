@@ -8,7 +8,13 @@ local function read(event, key)
 end
 
 local function createObserver(api)
-	local state = {Destroyed = false, Contacts = {}, LastOutcome = nil}
+	local state = {
+		Destroyed = false,
+		Contacts = {},
+		LastOutcome = nil,
+		DecisionEvidenceId = nil,
+		DisturbedSaltSeen = false,
+	}
 	local observer = {}
 	local function resolve(id, outcome, event)
 		local contact = state.Contacts[id]
@@ -48,15 +54,22 @@ local function createObserver(api)
 		}
 		local entry
 		if outcome == "Disturbed" then
-			if contact.EvidenceId and api and type(api.Supersede) == "function" then
-				entry = api:Supersede(NAME, contact.EvidenceId, "RuleOut", read(event, "Reason") or "the contacted salt pile became disturbed", 99, conclusion)
+			-- One disturbed pile disproves Wraith globally. Keep every salt contact
+			-- on the same evidence chain so a different ContactId cannot leave an
+			-- older positive effective or resurrect Wraith later.
+			if state.DisturbedSaltSeen then return end
+			state.DisturbedSaltSeen = true
+			if state.DecisionEvidenceId and api and type(api.Supersede) == "function" then
+				entry = api:Supersede(NAME, state.DecisionEvidenceId, "RuleOut", read(event, "Reason") or "a DisturbedSaltLine exists, so the ghost can touch salt", 99, conclusion)
 			elseif api and type(api.RuleOut) == "function" then
-				entry = api:RuleOut(NAME, read(event, "Reason") or "the contacted salt pile became disturbed", 99, conclusion)
+				entry = api:RuleOut(NAME, read(event, "Reason") or "a DisturbedSaltLine exists, so the ghost can touch salt", 99, conclusion)
 			end
 		else
+			if state.DisturbedSaltSeen or state.DecisionEvidenceId ~= nil then return end
 			if api and type(api.Positive) == "function" then entry = api:Positive(NAME, read(event, "Reason") or "the directly touched salt pile remained undisturbed for four seconds", 99, conclusion) end
 		end
-		contact.EvidenceId = type(entry) == "table" and entry.Id or contact.EvidenceId
+		state.DecisionEvidenceId = type(entry) == "table" and entry.Id
+			or state.DecisionEvidenceId
 	end
 
 	function observer:OnEvent(event)
@@ -99,8 +112,19 @@ local function createObserver(api)
 		end
 		return true
 	end
-	function observer:Reset() state.Contacts, state.LastOutcome = {}, nil end
-	function observer:Snapshot() return {Destroyed = state.Destroyed, Contacts = state.Contacts, LastOutcome = state.LastOutcome} end
+	function observer:Reset()
+		state.Contacts, state.LastOutcome = {}, nil
+		state.DecisionEvidenceId, state.DisturbedSaltSeen = nil, false
+	end
+	function observer:Snapshot()
+		return {
+			Destroyed = state.Destroyed,
+			Contacts = state.Contacts,
+			LastOutcome = state.LastOutcome,
+			DecisionEvidenceId = state.DecisionEvidenceId,
+			DisturbedSaltSeen = state.DisturbedSaltSeen,
+		}
+	end
 	function observer:Destroy() state.Destroyed = true end
 	return observer
 end

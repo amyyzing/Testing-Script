@@ -182,11 +182,12 @@ function LobbySettings.CustomDifficultyMatches(player, settingsPayload)
 	local compared = 0
 	for settingId, expectedIndex in pairs(settingsPayload) do
 		local settingFrame = settingsList:FindFirstChild(tostring(settingId))
-		if settingFrame and settingFrame:IsA("Frame") then
-			compared = compared + 1
-			if settingFrame:GetAttribute("Index") ~= expectedIndex then
-				return false
-			end
+		if not settingFrame or not settingFrame:IsA("Frame") then
+			return false
+		end
+		compared = compared + 1
+		if settingFrame:GetAttribute("Index") ~= expectedIndex then
+			return false
 		end
 	end
 	return compared > 0

@@ -13,6 +13,7 @@ return function(dependencies)
 				From = change.From,
 				To = change.To,
 				Decrease = change.Decrease,
+				NormalizedDecrease = change.NormalizedDecrease,
 			}
 		end
 		return result
@@ -32,7 +33,7 @@ return function(dependencies)
 		local minimum = nil
 		local maximum = nil
 		for _, change in ipairs(changes) do
-			local decrease = change.Decrease
+			local decrease = change.NormalizedDecrease or change.Decrease
 			sum = sum + decrease
 			minimum = minimum and math.min(minimum, decrease) or decrease
 			maximum = maximum and math.max(maximum, decrease) or decrease
@@ -63,8 +64,8 @@ return function(dependencies)
 				math.floor(tonumber(options.RequiredCoolingChanges) or 7)
 			),
 			RequiredRuleOutWindows = math.max(
-				2,
-				math.floor(tonumber(options.RequiredRuleOutWindows) or 2)
+				1,
+				math.floor(tonumber(options.RequiredRuleOutWindows) or 1)
 			),
 			ShadowAverageThreshold = tonumber(options.ShadowAverageThreshold) or 0.06,
 			RuleOutAverageThreshold = tonumber(options.RuleOutAverageThreshold) or 0.08,
@@ -248,12 +249,18 @@ return function(dependencies)
 		if self._previousTemperature ~= nil then
 			local decrease = self._previousTemperature - temperature
 			if decrease > 0 then
+				local elapsed = math.max(0, now - (self._previousTemperatureAt or now))
+				local normalizedDecrease = decrease
+				if elapsed > 1e-6 then
+					normalizedDecrease = decrease * self.SampleInterval / elapsed
+				end
 				table.insert(self._coolingChanges, {
 					Time = now,
-					Elapsed = math.max(0, now - (self._previousTemperatureAt or now)),
+					Elapsed = elapsed,
 					From = self._previousTemperature,
 					To = temperature,
 					Decrease = decrease,
+					NormalizedDecrease = normalizedDecrease,
 				})
 			elseif decrease < 0 then
 				self._ignoredIncreases = self._ignoredIncreases + 1
@@ -271,7 +278,8 @@ return function(dependencies)
 	end
 
 	function RoomTemperature:OnEvent(event)
-		if type(event) ~= "table"
+		if self.Status == "Stopped" or self.Status == "Destroyed"
+			or type(event) ~= "table"
 			or (event.Type or event.Kind) ~= Events.Types.Tick then return false end
 		local now = self:_now(event)
 		if not self._roundStarted then

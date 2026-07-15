@@ -783,7 +783,7 @@ local function selectHighestConfidenceGuess(options)
 		end
 	end
 
-	local scores = {}
+	local scores: {[string]: number} = {}
 	local detections = type(options.Detections) == "table" and options.Detections or {}
 	for _, name in ipairs(candidates) do
 		local score = detectionScore(detections[name])
@@ -796,21 +796,29 @@ local function selectHighestConfidenceGuess(options)
 	local currentScore = options.CurrentScore
 	if type(currentScore) == "number" and currentScore == currentScore and currentScore > 0
 		and type(options.CurrentGuess) == "string" then
+		local currentNames: {string} = {}
 		for name in string.gmatch(options.CurrentGuess, "[^/]+") do
 			name = name:match("^%s*(.-)%s*$")
 			if allowed[name] then
-				scores[name] = math.max(scores[name], currentScore)
+				table.insert(currentNames, name)
 			end
+		end
+		-- A composite GUI label has one aggregate confidence, not that score for
+		-- every ghost named inside it. Promoting each member made stale 25% clues
+		-- tie a real 35% leader during the final randomized selection.
+		if #currentNames == 1 then
+			local name = currentNames[1]
+			scores[name] = math.max(scores[name] or 0, currentScore)
 		end
 	end
 
 	local maximumScore = 0
 	for _, name in ipairs(candidates) do
-		maximumScore = math.max(maximumScore, scores[name])
+		maximumScore = math.max(maximumScore, scores[name] or 0)
 	end
 	local tied = {}
 	for _, name in ipairs(candidates) do
-		if scores[name] == maximumScore then
+		if (scores[name] or 0) == maximumScore then
 			table.insert(tied, name)
 		end
 	end

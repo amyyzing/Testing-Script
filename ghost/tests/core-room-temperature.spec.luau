@@ -118,11 +118,8 @@ reset("Library", 30)
 cool(0.080001, 7)
 settleResidence(0)
 local firstHigh = emitted[1].Payload
-expect(firstHigh.Outcome == "RuleOutCandidate" and firstHigh.RuleOutStreak == 1,
-	"one seven-change normal-cooling window must only create a candidate")
-cool(0.080001, 7)
-expect(emitted[2].Payload.Outcome == "RuleOut" and emitted[2].Payload.RuleOutStreak == 2,
-	"two consecutive seven-change averages above 0.08 must rule Shadow out")
+expect(firstHigh.Outcome == "RuleOut" and firstHigh.RuleOutStreak == 1,
+	"one seven-change normal-cooling average above 0.08 must rule Shadow out")
 
 reset("Library", 40)
 cool(0.04, 6)
@@ -131,21 +128,19 @@ settleResidence(0)
 local abnormal = emitted[1].Payload
 expect(abnormal.AverageDecrease > 0.08 and math.abs(abnormal.MaximumDecrease - 0.33) <= 1e-9,
 	"an abnormal value must remain in the complete arithmetic average")
-expect(abnormal.Outcome == "RuleOutCandidate" and tracker:Snapshot().Resolved == false,
-	"one abnormal high-average window must not permanently rule Shadow out")
-cool(0.04, 7)
-expect(emitted[2].Payload.Outcome == "Shadow" and emitted[2].Payload.RuleOutStreak == 0,
-	"a following Shadow window must reset the candidate and identify Shadow")
+expect(abnormal.Outcome == "RuleOut" and tracker:Snapshot().Resolved == true,
+	"the full seven-change arithmetic average, including an outlier, must decide the window")
 
 reset("Library", 50)
-cool(0.080001, 7)
+for _ = 1, 7 do
+	temperatures.Library = temperatures.Library - 0.16
+	tick(0.5)
+end
 settleResidence(0)
-cool(0.07, 7)
-expect(emitted[2].Payload.Outcome == "Inconclusive" and emitted[2].Payload.RuleOutStreak == 0,
-	"a middle-band second window must reset the rule-out streak")
-cool(0.080001, 7)
-expect(emitted[3].Payload.Outcome == "RuleOutCandidate" and emitted[3].Payload.RuleOutStreak == 1,
-	"a high average after a reset must begin a new candidate streak")
+local delayed = emitted[1].Payload
+expect(math.abs(delayed.AverageDecrease - 0.08) <= 1e-9
+	and delayed.Outcome == "Inconclusive",
+	"late samples must normalize their cooling change to the configured 0.25-second interval")
 
 reset("Library", 60)
 cool(0.08, 7)

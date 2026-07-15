@@ -33,6 +33,28 @@ for _, observerProfile in ipairs(observerProfiles) do
 end
 for _, profile in ipairs(GhostModule.Profiles) do
 	expect(#profile.Evidence == 3, profile.Name .. " should have three real evidence types")
+	local observerProfile = observersByName[profile.Name]
+	expect(observerProfile ~= nil, profile.Name .. " should have a modular observer profile")
+	local catalogEvidence = {}
+	for _, evidenceName in ipairs(profile.Evidence) do
+		catalogEvidence[evidenceName] = true
+	end
+	local observerEvidence = {}
+	for _, evidenceName in ipairs(observerProfile.Evidence) do
+		observerEvidence[evidenceName] = true
+	end
+	for evidenceName in pairs(catalogEvidence) do
+		expect(
+			observerEvidence[evidenceName] == true,
+			profile.Name .. " observer is missing catalog evidence " .. evidenceName
+		)
+	end
+	for evidenceName in pairs(observerEvidence) do
+		expect(
+			catalogEvidence[evidenceName] == true,
+			profile.Name .. " catalog is missing observer evidence " .. evidenceName
+		)
+	end
 	expect(type(profile.Perks["Pretty Sure"]) == "table", profile.Name .. " needs Pretty Sure notes")
 	expect(type(profile.Perks.Maybe) == "table", profile.Name .. " needs Maybe notes")
 	expect(type(profile.Perks.Idk) == "table", profile.Name .. " needs Idk notes")
@@ -41,18 +63,6 @@ for _, profile in ipairs(GhostModule.Profiles) do
 		RealOnly = true,
 	})
 	expect(#exact == 1 and exact[1] == profile.Name, profile.Name .. " evidence should be unique")
-	local observerProfile = observersByName[profile.Name]
-	expect(observerProfile ~= nil, profile.Name .. " must have an observer profile")
-	local catalogEvidence = {}
-	for _, evidenceName in ipairs(profile.Evidence) do
-		catalogEvidence[evidenceName] = true
-	end
-	for _, evidenceName in ipairs(observerProfile.Evidence) do
-		expect(
-			catalogEvidence[evidenceName] == true,
-			profile.Name .. " observer evidence must match the evidence catalog"
-		)
-	end
 	local falseEvidence = observerProfile.FalseEvidence or {}
 	if profile.Name == "Skinwalker" then
 		expect(
@@ -246,14 +256,29 @@ local compositeCurrentGuess = GhostModule.SelectHighestConfidenceGuess({
 	},
 	CurrentGuess = "Leviathan / Skinwalker / Demon",
 	CurrentScore = 95,
-	RandomUnit = function()
-		-- With no Orb, Skinwalker owns the final quarter of a two-way tie.
-		return 0.9
+})
+expect(
+	compositeCurrentGuess == "Wisp",
+	"an aggregate composite score must not promote each parsed name"
+)
+
+local specterMustBeatWeakModelPair = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Specter", "Keres", "Siren"},
+	Detections = {
+		Specter = {Confidence = 35},
+		Keres = {Confidence = 25},
+		Siren = {Confidence = 25},
+	},
+	CurrentGuess = "Keres / Siren",
+	CurrentScore = 35,
+	RandomIndex = function(count)
+		expect(count == 1, "only 35% Specter should remain in the top pool")
+		return 1
 	end,
 })
 expect(
-	compositeCurrentGuess == "Skinwalker",
-	"current composite score should apply to each allowed parsed name"
+	specterMustBeatWeakModelPair == "Specter",
+	"25% Keres/Siren must not inherit a stale 35% composite score"
 )
 
 local skinwalkerDeweighted = GhostModule.SelectHighestConfidenceGuess({

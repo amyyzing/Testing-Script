@@ -23,7 +23,19 @@ local function createObserver(api)
 		elseif event.ConfirmedTeleport == true and event.Completed == true then
 			state.LastTeleport = event.TeleportId or true
 			if event.SmokeFound == true then
-				emit(api, "Positive", event.Reason or "a confirmed object teleport had its associated smoke effect", 99, event)
+				local skinwalker = api and type(api.Resolve) == "function"
+					and api:Resolve("Skinwalker") or nil
+				local skinwalkerExcluded = type(skinwalker) == "table"
+					and skinwalker.RuledOut == true
+				emit(
+					api,
+					"Positive",
+					event.Reason or (skinwalkerExcluded
+						and "a confirmed object teleport had its associated smoke effect after Skinwalker was excluded"
+						or "a confirmed object teleport had its associated smoke effect while Skinwalker remains possible"),
+					skinwalkerExcluded and 99 or 60,
+					event
+				)
 			elseif event.SmokeFound == false then
 				emit(api, "Negative", event.Reason or "an object teleported without an associated SmokeHolder", 50, event)
 			end
@@ -40,6 +52,6 @@ return {
 	Name = NAME,
 	Evidence = {"Handprints", "LaserProjector", "SpiritBox"},
 	ObservationEvents = {"ObjectTeleportResult", "GhostTeleportResult"},
-	Perks = { ["Pretty Sure"] = {"A SmokeHolder accompanies a confirmed object teleport."}, Maybe = {"A verified room-to-room ghost teleport also supports Entity."}, Idk = {"Uncorrelated smoke or movement without a confirmed teleport is not diagnostic."} },
+	Perks = { ["Pretty Sure"] = {"A SmokeHolder accompanies a confirmed object teleport after Skinwalker is excluded."}, Maybe = {"A verified room-to-room ghost teleport or smoke-correlated teleport while Skinwalker remains possible."}, Idk = {"Uncorrelated smoke or movement without a confirmed teleport is not diagnostic."} },
 	CreateObserver = createObserver,
 }

@@ -308,6 +308,7 @@ local perkTrackerState = {
 	currentGhostGuessCertain = false,
 	syncJournal = function() end,
 	baseCampTeleportBusy = false,
+	teleportSequence = 0,
 	orbObserved = false,
 	skinwalkerOrbQualified = false,
 	deepEvidenceWorkspaceBound = false,
@@ -6707,7 +6708,15 @@ perkTrackerState.findBaseCampRoom = function()
 end
 perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	options = options or {}
+	local teleportSequence
+	local function teleportOwnsCharacter()
+		return teleportSequence == nil
+			or perkTrackerState.teleportSequence == teleportSequence
+	end
 	local function teleportIsActive()
+		if not teleportOwnsCharacter() then
+			return false
+		end
 		if type(options.IsActive) ~= "function" then
 			return true
 		end
@@ -7536,6 +7545,9 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	end
 	look = look.Unit
 
+	perkTrackerState.teleportSequence =
+		(perkTrackerState.teleportSequence or 0) + 1
+	teleportSequence = perkTrackerState.teleportSequence
 	local originalPivot = character:GetPivot()
 	local originalAnchored = root.Anchored
 	local originalAutoRotate = humanoid.AutoRotate
@@ -7695,7 +7707,8 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	end
 
 	if not selected then
-		if root.Parent and character.Parent then
+		local ownsCharacter = teleportOwnsCharacter()
+		if ownsCharacter and root.Parent and character.Parent then
 			pcall(function()
 				character:PivotTo(originalPivot)
 			end)
@@ -7705,10 +7718,10 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 		end
 		local releaseMovement = options.ReleaseMovementOnCancel == true
 			and not teleportIsActive()
-		if root.Parent then
+		if ownsCharacter and root.Parent then
 			root.Anchored = if releaseMovement then false else originalAnchored
 		end
-		if humanoid.Parent then
+		if ownsCharacter and humanoid.Parent then
 			humanoid.PlatformStand = if releaseMovement
 				then false
 				else originalPlatformStand
@@ -7736,7 +7749,8 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	end
 	if not teleportIsActive() then
 		local releaseMovement = options.ReleaseMovementOnCancel == true
-		if root.Parent and character.Parent then
+		local ownsCharacter = teleportOwnsCharacter()
+		if ownsCharacter and root.Parent and character.Parent then
 			pcall(function()
 				character:PivotTo(originalPivot)
 			end)
@@ -7744,7 +7758,7 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 			root.AssemblyAngularVelocity = Vector3.zero
 			root.Anchored = if releaseMovement then false else originalAnchored
 		end
-		if humanoid.Parent then
+		if ownsCharacter and humanoid.Parent then
 			humanoid.PlatformStand = if releaseMovement
 				then false
 				else originalPlatformStand
@@ -7781,14 +7795,17 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 
 	for _ = 1, 3 do
 		Services.RunService.Heartbeat:Wait()
-		if root.Parent then
+		if teleportOwnsCharacter() and root.Parent then
 			root.AssemblyLinearVelocity = Vector3.zero
 			root.AssemblyAngularVelocity = Vector3.zero
 		end
 	end
 
 	task.delay(0.65, function()
-		if humanoid.Parent then
+		if perkTrackerState.teleportSequence == teleportSequence
+			and player.Character == character
+			and root.Parent
+			and humanoid.Parent then
 			for state, enabled in pairs(disabledStates) do
 				pcall(function()
 					humanoid:SetStateEnabled(state, enabled)
@@ -7915,6 +7932,12 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 				error("Room item setup cancelled", 0)
 			end
 		end
+		local function operationTeleportOptions()
+			return {
+				ReleaseMovementOnCancel = true,
+				IsActive = operationIsActive,
+			}
+		end
 		local function guardedWait(seconds)
 			local deadline = os.clock() + seconds
 			repeat
@@ -7930,6 +7953,7 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 		local function waitForNoHunt(returnToFavouriteRoom)
 			local paused = false
 			local nextEscapeAttemptAt = 0
+			local escapeFailures = 0
 			while operationIsActive() do
 				local currentGhost = getGhostModel()
 				if not currentGhost
@@ -7949,11 +7973,24 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 					-- A failed one-shot escape used to leave the player in the ghost
 					-- room for the rest of the hunt. Retry until containment confirms
 					-- that the character is actually in Base Camp.
-					perkTrackerState.teleportToBaseCamp({
-						ReleaseMovementOnCancel = true,
-						IsActive = operationIsActive,
-					})
-					nextEscapeAttemptAt = os.clock() + 0.15
+					local escaped = perkTrackerState.teleportToBaseCamp(
+						operationTeleportOptions()
+					)
+					local escapedCharacter = player.Character
+					local containmentConfirmed = escaped == true
+						and baseRoom ~= nil
+						and escapedCharacter ~= nil
+						and instanceIsInsideRoom(escapedCharacter, baseRoom)
+					if containmentConfirmed then
+						escapeFailures = 0
+						nextEscapeAttemptAt = os.clock() + 0.15
+					else
+						escapeFailures = escapeFailures + 1
+						nextEscapeAttemptAt = os.clock() + math.min(
+							2,
+							0.25 * (2 ^ math.min(escapeFailures - 1, 3))
+						)
+					end
 				end
 				guardedWait(0.15)
 			end
@@ -7982,7 +8019,9 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 					)
 				if not alreadyInRoom then
 					local teleported, reason =
-						perkTrackerState.teleportToFavouriteRoom()
+						perkTrackerState.teleportToFavouriteRoom(
+							operationTeleportOptions()
+						)
 					if not teleported then
 						error(
 							"Favourite-room teleport failed: "
@@ -8406,6 +8445,7 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 			return false, nil
 		end
 		local function moveNearWorldItem(model)
+			assertOperationActive()
 			local character = player.Character
 			local root = character
 				and character:FindFirstChild("HumanoidRootPart")
@@ -8442,15 +8482,23 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 				humanoid.AutoRotate = originalAutoRotate
 				return false
 			end
+			assertOperationActive()
 			character:PivotTo(
 				itemCFrame * CFrame.new(0, 3.5, 0)
 			)
 			root.AssemblyLinearVelocity = Vector3.zero
 			root.AssemblyAngularVelocity = Vector3.zero
 			Services.RunService.Heartbeat:Wait()
-			root.Anchored = originalAnchored
-			humanoid.PlatformStand = originalPlatformStand
-			humanoid.AutoRotate = originalAutoRotate
+			if operationIsActive() then
+				root.Anchored = originalAnchored
+				humanoid.PlatformStand = originalPlatformStand
+				humanoid.AutoRotate = originalAutoRotate
+			else
+				root.Anchored = false
+				humanoid.PlatformStand = false
+				humanoid.AutoRotate = true
+				return false
+			end
 			return true
 		end
 		local function equipItem(slotNumber, returnToFavouriteRoom)
@@ -9003,7 +9051,9 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 		local ok, err = xpcall(function()
 			waitForNoHunt(false)
 			local baseTeleported, baseReason =
-				perkTrackerState.teleportToBaseCamp()
+				perkTrackerState.teleportToBaseCamp(
+					operationTeleportOptions()
+				)
 			if not baseTeleported then
 				error(
 					"Base Camp teleport failed: "
@@ -9053,7 +9103,9 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 			-- Ensure the final three pickups are exactly the retained equipment.
 			waitForNoHunt(false)
 			local returnedToBase, returnReason =
-				perkTrackerState.teleportToBaseCamp()
+				perkTrackerState.teleportToBaseCamp(
+					operationTeleportOptions()
+				)
 			if not returnedToBase then
 				error(
 					"Base Camp return failed: "
@@ -9083,7 +9135,9 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 		end, debug.traceback)
 
 		if operationIsActive() then
-			perkTrackerState.teleportToBaseCamp()
+			perkTrackerState.teleportToBaseCamp(
+				operationTeleportOptions()
+			)
 			roomItemPlacementState.lastCompletedGeneration =
 				operationGeneration
 			roomItemPlacementState.lastResult = ok

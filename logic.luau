@@ -272,43 +272,63 @@ end
 
 local queueOnTeleport = environment.queue_on_teleport
 	or environment.queueonteleport
-local executorNamespace = environment.syn or environment.fluxus or environment.krnl
-if type(queueOnTeleport) ~= "function" and type(executorNamespace) == "table" then
-	queueOnTeleport = executorNamespace.queue_on_teleport
-		or executorNamespace.queueonteleport
+if type(queueOnTeleport) ~= "function" then
+	for _, namespaceName in ipairs({"syn", "fluxus", "krnl"}) do
+		local executorNamespace = environment[namespaceName]
+		if type(executorNamespace) == "table" then
+			local candidate = executorNamespace.queue_on_teleport
+				or executorNamespace.queueonteleport
+			if type(candidate) == "function" then
+				queueOnTeleport = candidate
+				break
+			end
+		end
+	end
 end
 
-local function queuedLoaderSource(context)
+local function queuedLoaderSource(context, handoffToken)
 	local saved = type(environment.DemonologyLobbySettings) == "table"
 		and environment.DemonologyLobbySettings
 		or lobbySettings
 	return string.format([[
 local environment = (getgenv and getgenv()) or _G
-if environment.DemonologyAutoExecuted then
+local handoffToken = %q
+if environment.DemonologyAutoExecutionToken == handoffToken then
 	return
 end
-environment.DemonologyAutoExecuted = true
-environment.DemonologyAuto = %s
-environment.DemonologyLobbySettings = {
-	Auto = %s,
-	JobSite = %q,
-	Difficulty = %q,
-	CustomPreset = %q,
-	EquipmentPreset = %q,
-	Challenges = {%s, %s, %s},
-	ChallengesConfigured = %s,
-}
-if not game:IsLoaded() then
-	game.Loaded:Wait()
+environment.DemonologyAutoExecutionToken = handoffToken
+local succeeded, failure = xpcall(function()
+	environment.DemonologyAuto = %s
+	environment.DemonologyLobbySettings = {
+		Auto = %s,
+		JobSite = %q,
+		Difficulty = %q,
+		CustomPreset = %q,
+		EquipmentPreset = %q,
+		Challenges = {%s, %s, %s},
+		ChallengesConfigured = %s,
+	}
+	if not game:IsLoaded() then
+		game.Loaded:Wait()
+	end
+	local compiler = loadstring or load
+	assert(type(compiler) == "function", "This executor does not provide loadstring")
+	local url = %q .. "?v=" .. tostring(os.time())
+	local source = game:HttpGet(url)
+	local chunk, compileError = compiler(source, "@DemonologyAutoLoader")
+	assert(chunk, compileError)
+	chunk(%s, %q)
+end, function(message)
+	return tostring(message)
+end)
+if not succeeded then
+	if environment.DemonologyAutoExecutionToken == handoffToken then
+		environment.DemonologyAutoExecutionToken = nil
+	end
+	error(failure, 0)
 end
-local compiler = loadstring or load
-assert(type(compiler) == "function", "This executor does not provide loadstring")
-local url = %q .. "?v=" .. tostring(os.time())
-local source = game:HttpGet(url)
-local chunk, compileError = compiler(source, "@DemonologyAutoLoader")
-assert(chunk, compileError)
-chunk(%s, %q)
 ]],
+		tostring(handoffToken or ""),
 		tostring(session.Auto == true),
 		tostring(session.Auto == true),
 		tostring(saved.JobSite or "School"),
@@ -336,13 +356,28 @@ function session:PrepareTeleport(context)
 	if self.TeleportQueued and self.PendingTeleportContext == nextContext then
 		return true
 	end
+	if self.PendingTeleportContext ~= nextContext
+		or type(self.PendingTeleportToken) ~= "string"
+		or self.PendingTeleportToken == "" then
+		self.TeleportTokenSerial = (tonumber(self.TeleportTokenSerial) or 0) + 1
+		local generated, token = pcall(HttpService.GenerateGUID, HttpService, false)
+		self.PendingTeleportToken = generated
+			and type(token) == "string"
+			and token
+			or table.concat({
+				tostring(self.Generation),
+				tostring(self.TeleportTokenSerial),
+				tostring(os.clock()),
+				nextContext,
+			}, ":")
+	end
 	self.PendingTeleportContext = nextContext
 	self.TeleportQueueFailure = nil
 	-- Queue before the teleport request. Waiting for LocalPlayer.OnTeleport can
 	-- miss the executor handoff entirely when the place transition is immediate.
 	local queued, queueFailure = pcall(
 		queueOnTeleport,
-		queuedLoaderSource(nextContext)
+		queuedLoaderSource(nextContext, self.PendingTeleportToken)
 	)
 	if not queued then
 		self.TeleportQueued = false
@@ -353,17 +388,34 @@ function session:PrepareTeleport(context)
 	return true
 end
 
+local function isFailedTeleportState(teleportState)
+	local name = tostring(teleportState)
+	return name == "Failed" or name == "Enum.TeleportState.Failed"
+end
+
 local teleportConnected, teleportConnection = pcall(function()
-	return player.OnTeleport:Connect(function()
-		if not isCurrent()
-			or not session.Auto
+	return player.OnTeleport:Connect(function(teleportState)
+		if not isCurrent() then
+			return
+		end
+		session.LastTeleportState = teleportState
+		session.TeleportStateRevision = (tonumber(session.TeleportStateRevision) or 0) + 1
+		if isFailedTeleportState(teleportState) then
+			session.TeleportQueued = false
+			return
+		end
+		if not session.Auto
 			or session.TeleportQueued
-			or not session.PendingTeleportContext then
+			or not session.PendingTeleportContext
+			or type(queueOnTeleport) ~= "function" then
 			return
 		end
 		local queued, queueFailure = pcall(
 			queueOnTeleport,
-			queuedLoaderSource(session.PendingTeleportContext)
+			queuedLoaderSource(
+				session.PendingTeleportContext,
+				session.PendingTeleportToken
+			)
 		)
 		if queued then
 			session.TeleportQueued = true
@@ -402,6 +454,9 @@ local LOBBY_MACRO_DELAY = 0.75
 local LOBBY_DATA_LOAD_GRACE = 4
 local LOBBY_PRESET_LOAD_TIMEOUT = 10
 local LOBBY_STATE_UPDATE_TIMEOUT = 4
+local LOBBY_TELEPORT_WATCHDOG = 12
+local LOBBY_AUTO_RETRY_DELAY = 4
+local LOBBY_AUTO_LOOP_INTERVAL = 0.25
 local LOBBY_DIFFICULTIES = {"Easy", "Medium", "Hard", "Nightmare", "Custom"}
 
 local function difficultyStepDirection(currentDifficulty, selectedDifficulty)
@@ -549,11 +604,29 @@ local function runLobbyStartMacro(
 				.. "' did not load in the lobby preset list."
 		end
 	end
-	if not selectedEquipmentPreset
-		or selectedEquipmentPreset == ""
-		or type(equipmentPresetExists) == "function"
-			and not equipmentPresetExists(selectedEquipmentPreset) then
+	if not selectedEquipmentPreset or selectedEquipmentPreset == "" then
 		return false, "Select a saved equipment preset before starting."
+	end
+	local equipmentPresetDeadline = os.clock() + LOBBY_PRESET_LOAD_TIMEOUT
+	local equipmentPresetLoaded = false
+	repeat
+		equipmentPresetLoaded = type(equipmentPresetExists) == "function"
+			and equipmentPresetExists(selectedEquipmentPreset)
+			or false
+		if equipmentPresetLoaded then
+			break
+		end
+		local cancelReason = cancellationReason()
+		if cancelReason then
+			return false, cancelReason
+		end
+		assertCurrent()
+		task.wait(0.1)
+	until os.clock() >= equipmentPresetDeadline
+	if not equipmentPresetLoaded then
+		return false, "Saved equipment preset '"
+			.. selectedEquipmentPreset
+			.. "' did not load in the lobby preset list."
 	end
 	local currentJobSite
 	local jobSiteStateReady = false
@@ -677,11 +750,6 @@ local function runLobbyStartMacro(
 		and requireRemote("ChangeStatus")
 		or nil
 	local attemptStart = requireRemote("AttemptStart")
-	local prepared, prepareFailure = session:PrepareTeleport("AttemptStart")
-	if not prepared then
-		session.TeleportQueueFailure = prepareFailure
-			or "AttemptStart teleport execution was not prepared"
-	end
 
 	local continued, cancelReason
 	if changeJobSite then
@@ -829,9 +897,9 @@ local function runLobbyStartMacro(
 		if not continued then return false, cancelReason end
 		local readyRevisionBeforeDispatch = session.LobbyReadyRevision
 		changeStatus:FireServer()
-		local readyDeadline = os.clock() + 2
+		local readyConfirmationDeadline = os.clock() + 2
 		while player:GetAttribute("IsReady") ~= true
-			and os.clock() < readyDeadline do
+			and os.clock() < readyConfirmationDeadline do
 			if automatic and (not session.Auto
 				or session.AutoRevision ~= monitoredAutoRevision) then
 				return false, "Automatic start cancelled because Auto was changed."
@@ -854,6 +922,15 @@ local function runLobbyStartMacro(
 
 	continued, cancelReason = waitForDispatch()
 	if not continued then return false, cancelReason end
+	-- Queue only after every fallible/cancellable setup step has succeeded.
+	-- Preparing earlier leaves stale auto-execution behind when preset, ready,
+	-- equipment, or challenge synchronization aborts before AttemptStart.
+	local prepared, prepareFailure = session:PrepareTeleport("AttemptStart")
+	if not prepared then
+		session.TeleportQueueFailure = prepareFailure
+			or "AttemptStart teleport execution was not prepared"
+		return false, session.TeleportQueueFailure
+	end
 	attemptStart:FireServer()
 	return true
 end
@@ -1111,10 +1188,23 @@ if not shouldLoadRoundGui then
 
 	local beginLobbyStart
 	local view
-	beginLobbyStart = function(automatic)
-		if session.LobbyStarting or not isCurrent() then
+	local function finishLobbyStartAttempt(serial, message, isError)
+		if not isCurrent() or session.LobbyStartSerial ~= serial then
 			return
 		end
+		session.LobbyStarting = false
+		view:SetBusy(false)
+		view:SetStatus(message, isError)
+		if arrivalContext == "ReturnToLobby" and session.Auto then
+			session.NextAutomaticLobbyAttemptAt = os.clock() + LOBBY_AUTO_RETRY_DELAY
+		end
+	end
+	beginLobbyStart = function(automatic)
+		if session.LobbyStarting or not isCurrent() then
+			return false
+		end
+		session.LobbyStartSerial = (tonumber(session.LobbyStartSerial) or 0) + 1
+		local startSerial = session.LobbyStartSerial
 		session.LobbyStarting = true
 		persistSettings(lobbySettings)
 		local startReadyRevision = session.LobbyReadyRevision
@@ -1126,6 +1216,7 @@ if not shouldLoadRoundGui then
 				or "Waiting for lobby data before applying the saved settings..."
 		)
 		task.spawn(function()
+			local teleportRevisionBeforeStart = tonumber(session.TeleportStateRevision) or 0
 			local called, started, startFailure = xpcall(function()
 				return runLobbyStartMacro(
 					lobbySettings,
@@ -1140,23 +1231,53 @@ if not shouldLoadRoundGui then
 					startAutoRevision
 				)
 			end, debug.traceback)
-			if not isCurrent() then
+			if not isCurrent() or session.LobbyStartSerial ~= startSerial then
 				return
 			end
 			if not called then
-				session.LobbyStarting = false
-				view:SetBusy(false)
-				view:SetStatus(started, true)
+				finishLobbyStartAttempt(startSerial, started, true)
 			elseif started ~= true then
 				persistSettings(lobbySettings)
-				session.LobbyStarting = false
-				view:SetBusy(false)
-				view:SetStatus(startFailure or "The lobby start was cancelled.", false)
+				local failure = startFailure or "The lobby start was cancelled."
+				if automatic and session.Auto then
+					failure = failure .. " Retrying shortly."
+				end
+				finishLobbyStartAttempt(startSerial, failure, false)
 			else
 				persistSettings(lobbySettings)
 				view:SetStatus("Settings applied; waiting for the round teleport...", false)
+				local teleportDeadline = os.clock() + LOBBY_TELEPORT_WATCHDOG
+				while isCurrent()
+					and session.LobbyStartSerial == startSerial
+					and os.clock() < teleportDeadline do
+					if automatic and not session.Auto then
+						finishLobbyStartAttempt(
+							startSerial,
+							"Automatic continuation stopped because Auto was switched off.",
+							false
+						)
+						return
+					end
+					local stateRevision = tonumber(session.TeleportStateRevision) or 0
+					if stateRevision > teleportRevisionBeforeStart
+						and isFailedTeleportState(session.LastTeleportState) then
+						break
+					end
+					task.wait(0.1)
+				end
+				if not isCurrent() or session.LobbyStartSerial ~= startSerial then
+					return
+				end
+				local failure = "The round teleport was not accepted."
+				if automatic and session.Auto then
+					failure = failure .. " Retrying shortly."
+				else
+					failure = failure .. " You can try Start Round again."
+				end
+				finishLobbyStartAttempt(startSerial, failure, true)
 			end
 		end)
+		return true
 	end
 
 	local built, builtView = xpcall(function()
@@ -1182,9 +1303,18 @@ if not shouldLoadRoundGui then
 	-- Auto means "continue the loop" after an automated return. A first manual
 	-- execution in the lobby must wait for the user to click Start Round even if
 	-- the saved Auto toggle is enabled.
-	if session.Auto and arrivalContext == "ReturnToLobby" then
-		task.defer(function()
-			beginLobbyStart(true)
+	if arrivalContext == "ReturnToLobby" then
+		session.NextAutomaticLobbyAttemptAt = os.clock()
+		task.spawn(function()
+			while isCurrent() do
+				local retryAt = tonumber(session.NextAutomaticLobbyAttemptAt) or 0
+				if session.Auto
+					and not session.LobbyStarting
+					and os.clock() >= retryAt then
+					beginLobbyStart(true)
+				end
+				task.wait(LOBBY_AUTO_LOOP_INTERVAL)
+			end
 		end)
 	end
 	return session

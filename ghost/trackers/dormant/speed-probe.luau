@@ -23,11 +23,17 @@ local function schedule(context, delaySeconds, callback)
 	return function() end
 end
 
-local function speedFrom(context, event)
-	local speed = tonumber(
-		Events.Read(event, "SettledSpeed")
-			or Events.Read(event, "CurrentSpeed")
-	)
+local function speedFrom(context, event, preferLive)
+	local speed
+	if preferLive and type(context.ReadWalkSpeed) == "function" then
+		speed = tonumber(context.ReadWalkSpeed())
+	end
+	if speed == nil then
+		speed = tonumber(
+			Events.Read(event, "SettledSpeed")
+				or Events.Read(event, "CurrentSpeed")
+		)
+	end
 	if speed == nil and type(context.ReadWalkSpeed) == "function" then
 		speed = tonumber(context.ReadWalkSpeed())
 	end
@@ -199,7 +205,7 @@ function SpeedProbe:_probe(event)
 	local qualifiedSalt = isSalt and huntingAtContact == true
 		and directContact and saltDisturbed
 		and contactId ~= nil and disturbedContactId ~= nil
-		and tostring(contactId) == tostring(disturbedContactId)
+		and contactId == disturbedContactId
 	local activeHunt = self._hunting
 		and (not isSalt and event.Hunting ~= false or qualifiedSalt)
 		and (event.HuntId == nil or event.HuntId == self._huntId)
@@ -252,14 +258,14 @@ function SpeedProbe:_probe(event)
 	self._pendingReads[key] = schedule(self._context, delaySeconds, function()
 		self._pendingReads[key] = nil
 		if isSalt then
-			self:_sampleSaltWindows(eventCopy, key)
+			self:_sampleSaltWindows(eventCopy, key, true)
 			return
 		end
 		if not self._hunting
 			or self._huntId ~= probeHuntId then
 			return
 		end
-		local current = speedFrom(self._context, eventCopy)
+		local current = speedFrom(self._context, eventCopy, true)
 		if not current or probeBaseline <= 0 then
 			return
 		end
@@ -271,7 +277,9 @@ function SpeedProbe:_probe(event)
 			BaselineSpeed = probeBaseline,
 			CurrentSpeed = current,
 			Delta = delta,
-			RelativeDelta = relative,
+				RelativeDelta = relative,
+				Completed = true,
+				Stable = true,
 			HuntId = probeHuntId,
 			Hunting = true,
 			Time = self:_now(eventCopy),
@@ -352,8 +360,8 @@ function SpeedProbe:_emitSaltRecovery(window, current, now)
 	})
 end
 
-function SpeedProbe:_sampleSaltWindows(event, onlyKey)
-	local current = speedFrom(self._context, event)
+function SpeedProbe:_sampleSaltWindows(event, onlyKey, preferLive)
+	local current = speedFrom(self._context, event, preferLive)
 	if not current then
 		return
 	end
@@ -520,7 +528,8 @@ function SpeedProbe:_tick(event)
 end
 
 function SpeedProbe:OnEvent(event)
-	if type(event) ~= "table" then
+	if self.Status == "Stopped" or self.Status == "Destroyed"
+		or type(event) ~= "table" then
 		return
 	end
 		local kind = event.Type or event.Kind

@@ -1,4 +1,6 @@
 local NAME = "Keres"
+local KILL_MIN_RELATIVE_DECREASE = 0.06
+local KILL_MAX_RELATIVE_DECREASE = 0.15
 
 local function read(event, key)
 	if event[key] ~= nil then return event[key] end
@@ -44,12 +46,18 @@ local function createObserver(api)
 				local baseline, current = tonumber(read(event, "BaselineSpeed")), tonumber(read(event, "CurrentSpeed"))
 				if baseline and current then delta = current - baseline end
 			end
+			local baseline = tonumber(read(event, "BaselineSpeed"))
+			local relative = tonumber(read(event, "RelativeDelta"))
+			if relative == nil and baseline and baseline > 0 and delta then
+				relative = delta / baseline
+			end
 			state.LastKillDirection = delta and (delta < 0 and "Decrease" or (delta > 0 and "Increase" or "Stable")) or nil
-			if delta and delta < 0 then
+			if relative and -relative >= KILL_MIN_RELATIVE_DECREASE
+				and -relative <= KILL_MAX_RELATIVE_DECREASE then
 				state.KillMatched = true
-				concludeKill("Positive", read(event, "Reason") or "stable hunting speed decreased after a unique player death", 99, event)
-			elseif delta ~= nil and not state.KillMatched then
-				concludeKill("RuleOut", read(event, "Reason") or "a qualified unique-death probe produced no stable speed decrease", 99, event)
+				concludeKill("Positive", read(event, "Reason") or "stable hunting speed decreased by the expected amount after a unique player death", 99, event)
+			elseif delta ~= nil and read(event, "Completed") == true and not state.KillMatched then
+				concludeKill("RuleOut", read(event, "Reason") or "a qualified unique-death probe produced no expected stable speed decrease", 99, event)
 			end
 		elseif kind == "GhostModelSex" then
 			if event.Qualified ~= true then return true end
@@ -61,10 +69,13 @@ local function createObserver(api)
 			end
 		elseif event.Unique == true and event.Hunting == true and event.Qualified == true then
 			state.LastKillDirection = event.Direction
-			if event.Direction == "Decrease" then
+			local relative = tonumber(event.RelativeDelta or event.RelativeChange)
+			if event.Direction == "Decrease" and relative
+				and -relative >= KILL_MIN_RELATIVE_DECREASE
+				and -relative <= KILL_MAX_RELATIVE_DECREASE then
 				state.KillMatched = true
-				concludeKill("Positive", event.Reason or "stable hunting speed decreased after a unique player kill", 99, event)
-			elseif not state.KillMatched and event.Completed == true and (event.Direction == "Stable" or event.Direction == "Increase" or event.Direction == "NoChange") then
+				concludeKill("Positive", event.Reason or "stable hunting speed decreased by the expected amount after a unique player kill", 99, event)
+			elseif not state.KillMatched and event.Completed == true and relative ~= nil then
 				concludeKill("RuleOut", event.Reason or "a qualified unique-kill comparison produced no stable speed decrease", 99, event)
 			end
 		end

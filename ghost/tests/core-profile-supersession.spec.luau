@@ -183,6 +183,145 @@ do
 end
 
 do
+	local coordinator = Coordinator.new({Definitions = {profiles.Wraith}})
+	coordinator:Start({})
+	coordinator:Emit({
+		Type = Events.Types.SaltContact,
+		ContactId = "salt-a",
+		DirectContact = true,
+		Time = 20,
+	})
+	coordinator:Emit({Type = Events.Types.Tick, Time = 24.1})
+	coordinator:Emit({
+		Type = Events.Types.SaltDisturbed,
+		ContactId = "salt-b",
+		Time = 24.2,
+	})
+	local globallyRejected = coordinator:Resolve({"Wraith"}).Wraith
+	local decisions = scoredEntries(coordinator, "Wraith")
+	expect(
+		globallyRejected.RuledOut == true and globallyRejected.Conflicted == false,
+		"disturbed salt B must globally disprove a Wraith positive from salt A"
+	)
+	expect(
+		#decisions == 2 and decisions[2].Supersedes == decisions[1].Id,
+		"different salt contacts must share one Wraith supersession chain"
+	)
+	coordinator:Emit({
+		Type = Events.Types.SaltContact,
+		ContactId = "salt-c",
+		DirectContact = true,
+		Time = 25,
+	})
+	coordinator:Emit({Type = Events.Types.Tick, Time = 29.1})
+	expect(
+		#scoredEntries(coordinator, "Wraith") == 2,
+		"later undisturbed salt must not resurrect Wraith after any disturbance"
+	)
+	coordinator:Destroy()
+end
+
+do
+	local coordinator = Coordinator.new({Definitions = {require("../Siren")}})
+	coordinator:Start({})
+	coordinator:Emit({
+		Type = "SpiritBoxResponse",
+		Qualified = true,
+		Response = "- HUMMING -",
+	})
+	coordinator:Emit({Type = "GhostModelSex", Qualified = true, Sex = "Male"})
+	local siren = coordinator:Resolve({"Siren"}).Siren
+	local decisions = scoredEntries(coordinator, "Siren")
+	expect(
+		siren.RuledOut == true and siren.Conflicted == false,
+		"male model plus humming must supersede Siren support without residue"
+	)
+	expect(
+		#decisions == 2 and decisions[2].Supersedes == decisions[1].Id,
+		"the Siren contradiction must be one explicit supersession chain"
+	)
+	coordinator:Destroy()
+end
+
+do
+	local coordinator = Coordinator.new({Definitions = {require("../Aswang")}})
+	coordinator:Start({})
+	coordinator:Emit({
+		Type = Events.Types.SpeedProbeResult,
+		Trigger = Events.Types.SaltContact,
+		Hunting = true,
+		DirectContact = true,
+		SaltDisturbed = true,
+		ContactId = "aswang-salt",
+		DisturbedContactId = "aswang-salt",
+		BaselineSpeed = 11,
+		CurrentSpeed = 8,
+		Delta = -3,
+	})
+	local provisional = coordinator:Resolve({"Aswang"}).Aswang
+	expect(
+		provisional.Status == "Supported" and provisional.Confidence == 60,
+		"an Aswang slowdown without recovery must remain below Pretty Sure"
+	)
+	coordinator:Emit({
+		Type = Events.Types.SpeedProbeRecovery,
+		Trigger = Events.Types.SaltContact,
+		Hunting = true,
+		DirectContact = true,
+		SaltDisturbed = true,
+		ContactId = "aswang-salt",
+		DisturbedContactId = "aswang-salt",
+		BaselineSpeed = 11,
+		EventSpeed = 8,
+		RecoverySpeed = 11,
+	})
+	expect(
+		coordinator:Resolve({"Aswang"}).Aswang.Confidence == 99,
+		"only a recovered temporary slowdown may upgrade Aswang to 99%"
+	)
+	coordinator:Destroy()
+end
+
+do
+	local coordinator = Coordinator.new({Definitions = {require("../Leviathan")}})
+	coordinator:Start({})
+	coordinator:Emit({
+		Type = "DeviceToggleBurst",
+		Hunting = false,
+		Qualified = true,
+		SingleDevice = true,
+		Rapid = true,
+		PlayerCaused = false,
+		AutomationCaused = false,
+		FuseCaused = false,
+	})
+	expect(
+		coordinator:Resolve({"Leviathan"}).Leviathan.Confidence == 60,
+		"one Leviathan tell must remain Maybe"
+	)
+	coordinator:Emit({
+		Type = "RoomLightOff",
+		Hunting = false,
+		Qualified = true,
+		WorkingCircuit = true,
+		PlayerCaused = false,
+		AutomationCaused = false,
+		FuseCaused = false,
+	})
+	local leviathan = coordinator:Resolve({"Leviathan"}).Leviathan
+	local decisions = scoredEntries(coordinator, "Leviathan")
+	expect(
+		leviathan.Status == "Supported" and leviathan.Confidence == 99,
+		"both distinct Leviathan tells must upgrade the conclusion"
+	)
+	expect(
+		#decisions == 2 and decisions[2].Supersedes == decisions[1].Id,
+		"the Leviathan upgrade must supersede its provisional Maybe"
+	)
+	coordinator:Destroy()
+end
+
+do
 	local coordinator = Coordinator.new({Definitions = {require("../Specter")}})
 	coordinator:Start({})
 	local function trial(id, outcome)

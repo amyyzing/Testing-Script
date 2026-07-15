@@ -3,8 +3,11 @@ if not game:IsLoaded() then
 end
 
 local CoreGui = game:GetService("CoreGui")
-local guiParent = type(gethui) == "function" and gethui()
-	or CoreGui
+local guiParent = CoreGui
+if type(gethui) == "function" then
+	local resolved, hiddenGui = pcall(gethui)
+	if resolved and hiddenGui then guiParent = hiddenGui end
+end
 
 local previous = guiParent:FindFirstChild("GhostDropRate")
 if previous then
@@ -46,9 +49,9 @@ local function findRoom(rooms, roomName)
 	if direct then
 		return direct
 	end
-	local wanted = string.lower(roomName)
+	local wanted = string.lower(tostring(roomName))
 	for _, room in ipairs(rooms:GetChildren()) do
-		if string.lower(room.Name) == wanted then
+		if string.lower(tostring(room.Name)) == wanted then
 			return room
 		end
 	end

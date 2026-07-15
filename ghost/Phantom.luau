@@ -14,10 +14,12 @@ local function createObserver(api)
 	function observer:OnEvent(event)
 		if state.Destroyed or type(event) ~= "table" then return false end
 		local kind = event.Type or event.Kind
-		if kind ~= "PhantomPattern" and kind ~= "FlatHuntSpeed" then return false end
+		if kind ~= "PhantomPattern" and kind ~= "FlatHuntSpeed"
+			and kind ~= "DullahanPattern" then return false end
 		if api and type(api.Record) == "function" then api:Record(NAME, event) end
 		if event.Hunting == false or event.Qualified == false then return true end
-		if kind == "PhantomPattern" or kind == "FlatHuntSpeed" then
+		if kind == "PhantomPattern" or kind == "FlatHuntSpeed"
+			or kind == "DullahanPattern" then
 			local requiredPairs = math.max(7, math.floor(tonumber(event.RequiredPairs) or 7))
 			if math.floor(tonumber(event.PairCount) or 0) < requiredPairs then return true end
 		end
@@ -28,7 +30,14 @@ local function createObserver(api)
 		else
 			if state.Outcome == "Matched" then return true end
 			state.Outcome = "Rejected"
-			conclude("RuleOut", event.Reason or "qualified invisible and visible hunting speeds remained equal", 99, event)
+			conclude(
+				"RuleOut",
+				event.Reason or (kind == "DullahanPattern"
+					and "all seven qualified visibility pairs followed a differing Dullahan pattern instead of the Phantom ratio"
+					or "qualified invisible and visible hunting speeds remained equal"),
+				99,
+				event
+			)
 		end
 		return true
 	end
@@ -41,7 +50,7 @@ end
 return {
 	Name = NAME,
 	Evidence = {"EMFLevel5", "GhostOrb", "Handprints"},
-	ObservationEvents = {"PhantomPattern", "FlatHuntSpeed"},
+	ObservationEvents = {"PhantomPattern", "FlatHuntSpeed", "DullahanPattern"},
 	PersistentFindings = true,
 	Perks = { ["Pretty Sure"] = {"Each of seven local blink/non-blink AB pairs has a Transparency 1 versus Transparency 0 speed ratio of about 13.5/11; absolute drift between pairs is allowed."}, Maybe = {"Fewer than seven settled AB pairs are provisional."}, Idk = {"Pair by blink state after the replication edge instead of grouping all visible and invisible samples globally."} },
 	CreateObserver = createObserver,

@@ -90,7 +90,9 @@ exercise("Aswang", {
 	DisturbedContactId = "salt-edge", BaselineSpeed = 11, CurrentSpeed = 8,
 	Delta = -3,
 }, "Positive")
-exercise("Banshee", {Type = "BrokenGlassBurst", Qualified = true, Count = 2, Window = 2.5}, "Positive")
+local bansheeGlass = exercise("Banshee", {Type = "BrokenGlassBurst", Qualified = true, Count = 2, Window = 2.5}, "Positive")
+expect(last(bansheeGlass, "Positive").Confidence == 60,
+	"glass alone must remain Maybe rather than ending a round as Banshee")
 exercise("Demon", {Type = "CrossMotion", TrialId = "cross-1", Eligible = true, Completed = true, FloatedAndRotated = true}, "Positive")
 exercise("Dullahan", {
 	Type = "DullahanPattern", Hunting = true, Qualified = true,
@@ -110,7 +112,9 @@ exercise("Ravager", {Type = "VortexPattern", Hunting = true, Qualified = true, D
 exercise("Revenant", {Type = "HuntEndedAfterDeath", DeathEventId = "death-1", Elapsed = 1.4, OtherAlive = 1, ValidMultiplayerKill = true}, "Positive")
 exercise("Siren", {Type = "SpiritBoxResponse", Qualified = true, Response = "- HUMMING -"}, "Positive")
 exercise("Skinwalker", {Type = "FalseOrb", Qualified = true, FourthEvidence = true}, "Positive")
-exercise("Spirit", {Type = "HolyOilColor", Hunting = true, Burning = true, Qualified = true, Stable = true, Blue = true}, "Positive")
+local spiritBlue = exercise("Spirit", {Type = "HolyOilColor", Hunting = true, Burning = true, Qualified = true, Stable = true, Blue = true}, "Positive")
+expect(last(spiritBlue, "Positive").Confidence == 60,
+	"one blue flame must remain Maybe while Skinwalker is not excluded")
 exercise("Wendigo", {Type = "WendigoCurveResult", Qualified = true, Matched = true, Snapshots = {}}, "Positive")
 exercise("Wisp", {Type = "HolyOilCollision", Hunting = true, Burning = true, Qualified = true, CanCollide = false}, "Positive")
 
@@ -187,6 +191,30 @@ do
 	local observer = byName.Keres.CreateObserver(api)
 	observer:OnEvent({Type = "SpeedProbeResult", Trigger = "PlayerDeath", Hunting = true, Unique = false, Qualified = true, HuntId = "hunt-1", Delta = -1})
 	expect(last(api, "Positive") == nil and last(api, "RuleOut") == nil, "Keres requires a qualified unique death in the active hunt")
+end
+
+do
+	local keresApi = newApi()
+	local keres = byName.Keres.CreateObserver(keresApi)
+	keres:OnEvent({
+		Type = "SpeedProbeResult", Trigger = "PlayerDeath", Hunting = true,
+		Unique = true, Qualified = true, HuntId = "noise-hunt",
+		BaselineSpeed = 11, CurrentSpeed = 10.99, Delta = -0.01,
+		Completed = true,
+	})
+	expect(last(keresApi, "Positive") == nil,
+		"tiny post-death replication noise must not identify Keres")
+
+	local aswangApi = newApi()
+	local aswang = byName.Aswang.CreateObserver(aswangApi)
+	aswang:OnEvent({
+		Type = "SpeedProbeResult", Trigger = "PlayerDeath", Hunting = true,
+		Unique = true, Qualified = true, HuntId = "noise-hunt",
+		BaselineSpeed = 11, CurrentSpeed = 11.01, Delta = 0.01,
+		Completed = true,
+	})
+	expect(last(aswangApi, "Positive") == nil,
+		"tiny post-death replication noise must not identify Aswang")
 end
 
 do

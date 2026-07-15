@@ -1,4 +1,6 @@
 local NAME = "Aswang"
+local KILL_MIN_RELATIVE_INCREASE = 0.12
+local KILL_MAX_RELATIVE_INCREASE = 0.30
 
 local function read(event, key)
 	if event[key] ~= nil then return event[key] end
@@ -21,7 +23,7 @@ local function qualifiedSaltContact(event)
 	end
 	local contactId = read(event, "ContactId") or read(event, "SaltId")
 	local disturbedId = read(event, "DisturbedContactId") or read(event, "DisturbedSaltId")
-	return contactId ~= nil and disturbedId ~= nil and tostring(contactId) == tostring(disturbedId)
+	return contactId ~= nil and disturbedId ~= nil and contactId == disturbedId
 end
 
 local function call(api, method, reason, confidence, event)
@@ -73,7 +75,7 @@ local function createObserver(api)
 				elseif kind == "SpeedProbeResult" and delta and delta < 0 then
 					if state.SaltOutcome == "Matched" then return true end
 					state.SaltOutcome = "Provisional"
-					conclude("Salt", "Positive", read(event, "Reason") or "a salt-triggered hunting speed probe measured a slowdown; recovery is pending", 80, event)
+					conclude("Salt", "Positive", read(event, "Reason") or "a salt-triggered hunting speed probe measured a slowdown; recovery is pending", 60, event)
 				elseif kind == "SpeedProbeResult" and read(event, "Completed") == true
 					and delta and delta >= 0 then
 					if state.SaltOutcome == "Matched" then return true end
@@ -82,13 +84,18 @@ local function createObserver(api)
 				end
 			elseif string.find(trigger, "death", 1, true) or string.find(trigger, "kill", 1, true) then
 				if read(event, "Hunting") ~= true or read(event, "Unique") ~= true or read(event, "Qualified") ~= true then return true end
+				local relative = tonumber(read(event, "RelativeDelta"))
+				if relative == nil and baseline and baseline > 0 and delta then
+					relative = delta / baseline
+				end
 				state.KillOutcome = delta and (delta > 0 and "Increase" or (delta < 0 and "Decrease" or "Stable")) or nil
-				if delta and delta > 0 then
+				if relative and relative >= KILL_MIN_RELATIVE_INCREASE
+					and relative <= KILL_MAX_RELATIVE_INCREASE then
 					state.KillMatched = true
-					conclude("Kill", "Positive", read(event, "Reason") or "stable hunting speed increased after a unique player death", 99, event)
-				elseif delta ~= nil then
+					conclude("Kill", "Positive", read(event, "Reason") or "stable hunting speed increased by the expected amount after a unique player death", 99, event)
+				elseif delta ~= nil and read(event, "Completed") == true then
 					if not state.KillMatched then
-						conclude("Kill", "RuleOut", read(event, "Reason") or "stable hunting speed did not rise after a qualified unique player death", 99, event)
+						conclude("Kill", "RuleOut", read(event, "Reason") or "stable hunting speed did not rise by the expected amount after a qualified unique player death", 99, event)
 					end
 				end
 			end
@@ -104,7 +111,7 @@ local function createObserver(api)
 			elseif outcome == "Slow" or event.TemporaryDrop == true then
 				if state.SaltOutcome == "Matched" then return true end
 				state.SaltOutcome = "Provisional"
-				conclude("Salt", "Positive", event.Reason or "direct hunting salt contact produced a temporary speed reduction; recovery is not sampled yet", 80, event)
+				conclude("Salt", "Positive", event.Reason or "direct hunting salt contact produced a temporary speed reduction; recovery is not sampled yet", 60, event)
 			elseif event.Completed == true and (outcome == "NoDrop" or event.TemporaryDrop == false) then
 				if state.SaltOutcome == "Matched" then return true end
 				state.SaltOutcome = "Rejected"
@@ -113,11 +120,14 @@ local function createObserver(api)
 		else
 			if event.Unique ~= true or event.Hunting ~= true or event.Qualified ~= true then return true end
 			local direction = event.Direction
+			local relative = tonumber(event.RelativeDelta or event.RelativeChange)
 			state.KillOutcome = direction
-			if direction == "Increase" then
+			if direction == "Increase" and relative
+				and relative >= KILL_MIN_RELATIVE_INCREASE
+				and relative <= KILL_MAX_RELATIVE_INCREASE then
 				state.KillMatched = true
-				conclude("Kill", "Positive", event.Reason or "stable hunting speed increased after a unique player kill", 99, event)
-			elseif event.Completed == true and (direction == "Stable" or direction == "Decrease" or direction == "NoChange") then
+				conclude("Kill", "Positive", event.Reason or "stable hunting speed increased by the expected amount after a unique player kill", 99, event)
+			elseif event.Completed == true and relative ~= nil then
 				if not state.KillMatched then
 					conclude("Kill", "RuleOut", event.Reason or "stable hunting speed did not rise after a qualified unique player kill", 99, event)
 				end

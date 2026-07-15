@@ -31,6 +31,7 @@ function HuntState.new(options)
 			Status = "Idle",
 			SettleDelay = tonumber(options.SettleDelay) or 0.095,
 			MaxSettleAttempts = math.max(1, math.floor(tonumber(options.MaxSettleAttempts) or 8)),
+			StableSpeedTolerance = tonumber(options.StableSpeedTolerance) or 0.01,
 		_context = nil,
 		_hunting = false,
 		_huntId = 0,
@@ -84,10 +85,11 @@ end
 
 	function HuntState:_readSpeed(event)
 		local speed = tonumber(read(event, "SettledSpeed"))
+		local explicit = speed ~= nil
 		if speed == nil and type(self._context.ReadWalkSpeed) == "function" then
 			speed = tonumber(self._context.ReadWalkSpeed())
 		end
-		return speed
+		return speed, explicit
 	end
 
 function HuntState:_emit(event)
@@ -145,17 +147,21 @@ function HuntState:OnEvent(event)
 			Payload = payload,
 		})
 
-		-- Sanity belongs to the exact switch instant, while WalkSpeed is read only
-		-- after replication has settled. This is one delayed read, not a stream.
+		-- Sanity belongs to the exact switch instant. WalkSpeed is accepted only
+		-- after two matching delayed live reads, preventing the previous hunt phase
+		-- from being paired with the new switch-time sanity. This is a bounded
+		-- transition probe, not a continuous speed stream.
 		self._transitionToken = self._transitionToken + 1
 		local token = self._transitionToken
 		if type(self._cancelSettled) == "function" then self._cancelSettled() end
 		local attempts = 0
+		local previousSpeed
+		local stableReads = 0
 		local function captureSettledSpeed()
 			self._cancelSettled = nil
 			if token ~= self._transitionToken or self._hunting ~= hunting then return end
 			attempts = attempts + 1
-			local settledSpeed = self:_readSpeed(event)
+			local settledSpeed, explicit = self:_readSpeed(event)
 			if not settledSpeed or settledSpeed <= 0 then
 				if attempts < self.MaxSettleAttempts then
 					self._cancelSettled = schedule(
@@ -165,6 +171,25 @@ function HuntState:OnEvent(event)
 					)
 				end
 				return
+			end
+			if not explicit then
+				if previousSpeed ~= nil
+					and math.abs(settledSpeed - previousSpeed)
+						<= self.StableSpeedTolerance then
+					stableReads = stableReads + 1
+				else
+					previousSpeed = settledSpeed
+					stableReads = 1
+				end
+				if stableReads < 2 and attempts < self.MaxSettleAttempts then
+					self._cancelSettled = schedule(
+						self._context,
+						self.SettleDelay,
+						captureSettledSpeed
+					)
+					return
+				end
+				if stableReads < 2 then return end
 			end
 			self:_emit({
 				Type = Events.Types.HuntTransitionSettled,
@@ -193,6 +218,9 @@ function HuntState:OnEvent(event)
 	end
 
 function HuntState:Stop()
+	self._transitionToken = self._transitionToken + 1
+	if type(self._cancelSettled) == "function" then self._cancelSettled() end
+	self._cancelSettled = nil
 	self.Status = "Stopped"
 end
 
