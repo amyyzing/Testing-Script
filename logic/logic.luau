@@ -13,9 +13,45 @@ return function(dependencies)
 		dependencies.RoundAutomation,
 		"logic/logic.luau requires RoundAutomation"
 	)
-	local createTeleportation = assert(
-		dependencies.Teleportation,
-		"logic/logic.luau requires Teleportation"
+	-- A cached top-level loadstring can briefly be older than the modules it
+	-- downloads from main. Resolve the shared factory independently when that
+	-- stale loader does not know about the Teleportation dependency yet.
+	local createTeleportation = dependencies.Teleportation
+		or environment.DemonologyTeleportationFactory
+	local teleportationLoadFailure
+	if type(createTeleportation) ~= "function" then
+		local sourceUrl = "https://raw.githubusercontent.com/amyyzing/Testing-Script/main/logic/teleportation.luau"
+			.. "?runtime="
+			.. tostring(os.time())
+			.. "-"
+			.. tostring(math.random(100000, 999999))
+		local downloaded, source = pcall(function()
+			return game:HttpGet(sourceUrl, true)
+		end)
+		if downloaded and type(source) == "string" and type(loadstring) == "function" then
+			local chunk, compileFailure = loadstring(
+				source,
+				"@logic/teleportation.luau"
+			)
+			if chunk then
+				local loaded, factory = pcall(chunk)
+				if loaded and type(factory) == "function" then
+					createTeleportation = factory
+					environment.DemonologyTeleportationFactory = factory
+				else
+					teleportationLoadFailure = tostring(factory)
+				end
+			else
+				teleportationLoadFailure = tostring(compileFailure)
+			end
+		else
+			teleportationLoadFailure = tostring(source)
+		end
+	end
+	assert(
+		type(createTeleportation) == "function",
+		"logic/logic.luau could not load Teleportation: "
+			.. tostring(teleportationLoadFailure or "factory unavailable")
 	)
 	local view = assert(dependencies.View, "logic/logic.luau requires View")
 	local presenter = dependencies.Presenter

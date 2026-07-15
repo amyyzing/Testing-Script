@@ -1374,6 +1374,7 @@ local ok, failure = xpcall(function()
 
 	loader:SetStage("Loading teleportation and round automation…", 3, 9)
 	local createTeleportation = loadRemoteModule("logic/teleportation.luau")
+	environment.DemonologyTeleportationFactory = createTeleportation
 	assertCurrent()
 	local createRoundAutomation = loadRemoteModule("logic/round-automation.luau")
 	assertCurrent()
