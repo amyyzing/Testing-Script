@@ -1384,52 +1384,6 @@ local function playerHasDoorPlacementGeometry(target)
 		root
 end
 
-local function roundPreviewHasClearance(previewPart)
-	if not previewPart or not previewPart:IsA("BasePart") then
-		return false
-	end
-	local excluded = {previewPart}
-	if previewPart.Parent then
-		table.insert(excluded, previewPart.Parent)
-	end
-	if player.Character then
-		table.insert(excluded, player.Character)
-	end
-	local rooms = findRoomsFolder()
-	if rooms then
-		for _, room in ipairs(rooms:GetChildren()) do
-			for _, bounds in ipairs(getRoomBoundingParts(room)) do
-				table.insert(excluded, bounds)
-			end
-		end
-	end
-	local params = OverlapParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = excluded
-	params.MaxParts = 24
-	pcall(function()
-		params.RespectCanCollide = true
-	end)
-	local size = Vector3.new(
-		math.max(previewPart.Size.X, 0.45),
-		math.max(previewPart.Size.Y, 0.25),
-		math.max(previewPart.Size.Z, 0.45)
-	)
-	for _, part in ipairs(workspace:GetPartBoundsInBox(
-		previewPart.CFrame,
-		size,
-		params
-	)) do
-		if part:IsA("BasePart") and part.CanCollide then
-			local approximateTop = part.Position.Y + part.Size.Y * 0.5
-			if approximateTop > previewPart.Position.Y + 0.28 then
-				return false
-			end
-		end
-	end
-	return true
-end
-
 local function roundPlacementPreviewPart(toolName)
 	local camera = workspace.CurrentCamera
 	local previewName = toolName == "Salt Canister" and "SaltLine" or "HolyOil"
@@ -1486,7 +1440,6 @@ local function waitForRoundPlacementXZDistance(toolName, generation)
 end
 
 local placementPreviewIsAligned: any = function(toolName, target)
-	local camera = workspace.CurrentCamera
 	local previewPart = roundPlacementPreviewPart(toolName)
 	local playerAligned, geometry, root =
 		playerHasDoorPlacementGeometry(target)
@@ -1515,32 +1468,13 @@ local placementPreviewIsAligned: any = function(toolName, target)
 		or previewPlayerOffset:Dot(doorPlayerOffset.Unit) <= 0 then
 		return false
 	end
-	local expectedFacing = geometry.NormalAxis
-		* (doorPlayerOffset:Dot(geometry.NormalAxis) > 0 and 1 or -1)
-	local cameraLook = camera and Vector3.new(
-		camera.CFrame.LookVector.X,
-		0,
-		camera.CFrame.LookVector.Z
-	) or Vector3.zero
-	if cameraLook.Magnitude < 0.05
-		or cameraLook.Unit:Dot(expectedFacing)
-			< ROUND_CAMERA_FACING_DOT then
-		return false
-	end
 	local maximumDoorNormalOffset = math.min(
 		math.max(geometry.Thickness * 0.5 + 0.5, 0.75),
 		1.25
 	)
-	local maximumDoorLateralOffset = toolName == "Salt Canister"
-		and ROUND_PLACEMENT_CENTER_TOLERANCE
-		or 0.9
-	local allowedDoorNormalOffset = toolName == "Salt Canister"
-		and ROUND_PLACEMENT_CENTER_TOLERANCE
-		or maximumDoorNormalOffset
-	if math.abs(previewOffset:Dot(geometry.WideAxis))
-			> maximumDoorLateralOffset
+	if math.abs(previewOffset:Dot(geometry.WideAxis)) > 0.9
 		or math.abs(previewOffset:Dot(geometry.NormalAxis))
-			> allowedDoorNormalOffset then
+			> maximumDoorNormalOffset then
 		return false
 	end
 	local previewAxis, previewAspectRatio = previewMajorAxis(previewPart)
@@ -1554,11 +1488,6 @@ local placementPreviewIsAligned: any = function(toolName, target)
 				< ROUND_PREVIEW_AXIS_DOT then
 			return false
 		end
-	end
-	if not roundPositionInsideAnyRoom(previewPart.Position)
-		or not roundPlacementHasFloor(previewPart, 4)
-		or not roundPreviewHasClearance(previewPart) then
-		return false
 	end
 	return true, previewPart, geometry, root, previewAxis
 end
@@ -1769,7 +1698,18 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 				or roundUnsafeReason(generation)
 			return
 		end
-		local fired = pcall(remote.FireServer, remote)
+		-- Use the same client controller path as right-clicking the equipped
+		-- Salt Canister/Holy Oil. Those controllers validate the equipped model,
+		-- fire the correct no-argument remote, and manage their preview/cooldown.
+		local playerScripts = player:FindFirstChild("PlayerScripts")
+		local localEvents = playerScripts and playerScripts:FindFirstChild("Events")
+		local useItem = localEvents and localEvents:FindFirstChild("UseItem")
+		local fired
+		if useItem and useItem:IsA("BindableEvent") then
+			fired = pcall(useItem.Fire, useItem)
+		else
+			fired = pcall(remote.FireServer, remote)
+		end
 		if not fired then
 			dispatchFailure = remoteName .. " failed"
 			return
@@ -1919,6 +1859,7 @@ end
 		PlacementHasFloor = roundPlacementHasFloor,
 		PickupMaxDistance = ROUND_PICKUP_MAX_DISTANCE,
 		RemoteSafetyDelay = ROUND_REMOTE_SAFETY_DELAY,
+		LobbyRetrySeconds = ROUND_LOBBY_RETRY_SECONDS,
 		MinimumLeaveAge = ROUND_MINIMUM_LEAVE_AGE,
 		SaltPlacementLimit = ROUND_SALT_PLACEMENT_LIMIT,
 		HolyOilPlacementLimit = ROUND_HOLY_OIL_PLACEMENT_LIMIT,
@@ -1962,6 +1903,7 @@ local setDoRoundEnabled = (function()
 	local roundWorldItemIsInsideRoom = roundUtilities.WorldItemIsInsideRoom
 	local ROUND_PICKUP_MAX_DISTANCE = roundUtilities.PickupMaxDistance
 	local ROUND_REMOTE_SAFETY_DELAY = roundUtilities.RemoteSafetyDelay
+	local ROUND_LOBBY_RETRY_SECONDS = roundUtilities.LobbyRetrySeconds
 	local ROUND_MINIMUM_LEAVE_AGE = roundUtilities.MinimumLeaveAge
 	local ROUND_SALT_PLACEMENT_LIMIT = roundUtilities.SaltPlacementLimit
 	local ROUND_HOLY_OIL_PLACEMENT_LIMIT = roundUtilities.HolyOilPlacementLimit
@@ -2404,7 +2346,13 @@ local function placeRoundToolsAtDoors(generation)
 				placementDistance, distanceReason =
 					waitForRoundPlacementXZDistance(toolName, generation)
 				if not placementDistance then
-					return false, distanceReason
+					-- The working door routine used the door geometry's two-stud
+					-- approach when the live preview was not ready yet. Calibration is
+					-- useful when available, but must not prevent LaySaltPile entirely.
+					addWarning(
+						toolKey .. ":preview-distance",
+						distanceReason
+					)
 				end
 			end
 			local approaches = roundDoorApproaches(

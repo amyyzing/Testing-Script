@@ -1398,7 +1398,9 @@ perkTrackerState.confirmJournalGhostSelection = function(frame, ghostName)
 	local selectedGhost, readable =
 		perkTrackerState.readJournalSelectedGhost()
 	if not readable then
-		return perkTrackerState.readJournalRowState(frame) == true
+		-- The controller callback may not be readable during Journal startup.
+		-- Its normal row handler still owns the state transition and remote fire.
+		return perkTrackerState.applyJournalRowState(frame, true)
 	end
 	if selectedGhost == ghostName then
 		return true
@@ -1434,7 +1436,7 @@ perkTrackerState.syncJournal = function(forcedGhost)
 	end
 	local forcedSelection = type(forcedGhost) == "string"
 		and forcedGhost ~= ""
-		and not string.find(forcedGhost, "/", 1, true)
+		and not string.find(tostring(forcedGhost), "/", 1, true)
 		and GhostModule.Find(forcedGhost) ~= nil
 	if forcedGhost ~= nil and not forcedSelection then
 		if not explicitlyForced then
@@ -1449,22 +1451,34 @@ perkTrackerState.syncJournal = function(forcedGhost)
 		-- parallel with the lobby-return sequence.
 		perkTrackerState.journalForcedGhost = forcedGhost
 	end
-	local candidates
 	if forcedSelection then
-		candidates = {forcedGhost}
-	else
-		candidates = perkTrackerState.getRemainingCandidates(false)
-		if #candidates == 0 then
-			-- Keep the Journal on the same priority ladder as the timed
-			-- selector: confirmed evidence survives conflicting soft rule-outs.
-			candidates = perkTrackerState.getRemainingCandidates(true)
+		local ghostTypes = perkTrackerState.findJournalGhostTypes()
+		local frame = ghostTypes and ghostTypes:FindFirstChild(forcedGhost)
+		if not frame or not frame:IsA("Frame") then
+			return false
 		end
+		perkTrackerState.journalMutationBusy = true
+		local selectedApplied =
+			perkTrackerState.confirmJournalGhostSelection(frame, forcedGhost)
+		perkTrackerState.journalMutationBusy = false
+		if selectedApplied then
+			perkTrackerState.lastJournalSelectedGhost = forcedGhost
+			perkTrackerState.lastJournalVisualGhost = forcedGhost
+			perkTrackerState.journalDesiredApplicability[forcedGhost] = true
+		end
+		return selectedApplied
+	end
+	local candidates = perkTrackerState.getRemainingCandidates(false)
+	if #candidates == 0 then
+		-- Keep the Journal on the same priority ladder as the timed
+		-- selector: confirmed evidence survives conflicting soft rule-outs.
+		candidates = perkTrackerState.getRemainingCandidates(true)
 	end
 	local candidateSet = {}
 	for _, ghostName in ipairs(candidates) do
 		candidateSet[ghostName] = true
 	end
-	local selectedGhost = forcedSelection and forcedGhost or nil
+	local selectedGhost
 	local guess = perkTrackerState.currentGhostGuess
 	local score = perkTrackerState.currentGhostGuessScore or 0
 	if not selectedGhost
@@ -1510,13 +1524,6 @@ perkTrackerState.syncJournal = function(forcedGhost)
 				if frame and frame:IsA("Frame") then
 					selectedApplied =
 						perkTrackerState.applyJournalRowState(frame, true)
-					if explicitlyForced then
-						selectedApplied =
-							perkTrackerState.confirmJournalGhostSelection(
-								frame,
-								selectedGhost
-							)
-					end
 				end
 				perkTrackerState.journalDesiredApplicability[selectedGhost] =
 					true
@@ -1532,16 +1539,6 @@ perkTrackerState.syncJournal = function(forcedGhost)
 			perkTrackerState.lastJournalVisualGhost = nil
 			return true
 		end
-		if explicitlyForced then
-			-- Do not bypass the Journal controller with another direct remote. A
-			-- retry must preserve its selected/crossed-out/neutral state machine.
-			return false
-		end
-	end
-	if explicitlyForced then
-		-- Wait for the Journal UI/controller instead of reporting a direct remote
-		-- as a successful choice without updating GetSelectedGhost's local table.
-		return false
 	end
 	if selectedGhost then
 		return perkTrackerState.fireJournalGhostSelection(selectedGhost)
