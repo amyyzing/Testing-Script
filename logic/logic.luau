@@ -3501,6 +3501,7 @@ local function startGhostCoordinator(ghost)
 			print("Ghost coordinator: " .. tostring(failure and failure.Error or failure))
 		end,
 		RuntimeContext = {
+			Workspace = workspace,
 			GhostModel = ghost,
 			InitialHunting = ghost:GetAttribute("Hunting") == true,
 			MapFactor = getMapSizeSpeedFactor(),

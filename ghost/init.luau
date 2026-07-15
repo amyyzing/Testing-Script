@@ -40,6 +40,7 @@ return function(dependencies)
 			SpeedPairs = "ghost/trackers/dormant/speed-pairs.luau",
 			SpeedProbe = "ghost/trackers/dormant/speed-probe.luau",
 			RoomTemperature = "ghost/trackers/dormant/room-temperature.luau",
+			SaltDisturbance = "ghost/trackers/dormant/salt-disturbance.luau",
 			ObservationWindow = "ghost/trackers/dormant/observation-window.luau",
 			StaticGhostFacts = "ghost/trackers/discardable/static-ghost-facts.luau",
 			QualifiedOneShot = "ghost/trackers/discardable/qualified-one-shot.luau",
@@ -59,6 +60,7 @@ return function(dependencies)
 		SpeedPairs = classFromFactory("SpeedPairs"),
 		SpeedProbe = classFromFactory("SpeedProbe"),
 		RoomTemperature = classFromFactory("RoomTemperature"),
+		SaltDisturbance = classFromFactory("SaltDisturbance"),
 		ObservationWindow = classFromFactory("ObservationWindow"),
 		StaticGhostFacts = classFromFactory("StaticGhostFacts"),
 		QualifiedOneShot = classFromFactory("QualifiedOneShot"),
@@ -92,6 +94,7 @@ return function(dependencies)
 		append(trackers, instantiate(Core.Classes.SpeedPairs, options.SpeedPairs))
 		append(trackers, instantiate(Core.Classes.SpeedProbe, options.SpeedProbe))
 		append(trackers, instantiate(Core.Classes.RoomTemperature, options.RoomTemperature))
+		append(trackers, instantiate(Core.Classes.SaltDisturbance, options.SaltDisturbance))
 		if options.IncludeStaticGhostFacts ~= false
 			and type(options.RuntimeContext) == "table"
 			and options.RuntimeContext.GhostModel ~= nil then

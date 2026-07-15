@@ -2944,29 +2944,44 @@ local function selectRoundJournalGhost(ghostName, generation)
 	if not doRoundOperationActive(generation) then
 		return false
 	end
-	if perkTrackerState.syncJournal(ghostName) ~= true
-		or not doRoundOperationActive(generation) then
+	-- Journal visuals are advisory here. A busy/stale Journal mutation must not
+	-- deadlock an otherwise completed round in "Selecting ghost guess". Apply
+	-- the normal UI state, then independently dispatch the authoritative guess.
+	local visualCall, visualResult = pcall(
+		perkTrackerState.syncJournal,
+		ghostName
+	)
+	local visualApplied = visualCall and visualResult == true
+	if not doRoundOperationActive(generation) then
 		return false
 	end
+	local remoteCall, remoteResult = pcall(
+		perkTrackerState.fireJournalGhostSelection,
+		ghostName
+	)
+	local remoteSent = remoteCall and remoteResult == true
 	local ghostTypes = perkTrackerState.findJournalGhostTypes()
 	if not ghostTypes then
-		-- With no replicated journal UI, a successful RemoteEvent dispatch is
-		-- the only observable confirmation available.
-		return true
+		return visualApplied or remoteSent
 	end
 	local frame = ghostTypes:FindFirstChild(ghostName)
 	if not frame or not frame:IsA("Frame") then
-		return false
+		return visualApplied or remoteSent
 	end
 	local deadline = os.clock() + 0.75
 	repeat
-		if perkTrackerState.readJournalRowState(frame) == true then
+		local selectedGhost, readable =
+			perkTrackerState.readJournalSelectedGhost()
+		if (readable and selectedGhost == ghostName)
+			or perkTrackerState.readJournalRowState(frame) == true then
 			return true
 		end
 		task.wait(0.03)
 	until not doRoundOperationActive(generation)
 		or os.clock() >= deadline
-	return false
+	-- FireServer has no acknowledgement. Once dispatch succeeds, lobby return
+	-- must proceed even if the Journal UI did not repaint within this frame.
+	return remoteSent or visualApplied
 end
 
 	local setEnabled
