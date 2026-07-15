@@ -1363,6 +1363,21 @@ perkTrackerState.applyJournalRowState = function(frame, desiredState)
 	end
 	return current == desiredState
 end
+perkTrackerState.fireJournalGhostSelection = function(ghostName)
+	if type(ghostName) ~= "string" or ghostName == "" then
+		return false
+	end
+	local events = Services.ReplicatedStorage:FindFirstChild("Events")
+	local event = events and events:FindFirstChild("EvidenceMarkedInJournal")
+	if not event or not event:IsA("RemoteEvent") then
+		return false
+	end
+	local sent = pcall(event.FireServer, event, ghostName)
+	if sent then
+		perkTrackerState.lastJournalSelectedGhost = ghostName
+	end
+	return sent
+end
 perkTrackerState.syncJournal = function(forcedGhost)
 	if closed or perkTrackerState.journalMutationBusy then
 		return false
@@ -1458,6 +1473,13 @@ perkTrackerState.syncJournal = function(forcedGhost)
 		if selectedGhost and selectedApplied then
 			perkTrackerState.lastJournalSelectedGhost = selectedGhost
 			perkTrackerState.lastJournalVisualGhost = selectedGhost
+			-- A highlighted row only proves that the local Journal UI changed. The
+			-- server still needs the final ghost choice before the round can end.
+			-- Forced selections come from round automation, so always dispatch the
+			-- authoritative selection even when the row was already highlighted.
+			if explicitlyForced then
+				return perkTrackerState.fireJournalGhostSelection(selectedGhost)
+			end
 			return true
 		end
 		if not selectedGhost then
@@ -1466,22 +1488,7 @@ perkTrackerState.syncJournal = function(forcedGhost)
 		end
 	end
 	if selectedGhost then
-		local events =
-			Services.ReplicatedStorage:FindFirstChild("Events")
-		local event =
-			events and events:FindFirstChild(
-				"EvidenceMarkedInJournal"
-			)
-		if event and event:IsA("RemoteEvent") then
-			local sent = pcall(function()
-				event:FireServer(selectedGhost)
-			end)
-			if sent then
-				perkTrackerState.lastJournalSelectedGhost =
-					selectedGhost
-			end
-			return sent
-		end
+		return perkTrackerState.fireJournalGhostSelection(selectedGhost)
 	end
 	return selectedGhost == nil
 end
