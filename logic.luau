@@ -93,6 +93,11 @@ end
 local arrivalContext = type(requestedArrivalContext) == "string"
 	and requestedArrivalContext
 	or nil
+-- A saved lobby preference is not an in-round start command. Only the queued
+-- loader produced for an automatic AttemptStart teleport may auto-enable
+-- Do-Round after arriving in a game.
+local roundAutoHandoff = requestedAuto == true
+	and arrivalContext == "AttemptStart"
 local rememberedChallenges = type(rememberedLobbySettings.Challenges) == "table"
 	and rememberedLobbySettings.Challenges
 	or {}
@@ -961,6 +966,14 @@ if arrivalContext == "AttemptStart" and not shouldLoadRoundGui then
 	session:Destroy()
 	error("AttemptStart arrival did not replicate Workspace.Ghost within 15 seconds", 0)
 end
+local shouldAutoStartRound = shouldLoadRoundGui and roundAutoHandoff
+if shouldLoadRoundGui then
+	-- Manual execution inside a round always begins with automation disabled,
+	-- even when Settings.json or getgenv() remembers Auto from the lobby.
+	session.Auto = shouldAutoStartRound
+	session.RoundAutoHandoff = roundAutoHandoff
+	environment.DemonologyAuto = shouldAutoStartRound
+end
 if not shouldLoadRoundGui then
 	session.Mode = "LobbySettings"
 	local loaded, LobbySettings = xpcall(function()
@@ -1267,7 +1280,7 @@ local ok, failure = xpcall(function()
 	assertCurrent()
 	controller:Start()
 	assertCurrent()
-	if autoEnabled then
+	if shouldAutoStartRound then
 		-- Do not hand control to Do-Round until the replicated round, character,
 		-- doors, and door remote have remained available for a full second. This
 		-- gate intentionally lives outside round-automation so its proven door
