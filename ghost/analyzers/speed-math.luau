@@ -1,6 +1,14 @@
 return function(dependencies)
 	dependencies = type(dependencies) == "table" and dependencies or {}
 	local Events = assert(dependencies.Events, "SpeedMath requires Events")
+	local Specification = type(dependencies.Specification) == "table"
+		and dependencies.Specification or {}
+	local PairSpec = type(Specification.SpeedPairs) == "table"
+		and Specification.SpeedPairs or {}
+	local MathSpec = type(Specification.SpeedMath) == "table"
+		and Specification.SpeedMath or {}
+	local WendigoSpec = type(Specification.Wendigo) == "table"
+		and Specification.Wendigo or {}
 
 	local SpeedMath = {}
 	SpeedMath.__index = SpeedMath
@@ -24,29 +32,38 @@ return function(dependencies)
 		return result
 	end
 
-	local function mapFactor(event)
+	local function mapFactor(event, context)
 		local explicit = tonumber(Events.Read(event, "MapFactor"))
+			or tonumber(type(context) == "table" and context.MapFactor)
 		if explicit and explicit > 0 then
 			return explicit
 		end
-		return MAP_FACTORS[tostring(Events.Read(event, "MapSize"))] or 1
+		return MAP_FACTORS[tostring(
+			Events.Read(event, "MapSize")
+				or (type(context) == "table" and context.MapSize)
+		)] or 1
 	end
 
-	local function closestFit(normalizedSpeed, base, multipliers)
+	local function closestFit(normalizedSpeed, base, multipliers, baseTolerance)
 		local best = nil
+		baseTolerance = math.max(0, tonumber(baseTolerance) or 0.1)
 		for _, multiplier in ipairs(multipliers) do
 			local expected = base * multiplier
+			local observedBase = normalizedSpeed / multiplier
 			local candidate = {
 				Base = base,
 				Multiplier = multiplier,
 				Expected = expected,
 				Error = math.abs(normalizedSpeed - expected),
+				ObservedBase = observedBase,
+				BaseError = math.abs(observedBase - base),
+				BaseTolerance = baseTolerance,
 			}
-			candidate.Tolerance = math.max(0.18, expected * 0.02)
-			candidate.Qualified = candidate.Error <= candidate.Tolerance
+			candidate.Tolerance = baseTolerance * multiplier
+			candidate.Qualified = candidate.BaseError <= baseTolerance
 			candidate.Matched = candidate.Qualified
 			candidate.Fits = candidate.Qualified
-			if not best or candidate.Error < best.Error then
+			if not best or candidate.BaseError < best.BaseError then
 				best = candidate
 			end
 		end
@@ -67,11 +84,24 @@ return function(dependencies)
 			Name = options.Name or "SpeedMath",
 			Category = "Analyzer",
 			Status = "Idle",
-			MinimumSanitySpread = tonumber(options.MinimumSanitySpread) or 2,
+			RequiredTransitions = math.max(2, math.floor(
+				tonumber(options.RequiredTransitions)
+					or tonumber(WendigoSpec.RequiredTransitions)
+					or 2
+			)),
+			MinimumSanitySpread = tonumber(options.MinimumSanitySpread)
+				or tonumber(WendigoSpec.MinimumSanitySpread) or 0.5,
+			WendigoBaseIntercept = tonumber(options.WendigoBaseIntercept)
+				or tonumber(WendigoSpec.BaseIntercept) or 14,
+			WendigoSanitySlope = tonumber(options.WendigoSanitySlope)
+				or tonumber(WendigoSpec.SanitySlope) or 0.05,
+			WendigoNonHuntMultiplier = tonumber(options.WendigoNonHuntMultiplier)
+				or tonumber(WendigoSpec.NonHuntMultiplier) or 1.75,
 			_context = nil,
 			transitionSnapshots = {},
 			lastMath = nil,
 			lastCurveSignature = nil,
+			startupNonHuntObserved = false,
 		}, SpeedMath)
 	end
 
@@ -93,17 +123,24 @@ return function(dependencies)
 		if not speed or speed <= 0 then
 			return
 		end
-		local factor = mapFactor(event)
+		local factor = mapFactor(event, self._context)
 		local normalized = speed / factor
-		local sanity = tonumber(Events.Read(event, "AverageSanity"))
 		local multipliers = validMultipliers(Events.Read(event, "ValidMultipliers"))
+		local fitTolerance = tonumber(MathSpec.FlatBaseTolerance) or 0.1
 		local fits = {
-			Normal = closestFit(normalized, 11, multipliers),
-			Oni = closestFit(normalized, 13.5, multipliers),
+			Normal = closestFit(
+				normalized,
+				tonumber(PairSpec.NormalHuntingBase) or 11,
+				multipliers,
+				fitTolerance
+			),
+			Oni = closestFit(
+				normalized,
+				tonumber(PairSpec.OniHuntingBase) or 13.5,
+				multipliers,
+				fitTolerance
+			),
 		}
-		if sanity then
-			fits.Wendigo = closestFit(normalized, 14 - math.clamp(sanity, 0, 100) * 0.05, multipliers)
-		end
 		local bestName
 		local best
 		for name, fit in pairs(fits) do
@@ -118,10 +155,10 @@ return function(dependencies)
 			RequiredPairs = tonumber(Events.Read(event, "RequiredPairs")),
 			MapFactor = factor,
 			NormalizedSpeed = normalized,
-			AverageSanity = sanity,
 			Fits = fits,
 			Best = bestName,
 			Qualified = best and best.Qualified or false,
+			Completed = true,
 			BaseSpeed = best and best.Base or nil,
 			PhaseDependent = false,
 			ValidMultipliers = multipliers,
@@ -133,6 +170,44 @@ return function(dependencies)
 			Hunting = true,
 			Source = self.Name,
 			Payload = payload,
+		})
+	end
+
+	function SpeedMath:_nonHunt(event)
+		local speed = tonumber(
+			Events.Read(event, "Speed")
+				or Events.Read(event, "WalkSpeed")
+		)
+		if not speed or speed <= 0 then return end
+		local factor = mapFactor(event, self._context)
+		local normalized = speed / factor
+		local base = tonumber(PairSpec.NormalNonHuntingBase) or 11
+		local multiplier = tonumber(PairSpec.NonHuntingMultiplier) or 1.75
+		local fit = closestFit(
+			normalized,
+			base,
+			{multiplier},
+			tonumber(MathSpec.FlatBaseTolerance) or 0.1
+		)
+		self:_emit({
+			Type = Events.Types.NonHuntSpeedMathResult,
+			HuntId = event.HuntId,
+			Hunting = false,
+			Source = self.Name,
+			Payload = {
+				Speed = speed,
+				MapFactor = factor,
+				NormalizedSpeed = normalized,
+				BaseSpeed = base,
+				Multiplier = multiplier,
+				Fit = fit,
+				Matched = fit ~= nil and fit.Qualified == true,
+				Qualified = true,
+				Completed = true,
+				Reason = fit ~= nil and fit.Qualified == true
+					and "settled non-hunting speed fit base 11"
+					or "settled non-hunting speed did not fit base 11",
+			},
 		})
 	end
 
@@ -156,13 +231,13 @@ return function(dependencies)
 			HuntId = event.HuntId,
 			AverageSanity = math.clamp(sanity, 0, 100),
 			Speed = speed,
-			MapFactor = mapFactor(event),
+			MapFactor = mapFactor(event, self._context),
 			ValidMultipliers = validMultipliers(Events.Read(event, "ValidMultipliers")),
 		})
-		while #self.transitionSnapshots > 3 do
+		while #self.transitionSnapshots > self.RequiredTransitions do
 			table.remove(self.transitionSnapshots, 1)
 		end
-		if #self.transitionSnapshots < 3 then
+		if #self.transitionSnapshots < self.RequiredTransitions then
 			return
 		end
 
@@ -170,18 +245,22 @@ return function(dependencies)
 		local highest = -1
 		local matchedMultiplier = nil
 		local matched = true
-		local reason = "three alternating hunt-state snapshots matched the Wendigo sanity curve"
+		local reason = tostring(self.RequiredTransitions)
+			.. " alternating hunt-state snapshots matched the Wendigo sanity curve"
 		for _, snapshot in ipairs(self.transitionSnapshots) do
 			lowest = math.min(lowest, snapshot.AverageSanity)
 			highest = math.max(highest, snapshot.AverageSanity)
 			local normalized = snapshot.Speed / snapshot.MapFactor
-			local base = 14 - snapshot.AverageSanity * 0.05
+			local base = self.WendigoBaseIntercept
+				- snapshot.AverageSanity * self.WendigoSanitySlope
 			-- 175% is the known non-hunting state factor, not a valid hunting
 			-- difficulty. Fit it only for non-hunt transition snapshots.
 			local fit = closestFit(
 				normalized,
 				base,
-				snapshot.Hunting and snapshot.ValidMultipliers or {1.75}
+				snapshot.Hunting and snapshot.ValidMultipliers
+					or {self.WendigoNonHuntMultiplier},
+				tonumber(MathSpec.WendigoBaseTolerance) or 0.02
 			)
 			if not fit or not fit.Qualified then
 				matched = false
@@ -213,7 +292,9 @@ return function(dependencies)
 			reason = "the curve fit, but transition sanity had not changed enough to distinguish Wendigo"
 		end
 		local signature = tostring(self.transitionSnapshots[1].Time)
-			.. ":" .. tostring(self.transitionSnapshots[3].Time)
+			.. ":" .. tostring(
+				self.transitionSnapshots[#self.transitionSnapshots].Time
+			)
 		if signature == self.lastCurveSignature then
 			return
 		end
@@ -231,7 +312,8 @@ return function(dependencies)
 				Completed = true,
 				Snapshots = copyArray(self.transitionSnapshots),
 				Multiplier = matchedMultiplier,
-				NonHuntMultiplier = 1.75,
+				NonHuntMultiplier = self.WendigoNonHuntMultiplier,
+				RequiredTransitions = self.RequiredTransitions,
 				SanitySpread = spread,
 				MinimumSanitySpread = self.MinimumSanitySpread,
 				Reason = reason,
@@ -248,7 +330,14 @@ return function(dependencies)
 		if kind == Events.Types.FlatHuntSpeed then
 			self:_flat(event)
 		elseif kind == Events.Types.HuntTransitionSettled then
+			if event.Hunting == false then self:_nonHunt(event) end
 			self:_transition(event)
+		elseif kind == Events.Types.WalkSpeedChanged
+			and event.Hunting == false
+			and self.startupNonHuntObserved ~= true
+			and string.find(tostring(event.Source or ""), "Startup", 1, true) then
+			self.startupNonHuntObserved = true
+			self:_nonHunt(event)
 		end
 	end
 
@@ -260,6 +349,7 @@ return function(dependencies)
 		table.clear(self.transitionSnapshots)
 		self.lastMath = nil
 		self.lastCurveSignature = nil
+		self.startupNonHuntObserved = false
 		self.Status = "Idle"
 	end
 
@@ -275,6 +365,8 @@ return function(dependencies)
 			Category = self.Category,
 			Status = self.Status,
 			TransitionSnapshots = copyArray(self.transitionSnapshots),
+			RequiredTransitions = self.RequiredTransitions,
+			MinimumSanitySpread = self.MinimumSanitySpread,
 			LastMath = Events.Copy(self.lastMath),
 		}
 	end

@@ -3,6 +3,9 @@
 -- Internal evidence keys intentionally retain the names used by the original
 -- monolith. DisplayName and CurrentName expose the current in-game/wiki names.
 
+-- Evidence catalog, candidate resolver, and Journal-selection policy live with
+-- the ghost domain. UI/button orchestration consumes this module but does not
+-- own any ghost conclusions.
 local GhostModule = {}
 
 local EVIDENCE_ORDER = {
@@ -202,196 +205,135 @@ local function profile(name, evidence, sourceStatus, profilePerks, aliases, fals
 end
 
 local Profiles = {
-	profile("Aswang", {"EMFLevel5", "GhostWriting", "Wither"}, "wiki-documented", perks({
-		note("During one hunt, the same touched SaltLine becomes DisturbedSaltLine, WalkSpeed temporarily falls below its reliable pre-touch baseline, then returns to that baseline.", SOURCE.Aswang, "wiki-documented", false, "Trait", "Require the contact, disturbance, repeated slowdown samples, and later recovery from the same hunt."),
+	profile("Aswang", {"EMFLevel5", "GhostWriting", "Wither"}, "user-observed", perks({
+		note("During a hunt, direct contact with the same salt pile disturbs it, temporarily lowers WalkSpeed, and is followed by a return to the pre-contact hunting baseline.", SOURCE.Aswang, "user-observed", false, "Trait"),
 	}, {
-		note("A hunting ghost directly disturbed salt and showed a repeated speed dip, but recovery has not been sampled yet.", SOURCE.Aswang, "wiki-documented", false, "Trait", "Keep sampling through the temporary slowdown window before upgrading confidence."),
-		note("Across controlled hunt-state comparisons, WalkSpeed rises by about 20% after each unique hunter kill.", SOURCE.Aswang, "wiki-documented", false, "Trait", "Compare stable speeds before and after the kill rather than relying on one estimate."),
+		note("Stable hunting speed permanently rises after a qualified unique player kill.", SOURCE.Aswang, "user-observed", false, "Trait"),
 	}, {
-		note("Disturbed salt by itself, a non-hunt speed change, or an unreliable pre-touch baseline is not diagnostic.", SOURCE.Aswang, "wiki-documented", false, "Caveat"),
+		note("A qualified hunting salt contact with no temporary slowdown is a 99% negative; a qualified unique kill with no permanent rise is also a 99% negative.", SOURCE.Aswang, "user-observed", false, "RuleOut"),
+		note("Salt contact outside a hunt can identify Wraith behavior but cannot identify Aswang.", SOURCE.Aswang, "user-observed", false, "Caveat"),
 	})),
-	profile("Banshee", {"FreezingTemperatures", "GhostOrb", "Handprints"}, "wiki-documented", perks({
-		note("A distinct, subtitle-supported wail occurred at the start of a hunt after Skinwalker was ruled out.", SOURCE.Banshee, "wiki-documented", true, "Ability", "Skinwalker may mimic the wail."),
-	}, {
-		note("Glass, windows, bulbs, or cups break unusually often.", SOURCE.Banshee, "wiki-documented", false, "Trait"),
-	}, {
-		note("One glass break is weak evidence: any ghost can break glass and a Banshee may break none.", SOURCE.Banshee, "wiki-documented", false, "Caveat"),
+	profile("Banshee", {"FreezingTemperatures", "GhostOrb", "Handprints"}, "user-observed", perks({
+		note("At least two new BrokenGlass models appear within one five-second window.", SOURCE.Banshee, "user-observed", false, "Trait"),
+	}, {}, {
+		note("The absence of a glass burst is not a Banshee negative.", SOURCE.Banshee, "user-observed", false, "Caveat"),
 	})),
-	profile("Demon", {"EMFLevel5", "FreezingTemperatures", "Handprints"}, "wiki-documented", perks({
-		note("A Cross visibly floats or spins while burning; Crosses also work from a larger range.", SOURCE.Demon, "wiki-documented", false, "Weakness"),
-	}, {
-		note("It hunts consistently as soon as the 85% average-energy threshold and hunt cooldown permit.", SOURCE.Demon, "wiki-documented", true, "Ability"),
-	}, {
-		note("Frequent hunts alone overlap with Revenant behavior and difficulty modifiers.", SOURCE.Demon, "wiki-documented", true, "Caveat"),
+	profile("Demon", {"EMFLevel5", "FreezingTemperatures", "Handprints"}, "user-observed", perks({
+		note("An eligible burning Cross floats and rotates.", SOURCE.Demon, "user-observed", false, "Weakness"),
+	}, {}, {
+		note("An eligible Cross that finishes burning without floating and rotating is a 99% negative.", SOURCE.Demon, "user-observed", false, "RuleOut"),
 	})),
-	profile("Dullahan", {"FreezingTemperatures", "LaserProjector", "Wither"}, "wiki-documented", perks({
-		note("A clear Photo Camera image shows it without a head.", SOURCE.Dullahan, "wiki-documented", false, "Weakness"),
-		note("Across seven settled visible/invisible pairs during one hunt, both WalkSpeed values differ in every pair; direction and difference size do not matter.", SOURCE.Dullahan, "user-observed", false, "Trait"),
-	}, {
-		note("Seven local pairs matching the Phantom ratio, or seven equal pairs matching flat Normal/Oni math, rule Dullahan out immediately.", SOURCE.Dullahan, "user-observed", false, "RuleOut"),
-	}, {
-		note("Fewer than seven complete settled pairs are insufficient; an incomplete hunt does not create a Dullahan negative.", SOURCE.Dullahan, "user-observed", false, "Caveat"),
+	profile("Dullahan", {"FreezingTemperatures", "LaserProjector", "Wither"}, "user-observed", perks({
+		note("After seven complete invisible/visible pairs exclude valid Phantom and exactly-flat patterns, any upward speed step of nonzero magnitude identifies Dullahan; decreases and resets are ignored.", SOURCE.Dullahan, "user-observed", false, "Trait"),
+	}, {}, {
+		note("A valid Phantom pattern or one exactly-flat seven-pair sequence rules Dullahan out. Decreases and resets are ignored; an invalid stable A/B sequence still supports Dullahan when its tracked direction contains a nonzero rise.", SOURCE.Dullahan, "user-observed", false, "RuleOut"),
 	})),
-	profile("Dybbuk", {"FreezingTemperatures", "Handprints", "Wither"}, "wiki-documented", perks({
-		note("The first Music Box play visibly stuns it for about three seconds.", SOURCE.Dybbuk, "wiki-documented", false, "Weakness", "The Music Box is not guaranteed to spawn and is absent on Nightmare difficulty."),
-	}, {
-		note("A corpse was directly observed being thrown.", SOURCE.Dybbuk, "wiki-documented", true, "Ability"),
-	}, {
-		note("A corpse was merely found displaced; ordinary physics can move bodies.", SOURCE.Dybbuk, "wiki-documented", true, "Caveat"),
+	profile("Dybbuk", {"FreezingTemperatures", "Handprints", "Wither"}, "tracker-pending", perks({}, {}, {
+		note("No automatic Dybbuk behavior observation is currently trusted.", SOURCE.Dybbuk, "tracker-pending", false, "Caveat"),
 	})),
-	profile("Entity", {"Handprints", "LaserProjector", "SpiritBox"}, "wiki-documented", perks({
-		note("After Skinwalker is excluded, a witnessed teleport or an object teleport with same-colored smoke strongly identifies Entity.", SOURCE.Entity, "wiki-documented", true, "Ability"),
-	}, {
-		note("Equipment changed rooms, or salt placement implies an impossible path without teleporting.", SOURCE.Entity, "wiki-documented", true, "Ability"),
-	}, {
-		note("Frequent roaming or a missed salt line does not establish teleportation.", SOURCE.Entity, "wiki-documented", true, "Caveat"),
+	profile("Entity", {"Handprints", "LaserProjector", "SpiritBox"}, "user-observed", perks({
+		note("A confirmed object teleport is accompanied by a SmokeHolder appearing anywhere in Workspace.", SOURCE.Entity, "user-observed", true, "Ability"),
+	}, {}, {
+		note("A confirmed object teleport without a SmokeHolder is a 50% negative, not a full rule-out.", SOURCE.Entity, "user-observed", true, "Caveat"),
 	})),
-	profile("Ghoul", {"FreezingTemperatures", "GhostOrb", "SpiritBox"}, "wiki-documented", perks({
-		note("Nearby electronics and Video Camera remain enabled and do not static during a hunt.", SOURCE.Ghoul, "wiki-documented", false, "Weakness", "The EMF Reader can still malfunction because it is not switched off."),
-	}, {
-		note("Repeated Spirit Box use or talking appears to trigger a hunt below the normal energy threshold.", SOURCE.Ghoul, "wiki-documented", false, "Trait"),
-	}, {
-		note("Electronics looked normal without confirming the hunting ghost was nearby.", SOURCE.Ghoul, "wiki-documented", false, "Caveat"),
+	profile("Ghoul", {"FreezingTemperatures", "GhostOrb", "SpiritBox"}, "user-observed", perks({}, {}, {
+		note("Electronics becoming disabled while every player is more than 15 studs away is a 99% negative for Ghoul.", SOURCE.Ghoul, "user-observed", false, "RuleOut"),
+		note("No positive automatic Ghoul observation is currently trusted.", SOURCE.Ghoul, "user-observed", false, "Caveat"),
 	})),
-	profile("Keres", {"Handprints", "SpiritBox", "Wither"}, "wiki-documented", perks({
-		note("A controlled hunt targets the lowest-energy hunter while ignoring higher-energy hunters; solo it ignores a hunter at or above 90% energy.", SOURCE.Keres, "wiki-documented", false, "Trait"),
-		note("Movement speed drops about 10% after each unique hunter kill.", SOURCE.Keres, "wiki-documented", false, "Weakness"),
+	profile("Keres", {"Handprints", "SpiritBox", "Wither"}, "user-observed", perks({
+		note("Stable hunting speed permanently decreases after a qualified unique player kill.", SOURCE.Keres, "user-observed", false, "Trait"),
 	}, {
-		note("It appears to prioritize the party member with the least energy.", SOURCE.Keres, "wiki-documented", false, "Trait"),
+		note("A verified female VisualModel is weak supporting evidence.", SOURCE.Keres, "user-observed", false, "Model"),
 	}, {
-		note("A feminine VisualModel only narrows the ghost to Keres or Siren.", SOURCE.Keres, "wiki-documented", false, "Model"),
-		note("A male VisualModel is a 99% negative for Keres.", SOURCE.Keres, "user-observed", false, "Model"),
+		note("No speed decrease after a qualified unique kill, or a verified male VisualModel, is a 99% negative.", SOURCE.Keres, "user-observed", false, "RuleOut"),
 	})),
-	profile("Leviathan", {"GhostOrb", "GhostWriting", "Handprints"}, "wiki-stub", perks({
-		note("Both nearby-equipment flicker and actual light-switch shutoff outside hunts were observed.", SOURCE.Leviathan, "wiki-stub", true, "Ability", "The current wiki recommends observing both because Skinwalker may copy one."),
-	}, {
-		note("Either nearby-equipment flicker or a light switch turning off outside a hunt was observed.", SOURCE.Leviathan, "wiki-stub", true, "Ability"),
-	}, {
-		note("A broken fuse box or general power outage is explicitly not the Leviathan tell.", SOURCE.Leviathan, "wiki-stub", true, "Caveat"),
+	profile("Leviathan", {"GhostOrb", "GhostWriting", "Handprints"}, "user-observed", perks({
+		note("A Spirit Box, Laser Projector, or Blacklight cleanly toggles at least seven times within 2.5 seconds.", SOURCE.Leviathan, "user-observed", true, "Ability"),
+	}, {}, {
+		note("One isolated toggle or an automation-caused toggle is not Leviathan evidence.", SOURCE.Leviathan, "user-observed", true, "Caveat"),
 	})),
-	profile("Nightmare", {"EMFLevel5", "GhostOrb", "SpiritBox"}, "wiki-documented", perks({
-		note("After Skinwalker is excluded, corroboration proves an auditory cue had no matching real interaction.", SOURCE.Nightmare, "wiki-documented", true, "Ability"),
-	}, {
-		note("It hunts more often while its current room is dark.", SOURCE.Nightmare, "wiki-documented", false, "Trait"),
-	}, {
-		note("An unexplained noise or general activity in darkness is not enough by itself.", SOURCE.Nightmare, "wiki-documented", true, "Caveat"),
+	profile("Nightmare", {"EMFLevel5", "GhostOrb", "SpiritBox"}, "tracker-pending", perks({}, {}, {
+		note("No automatic Nightmare behavior observation is currently trusted.", SOURCE.Nightmare, "tracker-pending", false, "Caveat"),
 	})),
-	profile("Oni", {"FreezingTemperatures", "LaserProjector", "SpiritBox"}, "wiki-documented", perks({
-		note("Across repeated hunts it consistently moves at a sprinting player's speed.", SOURCE.Oni, "wiki-documented", false, "Trait", "Speed estimates are safer when compared with a known baseline."),
-	}, {
-		note("Rapid or high-pitched footsteps accompany unusually frequent visible manifestations.", SOURCE.Oni, "wiki-documented", false, "Trait"),
-	}, {
-		note("One fast hunt or one manifestation is a risky relative-speed/activity tell.", SOURCE.Oni, "wiki-documented", false, "Caveat"),
+	profile("Oni", {"FreezingTemperatures", "LaserProjector", "SpiritBox"}, "user-observed", perks({
+		note("A complete seven-pair flat hunting window normalizes to base WalkSpeed 13.5 after map and configured-speed factors are removed.", SOURCE.Oni, "user-observed", false, "Trait"),
+	}, {}, {
+		note("A complete qualified flat hunting window that does not normalize to 13.5 is a 99% negative. Non-hunting speed is expected to normalize to 11.", SOURCE.Oni, "user-observed", false, "RuleOut"),
 	})),
-	profile("Phantom", {"EMFLevel5", "GhostOrb", "Handprints"}, "wiki-documented", perks({
-		note("Across seven local blink/non-blink AB pairs at 100% configured speed, its visible/invisible hunt speeds are 11/13.5 on Small maps, 11.55/14.175 on Medium maps, and 12.1/14.85 on Large maps; both values may drift together between pairs.", SOURCE.Phantom, "wiki-documented", true, "Trait", "Retain Skinwalker as an equal possibility in Mimicry mode."),
-	}, {
-		note("Each of seven local AB pairs shows the ghost moving about 13.5/11 times faster while invisible than while visible, regardless of whether the visible or invisible state arrived first.", SOURCE.Phantom, "user-observed", true, "Trait"),
-	}, {
-		note("A transition edge or fewer than seven complete AB pairs is not diagnostic; do not compare globally grouped blink states when local pairs are available.", SOURCE.Phantom, "user-observed", true, "Caveat"),
+	profile("Phantom", {"EMFLevel5", "GhostOrb", "Handprints"}, "user-observed", perks({
+		note("Across exactly seven hunt blink pairs, the same visible A and invisible B repeat and one allowed hunting multiplier fits map-normalized absolute bases 11 and 13.5. Ratio alone is insufficient.", SOURCE.Phantom, "user-observed", true, "Trait"),
+	}, {}, {
+		note("Any complete seven-pair window that is flat, drifting, decrease-only, or a stable A/B with invalid absolute bases rules Phantom out unless a confirmed unique Phantom match is already locked.", SOURCE.Phantom, "user-observed", true, "RuleOut"),
 	})),
-	profile("Ravager", {"EMFLevel5", "GhostWriting", "SpiritBox"}, "wiki-recent-stub", perks({
-		note("A vortex pulls nearby objects into a tornado during a hunt.", SOURCE.Ravager, "wiki-recent-stub", false, "Trait", "The guide reports roughly a one-in-three activation chance."),
-		note("A ghost event produces EMF Level 5 even in a zero-evidence custom run.", SOURCE.Ravager, "wiki-recent-stub", false, "Weakness"),
-	}, {
-		note("Multiple objects are thrown simultaneously or cause a chain reaction.", SOURCE.Ravager, "wiki-recent-stub", true, "Ability"),
-	}, {
-		note("Frequent single-object throws overlap with Specter and ordinary activity.", SOURCE.Ravager, "wiki-recent-stub", true, "Caveat"),
+	profile("Ravager", {"EMFLevel5", "GhostWriting", "SpiritBox"}, "user-observed", perks({
+		note("At least three distinct item or interactable models orbit the moving ghost in one direction for at least half a second.", SOURCE.Ravager, "user-observed", false, "Trait"),
+	}, {}, {
+		note("Ordinary throws and one moving object are not a vortex.", SOURCE.Ravager, "user-observed", false, "Caveat"),
 	})),
-	profile("Revenant", {"EMFLevel5", "FreezingTemperatures", "GhostWriting"}, "wiki-documented", perks({
-		note("The hunt ends immediately after it kills a hunter.", SOURCE.Revenant, "wiki-documented", false, "Weakness", "This is clearest outside Easy and Medium difficulty."),
-	}, {
-		note("The cooldown between hunts is short but less mechanically consistent than a Demon.", SOURCE.Revenant, "wiki-documented", false, "Trait"),
-	}, {
-		note("Frequent hunts alone overlap with Demon behavior and difficulty settings.", SOURCE.Revenant, "wiki-documented", false, "Caveat"),
+	profile("Revenant", {"EMFLevel5", "FreezingTemperatures", "GhostWriting"}, "user-observed", perks({
+		note("A hunt ends within one second of a valid multiplayer kill.", SOURCE.Revenant, "user-observed", false, "Weakness"),
+	}, {}, {
+		note("If the hunt is still active 1.5 seconds after a valid multiplayer kill, Revenant is ruled out at 99%.", SOURCE.Revenant, "user-observed", false, "RuleOut"),
 	})),
-	profile("Shadow", {"EMFLevel5", "GhostWriting", "LaserProjector"}, "wiki-documented", perks({
-		note("After the exit door opens, seven actual unrounded cooling changes in the ghost's current room with an exact arithmetic average below 0.06°C identify Shadow at 99%.", SOURCE.Shadow, "user-observed", false, "Trait"),
-	}, {
-		note("A controlled light-on versus light-off comparison shows reduced activity in the lit room.", SOURCE.Shadow, "wiki-documented", false, "Weakness"),
-	}, {
-		note("Setup-phase temperatures are discarded. Every post-opening cooling change, including outliers, enters the full seven-change arithmetic average. Increases and unchanged readings are ignored. One average above 0.08°C is only a candidate; two consecutive independent high-average windows rule Shadow out, while a middle-band window resets the streak.", SOURCE.Shadow, "user-observed", false, "RuleOut"),
-		note("A quiet ghost or a room that is difficult to locate is only absence-based evidence.", SOURCE.Shadow, "wiki-documented", false, "Caveat"),
+	profile("Shadow", {"EMFLevel5", "GhostWriting", "LaserProjector"}, "user-observed", perks({
+		note("After the round begins, seven actual unrounded cooling changes from the room occupied by the ghost have a direct arithmetic average below 0.08 C.", SOURCE.Shadow, "user-observed", false, "Trait"),
+	}, {}, {
+		note("A complete seven-change average greater than or equal to 0.08 C rules Shadow out. Temperature increases and unchanged readings are ignored.", SOURCE.Shadow, "user-observed", false, "RuleOut"),
 	})),
-	profile("Siren", {"EMFLevel5", "SpiritBox", "Wither"}, "wiki-documented", perks({
-		note("A hunter is clearly slowed while inside the Siren's line of sight; this trait is not listed as Skinwalker-mimickable.", SOURCE.Siren, "wiki-documented", false, "Trait"),
-		note("The Spirit Box returns - HUMMING - after Skinwalker has been excluded.", SOURCE.Siren, "wiki-documented", true, "Ability"),
+	profile("Siren", {"EMFLevel5", "SpiritBox", "Wither"}, "user-observed", perks({
+		note("The Spirit Box responds with - HUMMING -.", SOURCE.Siren, "user-observed", true, "Ability"),
+		note("A sprinting player is slowed while inside the ghost's line of sight.", SOURCE.Siren, "user-observed", false, "Trait"),
 	}, {
-		note("The Spirit Box returns - HUMMING -, which can also be a mimicking Skinwalker.", SOURCE.Siren, "wiki-documented", true, "Ability"),
+		note("A verified female VisualModel is weak supporting evidence.", SOURCE.Siren, "user-observed", false, "Model"),
 	}, {
-		note("A feminine model only narrows the ghost to Siren or Keres.", SOURCE.Siren, "wiki-documented", false, "Model"),
-		note("A male VisualModel is a 99% negative for Siren.", SOURCE.Siren, "user-observed", false, "Model"),
-		note("Spirit Box humming paired with a male VisualModel rules Siren out and identifies a mimicking Skinwalker.", SOURCE.Siren, "wiki-documented", false, "Caveat"),
+		note("A verified male VisualModel or a completed line-of-sight trial with no slowdown is a 99% negative.", SOURCE.Siren, "user-observed", false, "RuleOut"),
 	})),
-	profile("Skinwalker", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "wiki-disputed", perks({
-		note("Four evidence observations resolve to its three real evidences plus a fake Ghost Orb.", SOURCE.Skinwalker, "wiki-disputed", false, "Trait"),
-		note("A confirmed Ghost Orb completes at least three evidence observations that no normal ghost's real three-evidence set can contain.", SOURCE.Skinwalker, "wiki-disputed", false, "Trait"),
-		note("A Ghost Orb appears in a custom run with all real evidence disabled.", SOURCE.Skinwalker, "wiki-disputed", false, "Trait"),
-		note("It copies Wisp fire-walking but crosses Holy Oil without catching fire.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),
-		note("Spirit Box humming paired with a male VisualModel identifies it mimicking Siren.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),
-		note("Multiple mutually inconsistent ghost abilities are observed in one job.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),
+	profile("Skinwalker", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "user-observed", perks({
+		note("Ghost Orb forms a fourth evidence observation or completes an impossible three-evidence combination.", SOURCE.Skinwalker, "user-observed", false, "Trait"),
+		note("Spirit Box humming paired with a verified male VisualModel identifies a Siren-mimicking Skinwalker.", SOURCE.Skinwalker, "user-observed", false, "Ability"),
 	}, {
-		note("A single ability looks copied, or an Orb is present with fewer than three total evidence observations.", SOURCE.Skinwalker, "wiki-disputed", false, "Ability"),
+		note("It can mimic Wisp by crossing qualified burning Holy Oil without catching fire, or mimic Umbra by having no HumanoidRootPart sound other than Hunting.", SOURCE.Skinwalker, "user-observed", false, "Ability"),
 	}, {
-		note("Frequent roaming or a Ghost Orb alone in normal evidence mode is weak evidence.", SOURCE.Skinwalker, "wiki-disputed", false, "Caveat"),
+		note("Catching fire after qualified Holy Oil passage is a 99% Skinwalker negative. Orb alone is not sufficient.", SOURCE.Skinwalker, "user-observed", false, "RuleOut"),
 	}), nil, {"GhostOrb"}),
-	profile("Specter", {"EMFLevel5", "FreezingTemperatures", "LaserProjector"}, "wiki-documented", perks({
-		note("Repeated position or salt tracking establishes that it never leaves the favorite room except to hunt.", SOURCE.Specter, "wiki-documented", false, "Trait"),
-	}, {
-		note("It remains fixed to its favorite room while frequently throwing one object at a time.", SOURCE.Specter, "wiki-documented", false, "Trait"),
-	}, {
-		note("Frequent throwing alone overlaps with Ravager and ordinary ghost activity.", SOURCE.Specter, "wiki-documented", false, "Caveat"),
+	profile("Specter", {"EMFLevel5", "FreezingTemperatures", "LaserProjector"}, "user-observed", perks({
+		note("Across a completed five-second arm trial, the non-hunting ghost remains stationary in its unchanged favourite room until the next hunt begins.", SOURCE.Specter, "user-observed", false, "Trait"),
+	}, {}, {
+		note("Leaving the unchanged favourite room before that trial's hunt begins is a Specter negative; room-change trials are discarded.", SOURCE.Specter, "user-observed", false, "RuleOut"),
 	})),
-	profile("Spirit", {"GhostWriting", "Handprints", "SpiritBox"}, "wiki-documented", perks({
-		note("After Skinwalker is excluded, a candle, lantern, Summoning Circle, or Holy Oil flame changes blue and remains blue after relighting.", SOURCE.Spirit, "wiki-documented", true, "Ability"),
-	}, {
-		note("One blue flame was observed while Skinwalker remains possible.", SOURCE.Spirit, "wiki-documented", true, "Ability"),
-	}, {
-		note("Low or mostly harmless activity is not an identifying trait by itself.", SOURCE.Spirit, "wiki-documented", true, "Caveat"),
+	profile("Spirit", {"GhostWriting", "Handprints", "SpiritBox"}, "user-observed", perks({
+		note("Qualified burning Holy Oil produces a blue fire colour.", SOURCE.Spirit, "user-observed", true, "Ability"),
+	}, {}, {
+		note("A stable qualified Holy Oil fire colour that is not blue is a 99% negative.", SOURCE.Spirit, "user-observed", true, "RuleOut"),
 	})),
-	profile("Umbra", {"GhostOrb", "Handprints", "LaserProjector"}, "wiki-documented", perks({
-		note("After Skinwalker is excluded, hunt footsteps are completely silent and movement slows in lit rooms.", SOURCE.Umbra, "wiki-documented", true, "Ability"),
-	}, {
-		note("Either silent hunt footsteps or a controlled lit-room slowdown was observed.", SOURCE.Umbra, "wiki-documented", true, "Trait"),
-	}, {
-		note("Footsteps were merely difficult to hear over other sounds.", SOURCE.Umbra, "wiki-documented", true, "Caveat"),
+	profile("Umbra", {"GhostOrb", "Handprints", "LaserProjector"}, "user-observed", perks({
+		note("A one-time HumanoidRootPart scan finds no Sound object other than Hunting.", SOURCE.Umbra, "user-observed", true, "Trait"),
+	}, {}, {
+		note("Finding any other HumanoidRootPart Sound object is a 99% negative.", SOURCE.Umbra, "user-observed", true, "RuleOut"),
 	})),
-	profile("Vesper", {"GhostWriting", "Handprints", "Wither"}, "wiki-recent-stub", perks({
-		note("A controlled silent/still test is followed by a sound that immediately causes tracking through a wall.", SOURCE.Vesper, "wiki-recent-stub", false, "Trait"),
-	}, {
-		note("It repeatedly tracks noisy equipment or hunters through walls.", SOURCE.Vesper, "wiki-recent-stub", false, "Trait"),
-	}, {
-		note("It simply failed to path toward a stationary hunter; this test is easy to misread.", SOURCE.Vesper, "wiki-recent-stub", false, "Caveat"),
+	profile("Vesper", {"GhostWriting", "Handprints", "Wither"}, "tracker-pending", perks({}, {}, {
+		note("No automatic Vesper behavior observation is currently trusted.", SOURCE.Vesper, "tracker-pending", false, "Caveat"),
 	})),
-	profile("Vex", {"FreezingTemperatures", "GhostOrb", "Wither"}, "wiki-documented", perks({
-		note("It passes through a wall and repeatedly remains absent from LIDAR while its location is independently known.", SOURCE.Vex, "wiki-documented", true, "Trait", "Skinwalker may copy wall-walking but is not documented to copy LIDAR invisibility."),
-	}, {
-		note("It visibly walks through a wall, indicating Vex or a mimicking Skinwalker.", SOURCE.Vex, "wiki-documented", true, "Ability"),
-	}, {
-		note("Cutting a corner or missing from one scan without confirmed range is weak evidence.", SOURCE.Vex, "wiki-documented", true, "Caveat"),
+	profile("Vex", {"FreezingTemperatures", "GhostOrb", "Wither"}, "user-observed", perks({
+		note("The replicated InvisibleOnLIDAR value exists on the fixed ghost model.", SOURCE.Vex, "user-observed", false, "Trait"),
+	}, {}, {
+		note("The replicated InvisibleOnLIDAR value does not exist on the fixed ghost model.", SOURCE.Vex, "user-observed", false, "RuleOut"),
 	})),
-	profile("Wendigo", {"GhostOrb", "GhostWriting", "LaserProjector"}, "wiki-documented", perks({
-		note("Seven flat hunting pairs uniquely match the speed expected from average player Energy captured at the hunt-state switch, or three alternating transitions match that curve after at least two Energy points of change.", SOURCE.Wendigo, "user-observed", false, "Trait"),
-		note("It refuses to begin a hunt near a lit candle or lantern.", SOURCE.Wendigo, "wiki-documented", false, "Trait"),
-	}, {
-		note("A mathematically impossible three-transition curve rules Wendigo out even when the Energy spread is small; overlapping Normal/Oni/Wendigo pair fits remain inconclusive.", SOURCE.Wendigo, "user-observed", false, "RuleOut"),
-	}, {
-		note("Live Energy changes do not alter its current speed; compare the average Energy captured when hunting switches on or off.", SOURCE.Wendigo, "user-observed", false, "Caveat"),
+	profile("Wendigo", {"GhostOrb", "GhostWriting", "LaserProjector"}, "user-observed", perks({
+		note("Two alternating settled hunt-state transitions match the WalkSpeed curve for average player Energy captured at each exact switch; the sanity spread must be large enough to exceed speed tolerance.", SOURCE.Wendigo, "user-observed", false, "Trait"),
+	}, {}, {
+		note("A qualified transition-time WalkSpeed does not match its same-transition average-Energy prediction. Live sanity changes between transitions do not change speed.", SOURCE.Wendigo, "user-observed", false, "RuleOut"),
 	})),
-	profile("Wisp", {"GhostOrb", "LaserProjector", "Wither"}, "wiki-documented", perks({
-		note("It crosses ignited Holy Oil and visibly catches fire; a mimicking Skinwalker does not ignite.", SOURCE.Wisp, "wiki-documented", false, "Ability"),
-	}, {
-		note("It lights an unlit candle or walks through a line of fire, both of which Skinwalker may mimic.", SOURCE.Wisp, "wiki-documented", true, "Ability"),
-	}, {
-		note("Hunts only seemed to start in the favorite room; that room can change on higher difficulty.", SOURCE.Wisp, "wiki-documented", false, "Trait"),
+	profile("Wisp", {"GhostOrb", "LaserProjector", "Wither"}, "user-observed", perks({
+		note("While hunting through burning Holy Oil, GhostWall.CanCollide is false.", SOURCE.Wisp, "user-observed", false, "Ability"),
+		note("A hunt begins inside the current favourite room.", SOURCE.Wisp, "user-observed", false, "Trait"),
+	}, {}, {
+		note("GhostWall.CanCollide remaining true during a qualified burning-oil passage, or a hunt starting outside the favourite room, is a strong negative.", SOURCE.Wisp, "user-observed", false, "RuleOut"),
 	}), {"The Wisp", "Will-o-the-Wisp", "Will o the Wisp"}),
-	profile("Wraith", {"EMFLevel5", "LaserProjector", "SpiritBox"}, "wiki-documented", perks({
-		note("It is directly observed crossing a salt line without disturbing it.", SOURCE.Wraith, "wiki-documented", false, "Weakness"),
-		note("Measured passive energy drain is roughly 0.2-0.4% per second faster than normal.", SOURCE.Wraith, "wiki-documented", false, "Trait"),
-	}, {
-		note("The party's energy falls unusually quickly across a sustained sample.", SOURCE.Wraith, "wiki-documented", false, "Trait"),
-	}, {
-		note("Untouched salt is not useful unless the ghost was known to cross it.", SOURCE.Wraith, "wiki-documented", false, "Caveat"),
+	profile("Wraith", {"EMFLevel5", "LaserProjector", "SpiritBox"}, "user-observed", perks({
+		note("The ghost is directly observed touching a SaltLine and the contacted pile remains undisturbed for at least 1.25 seconds; hunting state does not matter.", SOURCE.Wraith, "user-observed", false, "Weakness"),
+	}, {}, {
+		note("Any DisturbedSaltLine appearing anywhere in Workspace.SaltPiles rules Wraith out at 99%.", SOURCE.Wraith, "user-observed", false, "RuleOut"),
 	})),
 }
 
@@ -415,27 +357,27 @@ end
 -- intentionally remain missing because recordPerkDetection used their absence
 -- to ignore unsupported automatic detections.
 local PerkConfidence = {
-	Aswang = 95,
-	Banshee = 60,
+	Aswang = 99,
+	Banshee = 99,
 	Demon = 99,
 	Dullahan = 99,
-	Dybbuk = 60,
-	Entity = 95,
-	Skinwalker = 65,
-	Keres = 95,
-	Leviathan = 95,
-	Oni = 97,
+	Entity = 99,
+	Skinwalker = 100,
+	Keres = 99,
+	Leviathan = 99,
+	Oni = 99,
 	Phantom = 99,
-	Ravager = 95,
-	Revenant = 35,
-	Siren = 95,
-	Specter = 35,
+	Ravager = 99,
+	Revenant = 99,
+	Shadow = 99,
+	Siren = 99,
+	Specter = 95,
 	Spirit = 99,
-	Umbra = 95,
-	Vex = 95,
-	Wendigo = 98,
-	Wisp = 35,
-	Wraith = 95,
+	Umbra = 99,
+	Vex = 99,
+	Wendigo = 99,
+	Wisp = 99,
+	Wraith = 99,
 }
 
 local PerkTTL = {
@@ -770,11 +712,15 @@ local function selectHighestConfidenceGuess(options)
 			for _, name in ipairs(candidates) do
 				local conflicts = 0
 				for evidenceKey in pairs(confirmedEvidence) do
-					-- Skinwalker's Orb is a false fourth evidence, not part of
-					-- ordinary compatibility. A valid real evidence combination
-					-- must beat it; impossible/fourth Orb combinations are handled
-					-- explicitly above.
-					if not supportsEvidence(name, evidenceKey, {
+					-- With fewer than three confirmed observations, Orb is still a
+					-- valid partial Skinwalker clue and must not push it behind every
+					-- real-Orb ghost. At three observations a valid real combination
+					-- wins; impossible/fourth combinations are handled above.
+					local partialSkinwalkerOrb = name == "Skinwalker"
+						and evidenceKey == "GhostOrb"
+						and orbCombination.OrbObserved
+						and orbCombination.EvidenceCount < 3
+					if not partialSkinwalkerOrb and not supportsEvidence(name, evidenceKey, {
 						RealOnly = true,
 						IncludeFalseEvidence = false,
 					}) then
@@ -798,9 +744,19 @@ local function selectHighestConfidenceGuess(options)
 
 	local scores: {[string]: number} = {}
 	local detections = type(options.Detections) == "table" and options.Detections or {}
+	local negativeConfidence = type(options.NegativeConfidence) == "table"
+		and options.NegativeConfidence
+		or {}
 	for _, name in ipairs(candidates) do
-		local score = detectionScore(detections[name])
-		if score ~= score or score < 0 then
+		local detection = detections[name]
+		local score = type(detection) == "table"
+			and tonumber(detection.NetConfidence)
+			or nil
+		if score == nil then
+			score = detectionScore(detection)
+				- math.max(0, tonumber(negativeConfidence[name]) or 0)
+		end
+		if score ~= score then
 			score = 0
 		end
 		scores[name] = score
@@ -821,11 +777,13 @@ local function selectHighestConfidenceGuess(options)
 		-- tie a real 35% leader during the final randomized selection.
 		if #currentNames == 1 then
 			local name = currentNames[1]
-			scores[name] = math.max(scores[name] or 0, currentScore)
+			if (tonumber(negativeConfidence[name]) or 0) <= 0 then
+				scores[name] = math.max(scores[name] or 0, currentScore)
+			end
 		end
 	end
 
-	local maximumScore = 0
+	local maximumScore = -math.huge
 	for _, name in ipairs(candidates) do
 		maximumScore = math.max(maximumScore, scores[name] or 0)
 	end
@@ -836,8 +794,10 @@ local function selectHighestConfidenceGuess(options)
 		end
 	end
 
+	local orbObserved = options.OrbObserved == true
+		or confirmedEvidence.GhostOrb == true
 	local skinwalkerTied = false
-	if #tied > 1 and options.OrbObserved ~= true then
+	if #tied > 1 and not orbObserved then
 		for _, name in ipairs(tied) do
 			if name == "Skinwalker" then
 				skinwalkerTied = true

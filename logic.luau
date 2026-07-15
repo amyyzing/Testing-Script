@@ -1,15 +1,30 @@
-local requestedAuto, requestedArrivalContext = ...
+local requestedAuto, requestedArrivalContext, requestedSourceRevision = ...
 
 if not game:IsLoaded() then
 	game.Loaded:Wait()
 end
 
-local BASE_URL = "https://raw.githubusercontent.com/amyyzing/Testing-Script/main/"
+local RAW_REPOSITORY_URL = "https://raw.githubusercontent.com/amyyzing/Testing-Script/"
+local REVISION_API_URL = "https://api.github.com/repos/amyyzing/Testing-Script/git/ref/heads/main"
+local MAIN_LOADER_URL = RAW_REPOSITORY_URL .. "main/logic.luau"
 local RUN_VERSION = tostring(os.time())
 local environment = (getgenv and getgenv()) or _G
 local HttpService = game:GetService("HttpService")
 local SETTINGS_DIRECTORY = "DemonologyAssistant"
 local SETTINGS_FILE = SETTINGS_DIRECTORY .. "/Settings.json"
+
+local function isCommitRevision(value)
+	return type(value) == "string"
+		and #value == 40
+		and string.match(value, "^[%da-fA-F]+$") ~= nil
+end
+
+local sourceRevision = isCommitRevision(requestedSourceRevision)
+	and string.lower(requestedSourceRevision)
+	or nil
+local sourceBaseUrl = sourceRevision
+	and (RAW_REPOSITORY_URL .. sourceRevision .. "/")
+	or nil
 
 local function executorApi(name)
 	if type(environment[name]) == "function" then
@@ -144,6 +159,7 @@ local sourceCache = {}
 local GHOST_PACKAGE_PATHS = {
 	"ghost/init.luau",
 	"ghost/events.luau",
+	"ghost/specification.luau",
 	"ghost/evidence-ledger.luau",
 	"ghost/resolver.luau",
 	"ghost/coordinator.luau",
@@ -174,21 +190,29 @@ local GHOST_PACKAGE_PATHS = {
 	"ghost/Wisp.luau",
 	"ghost/Wraith.luau",
 	"ghost/trackers/active/hunt-state.luau",
-	"ghost/trackers/active/signal-bridge.luau",
+	"ghost/trackers/active/runtime-signals.luau",
 	"ghost/trackers/dormant/speed-pairs.luau",
 	"ghost/trackers/dormant/speed-probe.luau",
 	"ghost/trackers/dormant/room-temperature.luau",
-	"ghost/trackers/dormant/salt-disturbance.luau",
-	"ghost/trackers/dormant/observation-window.luau",
+	"ghost/trackers/dormant/hunt-room.luau",
+	"ghost/trackers/dormant/salt-pile-hit.luau",
+	"ghost/trackers/dormant/holy-oil.luau",
+	"ghost/trackers/dormant/line-of-sight-speed.luau",
+	"ghost/trackers/dormant/broken-glass.luau",
+	"ghost/trackers/dormant/electronic-devices.luau",
+	"ghost/trackers/dormant/cross-motion.luau",
+	"ghost/trackers/dormant/specter-trial.luau",
+	"ghost/trackers/dormant/object-teleport.luau",
+	"ghost/trackers/dormant/vortex-orbit.luau",
 	"ghost/trackers/discardable/static-ghost-facts.luau",
-	"ghost/trackers/discardable/qualified-one-shot.luau",
 	"ghost/analyzers/speed-pattern.luau",
 	"ghost/analyzers/speed-math.luau",
+	"ghost/analyzers/evidence-combination.luau",
 }
 local RUNTIME_MODULE_PATHS = {
 	"gui/aesthetic.luau",
 	"gui/gui-logic.luau",
-	"logic/ghost-module.luau",
+	"ghost/evidence-catalog.luau",
 	"logic/teleportation.luau",
 	"logic/round-automation.luau",
 	"logic/logic.luau",
@@ -213,6 +237,9 @@ local session = {
 	Generation = generation,
 	LobbySettings = lobbySettings,
 	AutoRevision = 0,
+	SourceRevision = sourceRevision,
+	SourceRevisionPinned = sourceRevision ~= nil,
+	LobbyTransientConnections = {},
 }
 environment.DemonologySession = session
 
@@ -228,14 +255,65 @@ local function assertCurrent()
 	end
 end
 
+function session:InvalidateTeleportQueue()
+	local token = self.PendingTeleportToken
+	if type(token) == "string"
+		and token ~= ""
+		and environment.DemonologyAutoExecutionToken ~= token then
+		local cancelledTokens = type(environment.DemonologyCancelledTeleportTokens) == "table"
+			and environment.DemonologyCancelledTeleportTokens
+			or {}
+		cancelledTokens[token] = true
+		environment.DemonologyCancelledTeleportTokens = cancelledTokens
+	end
+	self.TeleportQueued = false
+	self.PendingTeleportContext = nil
+	self.PendingTeleportToken = nil
+end
+
+function session:TrackLobbyConnection(connection)
+	if not connection then
+		return connection
+	end
+	if self.Destroyed then
+		if connection.Connected then
+			connection:Disconnect()
+		end
+		return connection
+	end
+	table.insert(self.LobbyTransientConnections, connection)
+	return connection
+end
+
+function session:ReleaseLobbyConnection(connection)
+	if connection and connection.Connected then
+		connection:Disconnect()
+	end
+	for index = #self.LobbyTransientConnections, 1, -1 do
+		if self.LobbyTransientConnections[index] == connection then
+			table.remove(self.LobbyTransientConnections, index)
+			break
+		end
+	end
+end
+
 function session:Destroy(keepLoader)
 	if self.Destroyed then
 		return
 	end
 	self.Destroyed = true
+	self:InvalidateTeleportQueue()
+	for _, connection in ipairs(self.LobbyTransientConnections) do
+		if connection.Connected then
+			connection:Disconnect()
+		end
+	end
+	table.clear(self.LobbyTransientConnections)
 	local ownsSession = environment.DemonologySession == self
 		and environment.DemonologyGeneration == self.Generation
 	local ownsGui = environment.DemonologyGuiGeneration == self.Generation
+	local ownsTeleportationFactory = self.TeleportationFactory ~= nil
+		and environment.DemonologyTeleportationFactory == self.TeleportationFactory
 
 	if self.Controller then
 		pcall(self.Controller.Destroy, self.Controller)
@@ -258,6 +336,10 @@ function session:Destroy(keepLoader)
 	if self.LobbyReadyConnection and self.LobbyReadyConnection.Connected then
 		self.LobbyReadyConnection:Disconnect()
 	end
+	if ownsTeleportationFactory then
+		environment.DemonologyTeleportationFactory = nil
+	end
+	self.TeleportationFactory = nil
 
 	if ownsSession then
 		environment.DemonologySession = nil
@@ -291,16 +373,28 @@ local function queuedLoaderSource(context, handoffToken)
 	local saved = type(environment.DemonologyLobbySettings) == "table"
 		and environment.DemonologyLobbySettings
 		or lobbySettings
+	local queueRevision = isCommitRevision(session.SourceRevision)
+		and string.lower(session.SourceRevision)
+		or nil
+	local queuedLoaderUrl = queueRevision
+		and (RAW_REPOSITORY_URL .. queueRevision .. "/logic.luau")
+		or MAIN_LOADER_URL
 	return string.format([[
 local environment = (getgenv and getgenv()) or _G
 local handoffToken = %q
 if environment.DemonologyAutoExecutionToken == handoffToken then
 	return
 end
+local cancelledTokens = environment.DemonologyCancelledTeleportTokens
+if type(cancelledTokens) == "table" and cancelledTokens[handoffToken] == true then
+	cancelledTokens[handoffToken] = nil
+	environment.DemonologyAutoExecutionToken = handoffToken
+	return
+end
 environment.DemonologyAutoExecutionToken = handoffToken
 local succeeded, failure = xpcall(function()
-	environment.DemonologyAuto = %s
-	environment.DemonologyLobbySettings = {
+	local capturedAuto = %s
+	local capturedSettings = {
 		Auto = %s,
 		JobSite = %q,
 		Difficulty = %q,
@@ -309,16 +403,73 @@ local succeeded, failure = xpcall(function()
 		Challenges = {%s, %s, %s},
 		ChallengesConfigured = %s,
 	}
+	local function executorApi(name)
+		if type(environment[name]) == "function" then
+			return environment[name]
+		end
+		for _, namespaceName in ipairs({"syn", "fluxus", "krnl"}) do
+			local namespace = environment[namespaceName]
+			if type(namespace) == "table" and type(namespace[name]) == "function" then
+				return namespace[name]
+			end
+		end
+		return nil
+	end
+	local function readPersistedSettings()
+		local readFile = executorApi("readfile")
+		if type(readFile) ~= "function" then
+			return nil
+		end
+		local isFile = executorApi("isfile")
+		if type(isFile) == "function" then
+			local checked, exists = pcall(isFile, %q)
+			if not checked or not exists then
+				return nil
+			end
+		end
+		local read, source = pcall(readFile, %q)
+		if not read or type(source) ~= "string" or source == "" then
+			return nil
+		end
+		local httpService = game:GetService("HttpService")
+		local decoded, settings = pcall(httpService.JSONDecode, httpService, source)
+		return decoded and type(settings) == "table" and settings or nil
+	end
+	local persistedSettings = readPersistedSettings()
+	local memorySettings = type(environment.DemonologyLobbySettings) == "table"
+		and environment.DemonologyLobbySettings
+		or nil
+	local settings = {}
+	for key, value in pairs(capturedSettings) do
+		settings[key] = value
+	end
+	for key, value in pairs(persistedSettings or {}) do
+		settings[key] = value
+	end
+	for key, value in pairs(memorySettings or {}) do
+		settings[key] = value
+	end
+	local effectiveAuto = capturedAuto
+	if type(memorySettings) == "table" and type(memorySettings.Auto) == "boolean" then
+		effectiveAuto = memorySettings.Auto
+	elseif type(persistedSettings) == "table" and type(persistedSettings.Auto) == "boolean" then
+		effectiveAuto = persistedSettings.Auto
+	elseif type(environment.DemonologyAuto) == "boolean" then
+		effectiveAuto = environment.DemonologyAuto
+	end
+	settings.Auto = effectiveAuto
+	environment.DemonologyAuto = effectiveAuto
+	environment.DemonologyLobbySettings = settings
 	if not game:IsLoaded() then
 		game.Loaded:Wait()
 	end
 	local compiler = loadstring or load
 	assert(type(compiler) == "function", "This executor does not provide loadstring")
-	local url = %q .. "?v=" .. tostring(os.time())
+	local url = %q .. "?v=" .. tostring(os.time()) .. "-" .. handoffToken
 	local source = game:HttpGet(url)
 	local chunk, compileError = compiler(source, "@DemonologyAutoLoader")
 	assert(chunk, compileError)
-	chunk(%s, %q)
+	chunk(effectiveAuto, effectiveAuto and %q or "Teleport", %q)
 end, function(message)
 	return tostring(message)
 end)
@@ -340,14 +491,19 @@ end
 		tostring(type(saved.Challenges) == "table" and saved.Challenges[2] == true),
 		tostring(type(saved.Challenges) == "table" and saved.Challenges[3] == true),
 		tostring(saved.ChallengesConfigured == true),
-		BASE_URL .. "logic.luau",
-		tostring(session.Auto == true),
-		tostring(context or "Teleport")
+		SETTINGS_FILE,
+		SETTINGS_FILE,
+		queuedLoaderUrl,
+		tostring(context or "Teleport"),
+		tostring(queueRevision or "")
 	)
 end
 
-function session:PrepareTeleport(context)
+function session:PrepareTeleport(context, requireAuto)
 	if not self.Auto then
+		if requireAuto then
+			return false, "Automatic continuation was cancelled before teleport preparation."
+		end
 		return true
 	end
 	if type(queueOnTeleport) ~= "function" then
@@ -385,6 +541,10 @@ function session:PrepareTeleport(context)
 		self.TeleportQueueFailure = tostring(queueFailure)
 		return false, self.TeleportQueueFailure
 	end
+	local cancelledTokens = environment.DemonologyCancelledTeleportTokens
+	if type(cancelledTokens) == "table" then
+		cancelledTokens[self.PendingTeleportToken] = nil
+	end
 	self.TeleportQueued = true
 	return true
 end
@@ -402,7 +562,7 @@ local teleportConnected, teleportConnection = pcall(function()
 		session.LastTeleportState = teleportState
 		session.TeleportStateRevision = (tonumber(session.TeleportStateRevision) or 0) + 1
 		if isFailedTeleportState(teleportState) then
-			session.TeleportQueued = false
+			session:InvalidateTeleportQueue()
 			return
 		end
 		if not session.Auto
@@ -502,6 +662,8 @@ local function runLobbyStartMacro(
 	readSelectedDifficulty,
 	customDifficultyMatches,
 	readChallengeStates,
+	jobSiteMatches,
+	challengeStatesMatch,
 	readyRevision,
 	autoRevision
 )
@@ -699,9 +861,14 @@ local function runLobbyStartMacro(
 				.. " has not reported its current ON/OFF state yet."
 		end
 	end
-	local desiredChallenges = type(settings.Challenges) == "table"
+	local configuredChallenges = type(settings.Challenges) == "table"
 		and settings.Challenges
 		or {}
+	local desiredChallenges = {
+		configuredChallenges[1] == true,
+		configuredChallenges[2] == true,
+		configuredChallenges[3] == true,
+	}
 	if settings.ChallengesConfigured ~= true then
 		desiredChallenges = {}
 		for index = 1, 3 do
@@ -716,26 +883,13 @@ local function runLobbyStartMacro(
 			table.insert(challengeChanges, index)
 		end
 	end
-	local readyState = player:GetAttribute("IsReady")
-	local readyDeadline = os.clock() + 2
-	while type(readyState) ~= "boolean" and os.clock() < readyDeadline do
-		local cancelReason = cancellationReason()
-		if cancelReason then
-			return false, cancelReason
-		end
-		assertCurrent()
-		task.wait(0.1)
-		readyState = player:GetAttribute("IsReady")
-	end
-	if type(readyState) ~= "boolean" then
-		return false, "The lobby has not reported the player's ready state yet."
-	end
 	local changeJobSite = shouldChangeJobSite
 		and requireRemote("ChangeJobSite")
 		or nil
-	local changeDifficulty = currentDifficulty ~= selectedDifficulty
-		and requireRemote("ChangeDifficulty")
+	local updateJobSite = shouldChangeJobSite
+		and requireRemote("UpdateJobSite")
 		or nil
+	local changeDifficulty = requireRemote("ChangeDifficulty")
 	local updateDifficulty = requireRemote("UpdateDifficulty")
 	local applyDifficultyPreset = selectedDifficulty == "Custom"
 		and requireRemote("ApplyDifficultyPreset")
@@ -747,32 +901,95 @@ local function runLobbyStartMacro(
 	local toggleChallenge = #challengeChanges > 0
 		and requireRemote("ToggleChallenge")
 		or nil
-	local changeStatus = readyState == false
-		and requireRemote("ChangeStatus")
-		or nil
 	local attemptStart = requireRemote("AttemptStart")
 
 	local continued, cancelReason
 	if changeJobSite then
+		local jobSiteReport
+		local jobSiteReportRevision = 0
+		local jobSiteDispatched = false
+		local jobSiteReportConnection = session:TrackLobbyConnection(
+			updateJobSite.OnClientEvent:Connect(function(value)
+				if jobSiteDispatched and type(value) == "string" and value ~= "" then
+					jobSiteReport = value
+					jobSiteReportRevision = jobSiteReportRevision + 1
+				end
+			end)
+		)
+		local function stopJobSiteReport()
+			session:ReleaseLobbyConnection(jobSiteReportConnection)
+		end
 		continued, cancelReason = waitForDispatch()
-		if not continued then return false, cancelReason end
+		if not continued then
+			stopJobSiteReport()
+			return false, cancelReason
+		end
+		jobSiteDispatched = true
 		changeJobSite:FireServer(selectedJobSite)
+		local confirmationDeadline = os.clock() + LOBBY_STATE_UPDATE_TIMEOUT
+		local liveJobSite, liveJobSiteReady
+		local confirmed = false
+		repeat
+			liveJobSite, liveJobSiteReady = readSelectedJobSite()
+			local liveMatches = type(jobSiteMatches) == "function"
+				and jobSiteMatches(liveJobSite, liveJobSiteReady, selectedJobSite)
+				or liveJobSiteReady == true and liveJobSite == selectedJobSite
+			confirmed = jobSiteReportRevision > 0
+				and jobSiteReport == selectedJobSite
+				and liveMatches
+			if confirmed then
+				break
+			end
+			local reason = cancellationReason()
+			if reason then
+				stopJobSiteReport()
+				return false, reason
+			end
+			assertCurrent()
+			task.wait(0.05)
+		until os.clock() >= confirmationDeadline
+		stopJobSiteReport()
+		if not confirmed then
+			return false, "ChangeJobSite did not confirm " .. selectedJobSite
+				.. " through both UpdateJobSite and the live selection."
+		end
+		currentJobSite = liveJobSite
 	end
 
-	if changeDifficulty then
+	-- Changing the Job Site may also refresh the difficulty controls. Read the
+	-- live label again instead of cycling from the stale pre-dispatch snapshot.
+	local refreshedDifficultyReady = false
+	local refreshedDifficultyDeadline = os.clock() + LOBBY_STATE_UPDATE_TIMEOUT
+	repeat
+		currentDifficulty, refreshedDifficultyReady = readSelectedDifficulty()
+		if refreshedDifficultyReady then
+			break
+		end
+		local reason = cancellationReason()
+		if reason then
+			return false, reason
+		end
+		assertCurrent()
+		task.wait(0.05)
+	until os.clock() >= refreshedDifficultyDeadline
+	if not refreshedDifficultyReady then
+		return false, "The difficulty controls did not recover after Job Site synchronization."
+	end
+
+	if currentDifficulty ~= selectedDifficulty then
 		local difficultyReport = currentDifficulty
 		local difficultyReportRevision = 0
-		local difficultyReportConnection = updateDifficulty.OnClientEvent:Connect(function(value)
-			value = tostring(value or "")
-			if table.find(LOBBY_DIFFICULTIES, value) then
-				difficultyReport = value
-				difficultyReportRevision = difficultyReportRevision + 1
-			end
-		end)
+		local difficultyReportConnection = session:TrackLobbyConnection(
+			updateDifficulty.OnClientEvent:Connect(function(value)
+				value = tostring(value or "")
+				if table.find(LOBBY_DIFFICULTIES, value) then
+					difficultyReport = value
+					difficultyReportRevision = difficultyReportRevision + 1
+				end
+			end)
+		)
 		local function stopDifficultyReport()
-			if difficultyReportConnection.Connected then
-				difficultyReportConnection:Disconnect()
-			end
+			session:ReleaseLobbyConnection(difficultyReportConnection)
 		end
 		local difficultyAttempts = 0
 		while currentDifficulty ~= selectedDifficulty
@@ -825,18 +1042,20 @@ local function runLobbyStartMacro(
 		local presetDispatched = false
 		local presetSettings
 		local presetMultiplier
-		local presetConfirmation = updateAllCustomDifficultySettings.OnClientEvent:Connect(function(settingsPayload, multiplier)
-			if presetDispatched
-				and type(settingsPayload) == "table"
-				and next(settingsPayload) ~= nil then
-				presetSettings = settingsPayload
-				presetMultiplier = multiplier
-				presetConfirmed = true
-			end
-		end)
+		local presetConfirmation = session:TrackLobbyConnection(
+			updateAllCustomDifficultySettings.OnClientEvent:Connect(function(settingsPayload, multiplier)
+				if presetDispatched
+					and type(settingsPayload) == "table"
+					and next(settingsPayload) ~= nil then
+					presetSettings = settingsPayload
+					presetMultiplier = multiplier
+					presetConfirmed = true
+				end
+			end)
+		)
 		continued, cancelReason = waitForDispatch()
 		if not continued then
-			presetConfirmation:Disconnect()
+			session:ReleaseLobbyConnection(presetConfirmation)
 			return false, cancelReason
 		end
 		presetDispatched = true
@@ -845,13 +1064,13 @@ local function runLobbyStartMacro(
 		while not presetConfirmed and os.clock() < confirmationDeadline do
 			local reason = cancellationReason()
 			if reason then
-				presetConfirmation:Disconnect()
+				session:ReleaseLobbyConnection(presetConfirmation)
 				return false, reason
 			end
 			assertCurrent()
 			task.wait(0.05)
 		end
-		presetConfirmation:Disconnect()
+		session:ReleaseLobbyConnection(presetConfirmation)
 		if not presetConfirmed then
 			return false, "ApplyDifficultyPreset did not return a populated custom-settings payload."
 		end
@@ -893,7 +1112,45 @@ local function runLobbyStartMacro(
 		toggleChallenge:FireServer(challengeIndex)
 	end
 
-	if changeStatus then
+	local confirmedChallenges = false
+	local challengeConfirmationDeadline = os.clock() + LOBBY_STATE_UPDATE_TIMEOUT
+	repeat
+		currentChallenges = readChallengeStates()
+		confirmedChallenges = type(challengeStatesMatch) == "function"
+			and challengeStatesMatch(currentChallenges, desiredChallenges)
+			or false
+		if confirmedChallenges then
+			break
+		end
+		local reason = cancellationReason()
+		if reason then
+			return false, reason
+		end
+		assertCurrent()
+		task.wait(0.05)
+	until os.clock() >= challengeConfirmationDeadline
+	if not confirmedChallenges then
+		return false, "ToggleChallenge did not confirm all three requested ON/OFF states."
+	end
+
+	-- Read readiness only after every configuration remote. Job, difficulty,
+	-- equipment, or challenge changes may invalidate an earlier ready snapshot.
+	local readyState = player:GetAttribute("IsReady")
+	local readyDeadline = os.clock() + 2
+	while type(readyState) ~= "boolean" and os.clock() < readyDeadline do
+		local reason = cancellationReason()
+		if reason then
+			return false, reason
+		end
+		assertCurrent()
+		task.wait(0.05)
+		readyState = player:GetAttribute("IsReady")
+	end
+	if type(readyState) ~= "boolean" then
+		return false, "The lobby has not reported the player's ready state yet."
+	end
+	if readyState == false then
+		local changeStatus = requireRemote("ChangeStatus")
 		continued, cancelReason = waitForDispatch()
 		if not continued then return false, cancelReason end
 		local readyRevisionBeforeDispatch = session.LobbyReadyRevision
@@ -911,6 +1168,9 @@ local function runLobbyStartMacro(
 		if player:GetAttribute("IsReady") ~= true then
 			return false, "ChangeStatus did not confirm the ready state."
 		end
+		-- Allow the attribute-change connection to observe the same replicated
+		-- transition before absorbing exactly that one revision.
+		task.wait()
 		if automatic
 			and session.LobbyReadyRevision > readyRevisionBeforeDispatch + 1 then
 			return false, "Automatic start cancelled because the ready state changed again."
@@ -923,10 +1183,41 @@ local function runLobbyStartMacro(
 
 	continued, cancelReason = waitForDispatch()
 	if not continued then return false, cancelReason end
+	local finalJobSite, finalJobSiteReady = readSelectedJobSite()
+	local finalJobSiteMatches = type(jobSiteMatches) == "function"
+		and jobSiteMatches(finalJobSite, finalJobSiteReady, selectedJobSite)
+		or finalJobSiteReady == true and finalJobSite == selectedJobSite
+	if not finalJobSiteMatches then
+		return false, "The Job Site changed before AttemptStart."
+	end
+	local finalDifficulty, finalDifficultyReady = readSelectedDifficulty()
+	if not finalDifficultyReady or finalDifficulty ~= selectedDifficulty then
+		return false, "The difficulty changed before AttemptStart."
+	end
+	if selectedDifficulty == "Custom"
+		and (type(session.LastCustomDifficultySettings) ~= "table"
+			or not customDifficultyMatches(session.LastCustomDifficultySettings)) then
+		return false, "The custom difficulty preset changed before AttemptStart."
+	end
+	local finalChallenges = readChallengeStates()
+	if type(challengeStatesMatch) ~= "function"
+		or not challengeStatesMatch(finalChallenges, desiredChallenges) then
+		return false, "The challenge selection changed before AttemptStart."
+	end
+	if not equipmentPresetExists(selectedEquipmentPreset) then
+		return false, "The selected equipment preset disappeared before AttemptStart."
+	end
+	if player:GetAttribute("IsReady") ~= true then
+		return false, "The player became unready before AttemptStart."
+	end
+	local finalCancellation = cancellationReason()
+	if finalCancellation then
+		return false, finalCancellation
+	end
 	-- Queue only after every fallible/cancellable setup step has succeeded.
 	-- Preparing earlier leaves stale auto-execution behind when preset, ready,
 	-- equipment, or challenge synchronization aborts before AttemptStart.
-	local prepared, prepareFailure = session:PrepareTeleport("AttemptStart")
+	local prepared, prepareFailure = session:PrepareTeleport("AttemptStart", automatic)
 	if not prepared then
 		session.TeleportQueueFailure = prepareFailure
 			or "AttemptStart teleport execution was not prepared"
@@ -937,8 +1228,10 @@ local function runLobbyStartMacro(
 end
 
 local REMOTE_FETCH_TIMEOUT = 8
+local REVISION_FETCH_TIMEOUT = 4
 
-local function fetchUrlWithTimeout(url)
+local function fetchUrlWithTimeout(url, timeoutSeconds)
+	timeoutSeconds = math.max(tonumber(timeoutSeconds) or REMOTE_FETCH_TIMEOUT, 0.1)
 	local finished = false
 	local fetched = false
 	local response
@@ -946,22 +1239,60 @@ local function fetchUrlWithTimeout(url)
 		fetched, response = pcall(game.HttpGet, game, url)
 		finished = true
 	end)
-	local deadline = os.clock() + REMOTE_FETCH_TIMEOUT
+	local deadline = os.clock() + timeoutSeconds
 	while not finished and os.clock() < deadline do
 		assertCurrent()
 		task.wait(0.03)
 	end
 	if not finished then
-		return false, "request timed out after " .. tostring(REMOTE_FETCH_TIMEOUT) .. " seconds"
+		return false, "request timed out after " .. tostring(timeoutSeconds) .. " seconds"
 	end
 	return fetched, response
+end
+
+local function resolveSourceRevision()
+	if sourceBaseUrl then
+		return
+	end
+	local fetched, response = fetchUrlWithTimeout(
+		REVISION_API_URL .. "?v=" .. RUN_VERSION,
+		REVISION_FETCH_TIMEOUT
+	)
+	local revision
+	if fetched and type(response) == "string" and response ~= "" then
+		local decoded, payload = pcall(HttpService.JSONDecode, HttpService, response)
+		local object = decoded and type(payload) == "table" and payload.object or nil
+		local candidate = type(object) == "table" and object.sha or nil
+		if isCommitRevision(candidate) then
+			revision = string.lower(candidate)
+		end
+	end
+	if revision then
+		sourceRevision = revision
+		sourceBaseUrl = RAW_REPOSITORY_URL .. revision .. "/"
+		session.SourceRevision = revision
+		session.SourceRevisionPinned = true
+		session.SourceRevisionFailure = nil
+		return
+	end
+	-- A blocked/rate-limited GitHub API should not prevent the GUI from loading.
+	-- This fallback is the only unpinned path and is exposed on the session for
+	-- diagnostics instead of silently claiming revision consistency.
+	sourceRevision = "main"
+	sourceBaseUrl = RAW_REPOSITORY_URL .. "main/"
+	session.SourceRevision = sourceRevision
+	session.SourceRevisionPinned = false
+	session.SourceRevisionFailure = fetched
+		and "GitHub did not return a valid main revision"
+		or tostring(response)
 end
 
 local function fetchRemoteSource(path)
 	if sourceCache[path] then
 		return sourceCache[path]
 	end
-	local url = BASE_URL .. path .. "?v=" .. RUN_VERSION
+	resolveSourceRevision()
+	local url = sourceBaseUrl .. path .. "?v=" .. RUN_VERSION
 	local lastFailure
 	for attempt = 1, 3 do
 		assertCurrent()
@@ -1008,6 +1339,10 @@ local function loadRemoteModule(path)
 end
 
 local function prefetchRemoteSources(paths, onProgress)
+	-- Resolve one immutable commit before workers start. Without this barrier,
+	-- every worker could race the GitHub revision endpoint on first execution,
+	-- causing needless rate limits and mixed fallback state.
+	resolveSourceRevision()
 	local cursor = 0
 	local completed = 0
 	local firstFailure
@@ -1143,6 +1478,9 @@ if not shouldLoadRoundGui then
 		environment.DemonologyAuto = settings.Auto
 		environment.DemonologyLobbySettings = settings
 		session.LobbySettings = settings
+		if not settings.Auto and session.TeleportQueued then
+			session:InvalidateTeleportQueue()
+		end
 		writeSettingsFile(settings)
 	end
 
@@ -1186,6 +1524,16 @@ if not shouldLoadRoundGui then
 	local function readChallengeStates()
 		return LobbySettings.ReadChallengeStates(player)
 	end
+	local function jobSiteMatches(selectedJobSite, stateReady, expectedJobSite)
+		return LobbySettings.JobSiteMatches(
+			selectedJobSite,
+			stateReady,
+			expectedJobSite
+		)
+	end
+	local function challengeStatesMatch(currentStates, desiredStates)
+		return LobbySettings.ChallengeStatesMatch(currentStates, desiredStates)
+	end
 
 	local beginLobbyStart
 	local view
@@ -1228,6 +1576,8 @@ if not shouldLoadRoundGui then
 					readSelectedDifficulty,
 					customDifficultyMatches,
 					readChallengeStates,
+					jobSiteMatches,
+					challengeStatesMatch,
 					startReadyRevision,
 					startAutoRevision
 				)
@@ -1236,8 +1586,10 @@ if not shouldLoadRoundGui then
 				return
 			end
 			if not called then
+				session:InvalidateTeleportQueue()
 				finishLobbyStartAttempt(startSerial, started, true)
 			elseif started ~= true then
+				session:InvalidateTeleportQueue()
 				persistSettings(lobbySettings)
 				local failure = startFailure or "The lobby start was cancelled."
 				if automatic and session.Auto then
@@ -1269,6 +1621,7 @@ if not shouldLoadRoundGui then
 				if not isCurrent() or session.LobbyStartSerial ~= startSerial then
 					return
 				end
+				session:InvalidateTeleportQueue()
 				local failure = "The round teleport was not accepted."
 				if automatic and session.Auto then
 					failure = failure .. " Retrying shortly."
@@ -1358,7 +1711,7 @@ local ok, failure = xpcall(function()
 	assertCurrent()
 
 	loader:SetStage("Loading ghost catalog…", 2, 9)
-	local GhostModule = loadRemoteModule("logic/ghost-module.luau")
+	local GhostModule = loadRemoteModule("ghost/evidence-catalog.luau")
 	assertCurrent()
 	loader:SetStage("Assembling ghost observer package...", 2, 9)
 	local createGhostPackage = loadRemoteModule("ghost/init.luau")
@@ -1374,6 +1727,7 @@ local ok, failure = xpcall(function()
 
 	loader:SetStage("Loading teleportation and round automation…", 3, 9)
 	local createTeleportation = loadRemoteModule("logic/teleportation.luau")
+	session.TeleportationFactory = createTeleportation
 	environment.DemonologyTeleportationFactory = createTeleportation
 	assertCurrent()
 	local createRoundAutomation = loadRemoteModule("logic/round-automation.luau")

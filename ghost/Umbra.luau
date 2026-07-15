@@ -5,7 +5,7 @@ local function createObserver(api)
 	local observer = {}
 	function observer:OnEvent(event)
 		if state.Destroyed or state.Checked or type(event) ~= "table" or (event.Type or event.Kind) ~= "RootSoundScan" then return false end
-		if type(event.HasOtherSound) ~= "boolean" then return true end
+		if event.Qualified ~= true or type(event.HasOtherSound) ~= "boolean" then return true end
 		state.Checked, state.HasOtherSound = true, event.HasOtherSound
 		if api and type(api.Record) == "function" then api:Record(NAME, event) end
 		if event.HasOtherSound == false then

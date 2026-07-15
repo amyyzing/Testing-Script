@@ -81,47 +81,46 @@ exercise("Aswang", {
 	Type = "SpeedProbeRecovery", Trigger = "SaltContact", Hunting = true,
 	DirectContact = true, SaltDisturbed = true, ContactId = "salt-1",
 	DisturbedContactId = "salt-1", BaselineSpeed = 11, EventSpeed = 8,
-	RecoverySpeed = 10.8,
+	RecoverySpeed = 11,
 }, "Positive")
 exercise("Aswang", {
 	Type = "SpeedProbeResult", Trigger = "SaltContact", Hunting = false,
 	HuntingAtContact = true, HuntEndedBeforeSample = true,
+	PostHuntReferenceQualified = true,
 	DirectContact = true, SaltDisturbed = true, ContactId = "salt-edge",
 	DisturbedContactId = "salt-edge", BaselineSpeed = 11, CurrentSpeed = 8,
 	Delta = -3,
 }, "Positive")
 local bansheeGlass = exercise("Banshee", {Type = "BrokenGlassBurst", Qualified = true, Count = 2, Window = 2.5}, "Positive")
-expect(last(bansheeGlass, "Positive").Confidence == 60,
-	"glass alone must remain Maybe rather than ending a round as Banshee")
+expect(last(bansheeGlass, "Positive").Confidence == 99,
+	"two distinct new glass breaks within five seconds must be Pretty Sure Banshee")
 exercise("Demon", {Type = "CrossMotion", TrialId = "cross-1", Eligible = true, Completed = true, FloatedAndRotated = true}, "Positive")
 exercise("Dullahan", {
 	Type = "DullahanPattern", Hunting = true, Qualified = true,
+	Completed = true, PhantomExcluded = true,
 	DifferentPairCount = 7, DifferentPairs = 7, SampleCount = 14,
+	UpwardStepCount = 1,
 	PairCount = 7, RequiredPairs = 7,
 }, "Positive")
 exercise("Entity", {
-	Type = "ObjectTeleportResult", ConfirmedTeleport = true, Completed = true,
+	Type = "ObjectTeleportResult", Qualified = true, ConfirmedTeleport = true, Completed = true,
 	SmokeFound = true, TeleportId = "object-1",
 }, "Positive")
-exercise("Ghoul", {Type = "HuntElectronicDisabled", Hunting = true, Qualified = true, PlayerCaused = false, AutomationCaused = false}, "RuleOut")
-exercise("Keres", {Type = "SpeedProbeResult", Trigger = "PlayerDeath", Hunting = true, Unique = true, Qualified = true, HuntId = "hunt-1", BaselineSpeed = 11, CurrentSpeed = 10, Delta = -1}, "Positive")
-exercise("Leviathan", {Type = "RoomLightOff", Hunting = false, Qualified = true, WorkingCircuit = true, PlayerCaused = false, AutomationCaused = false, FuseCaused = false}, "Positive")
-exercise("Oni", {Type = "HuntSpeedMathResult", Hunting = true, Qualified = true, PairCount = 7, RequiredPairs = 7, Best = "Oni", Fits = {Oni = {Matched = true}}}, "Positive")
-exercise("Phantom", {Type = "PhantomPattern", Hunting = true, PairCount = 7, RequiredPairs = 7, VisibleSpeed = 11, InvisibleSpeed = 13.5, Ratio = 13.5 / 11}, "Positive")
-exercise("Ravager", {Type = "VortexPattern", Hunting = true, Qualified = true, DistinctObjects = 3, Duration = 0.5, Intervals = 10, GoodShare = 0.7, AccumulatedAngle = 35}, "Positive")
-exercise("Revenant", {Type = "HuntEndedAfterDeath", DeathEventId = "death-1", Elapsed = 1.4, OtherAlive = 1, ValidMultiplayerKill = true}, "Positive")
+exercise("Ghoul", {Type = "HuntElectronicDisabled", Hunting = false, Qualified = true, NearestPlayerDistance = 15.001, PlayerCaused = false, AutomationCaused = false}, "RuleOut")
+exercise("Keres", {Type = "SpeedProbeResult", Trigger = "PlayerDeath", Hunting = true, Unique = true, Qualified = true, Completed = true, Stable = true, HuntId = "hunt-1", BaselineSpeed = 11, CurrentSpeed = 10, Delta = -1}, "Positive")
+exercise("Leviathan", {Type = "DeviceToggleBurst", Hunting = true, Qualified = true, SingleDevice = true, Clean = true, Alternating = true, Rapid = true, ToggleCount = 7, Duration = 2.5, PlayerCaused = false, AutomationCaused = false, FuseCaused = false}, "Positive")
+exercise("Oni", {Type = "HuntSpeedMathResult", Hunting = true, Qualified = true, Completed = true, PairCount = 7, RequiredPairs = 7, Best = "Oni", BaseSpeed = 13.5, Fits = {Oni = {Matched = true}}}, "Positive")
+exercise("Phantom", {Type = "PhantomPattern", Hunting = true, Qualified = true, Completed = true, PairCount = 7, RequiredPairs = 7, VisibleSpeed = 11, InvisibleSpeed = 13.5, Ratio = 13.5 / 11, AbsoluteBaseFit = true, Multiplier = 1}, "Positive")
+exercise("Ravager", {Type = "VortexPattern", Hunting = false, Qualified = true, DistinctObjects = 3, Duration = 0.5, Intervals = 10, GoodShare = 0.7, AccumulatedAngle = 35}, "Positive")
+exercise("Revenant", {Type = "HuntEndedAfterDeath", DeathEventId = "death-1", Elapsed = 1, OtherAlive = 1, ValidMultiplayerKill = true}, "Positive")
 exercise("Siren", {Type = "SpiritBoxResponse", Qualified = true, Response = "- HUMMING -"}, "Positive")
 exercise("Skinwalker", {Type = "FalseOrb", Qualified = true, FourthEvidence = true}, "Positive")
-local spiritBlue = exercise("Spirit", {Type = "HolyOilColor", Hunting = true, Burning = true, Qualified = true, Stable = true, Blue = true}, "Positive")
-expect(last(spiritBlue, "Positive").Confidence == 60,
-	"one blue flame must remain Maybe while Skinwalker is not excluded")
-exercise("Wendigo", {Type = "WendigoCurveResult", Qualified = true, Matched = true, Snapshots = {}}, "Positive")
+local spiritBlue = exercise("Spirit", {Type = "HolyOilColor", Hunting = false, Burning = true, Qualified = true, Stable = true, Blue = true}, "Positive")
+expect(last(spiritBlue, "Positive").Confidence == 99,
+	"one qualified stable blue flame must identify Spirit")
+exercise("Wendigo", {Type = "WendigoCurveResult", Qualified = true, Completed = true, Matched = true, Outcome = "Matched", Snapshots = {}}, "Positive")
 exercise("Wisp", {Type = "HolyOilCollision", Hunting = true, Burning = true, Qualified = true, CanCollide = false}, "Positive")
 
-exercise("Entity", {
-	Type = "GhostTeleportResult", ConfirmedTeleport = true, Completed = true,
-	Qualified = true, FromRoom = "Hall", ToRoom = "Storage",
-}, "Positive")
 exercise("Keres", {Type = "GhostModelSex", Qualified = true, Sex = "Female"}, "Positive")
 exercise("Siren", {Type = "GhostModelSex", Qualified = true, Sex = "Female"}, "Positive")
 
@@ -154,8 +153,8 @@ do
 	local siren = byName.Siren.CreateObserver(sirenApi)
 	siren:OnEvent({Type = "SpiritBoxResponse", Qualified = true, Response = "- HUMMING -"})
 	siren:OnEvent({Type = "GhostModelSex", Qualified = true, Sex = "Male"})
-	local sirenConflict = last(sirenApi, "RuleOut")
-	expect(sirenConflict ~= nil and sirenConflict.Confidence == 99, "humming plus male model must rule Siren out")
+	local sirenConflict = last(sirenApi, "Negative")
+	expect(sirenConflict ~= nil and sirenConflict.Confidence == 99, "humming plus male model must apply Siren's hard negative")
 end
 
 do
@@ -164,6 +163,49 @@ do
 	observer:OnEvent({Type = "SpiritBoxResponse", Qualified = true, Response = "- HUMMING -"})
 	observer:OnEvent({Type = "GhostModelSex", Qualified = true, Sex = "Female"})
 	expect(last(api, "Positive") == nil, "humming with a female model must not falsely identify Skinwalker")
+end
+
+do
+	local api = newApi()
+	local observer = byName.Skinwalker.CreateObserver(api)
+	observer:OnEvent({
+		Type = "RootSoundScan",
+		Qualified = true,
+		Hunting = true,
+		HasOtherSound = false,
+	})
+	local rootMimic = last(api, "Positive")
+	expect(rootMimic ~= nil and rootMimic.Confidence == 60,
+		"a qualified empty root scan must be one Skinwalker mimic fact regardless of hunt state")
+	observer:OnEvent({
+		Type = "GhostFireEffect",
+		Qualified = true,
+		Completed = true,
+		DirectContact = true,
+		Burning = true,
+		CaughtFire = false,
+	})
+	expect(last(api, "Positive").Confidence == 99,
+		"two distinct qualified Skinwalker mimic facts must upgrade to 99%")
+end
+
+do
+	local api = newApi()
+	local observer = byName.Skinwalker.CreateObserver(api)
+	observer:OnEvent({Type = "FalseOrb", Qualified = true, FourthEvidence = true})
+	observer:OnEvent({Type = "FalseOrb", Qualified = true, ImpossibleCombination = true})
+	observer:OnEvent({Type = "RootSoundScan", Qualified = true, HasOtherSound = false})
+	observer:OnEvent({Type = "RootSoundScan", Qualified = true, HasOtherSound = false})
+	local orbCount, rootCount = 0, 0
+	for _, entry in ipairs(api.Entries) do
+		if entry.Polarity == "Positive" and entry.Confidence == 100 then
+			orbCount = orbCount + 1
+		elseif entry.Polarity == "Positive" and entry.Confidence == 60 then
+			rootCount = rootCount + 1
+		end
+	end
+	expect(orbCount == 1 and rootCount == 1,
+		"durable FalseOrb and root-sound mimic facts must not accumulate duplicate support")
 end
 
 do
@@ -217,7 +259,7 @@ do
 		Type = "SpeedProbeResult", Trigger = "PlayerDeath", Hunting = true,
 		Unique = true, Qualified = true, HuntId = "noise-hunt",
 		BaselineSpeed = 11, CurrentSpeed = 10.99, Delta = -0.01,
-		Completed = true,
+		Completed = true, Stable = true,
 	})
 	expect(last(keresApi, "Positive") == nil,
 		"tiny post-death replication noise must not identify Keres")
@@ -228,7 +270,7 @@ do
 		Type = "SpeedProbeResult", Trigger = "PlayerDeath", Hunting = true,
 		Unique = true, Qualified = true, HuntId = "noise-hunt",
 		BaselineSpeed = 11, CurrentSpeed = 11.01, Delta = 0.01,
-		Completed = true,
+		Completed = true, Stable = true,
 	})
 	expect(last(aswangApi, "Positive") == nil,
 		"tiny post-death replication noise must not identify Aswang")
@@ -263,33 +305,39 @@ end
 do
 	local api = newApi()
 	local observer = byName.Umbra.CreateObserver(api)
-	observer:OnEvent({Type = "RootSoundScan", HasOtherSound = false})
-	observer:OnEvent({Type = "RootSoundScan", HasOtherSound = true})
+	observer:OnEvent({Type = "RootSoundScan", Qualified = true, HasOtherSound = false})
+	observer:OnEvent({Type = "RootSoundScan", Qualified = true, HasOtherSound = true})
 	expect(last(api, "Positive") ~= nil and last(api, "RuleOut") == nil, "Umbra must stop after one valid scan")
 end
 
 do
 	local api = newApi()
 	local observer = byName.Vex.CreateObserver(api)
-	observer:OnEvent({Type = "LidarState", Exists = false})
-	observer:OnEvent({Type = "LidarState", Exists = true})
+	observer:OnEvent({Type = "LidarState", Qualified = true, Exists = false})
+	observer:OnEvent({Type = "LidarState", Qualified = true, Exists = true})
 	expect(last(api, "RuleOut") ~= nil and last(api, "Positive") == nil, "Vex must stop after one valid scan")
 end
 
 do
 	local api = newApi()
 	local observer = byName.Wraith.CreateObserver(api)
-	observer:OnEvent({Type = "SaltContact", ContactId = "salt-1", DirectContact = true, Time = 10, Hunting = false})
-	observer:OnEvent({Type = "Tick", Time = 13.9})
-	expect(last(api, "Positive") == nil, "Wraith must wait the full four-second disturbance grace")
-	observer:OnEvent({Type = "Tick", Time = 14.1})
-	expect(last(api, "Positive") ~= nil, "Wraith should resolve undisturbed salt without a hunt gate")
+	observer:OnEvent({
+		Type = "SaltContactResult",
+		ContactId = "salt-1",
+		DirectContact = true,
+		Disturbed = false,
+		Completed = true,
+		Elapsed = 1.25,
+		HuntingAtContact = false,
+	})
+	expect(last(api, "Positive") ~= nil,
+		"Wraith should consume the salt tracker's completed undisturbed result without a hunt gate")
 end
 
 do
 	local api = newApi()
 	local observer = byName.Wraith.CreateObserver(api)
-	observer:OnEvent({Type = "SaltDisturbed", ContactId = "salt-missed-touch", DirectContact = false, Time = 20})
+	observer:OnEvent({Type = "SaltDisturbed", ContactId = "salt-missed-touch", DirectContact = false, Disturbed = true, Time = 20})
 	expect(last(api, "RuleOut") ~= nil, "a replicated disturbed pile must rule Wraith out when Touched was missed")
 end
 
@@ -319,7 +367,7 @@ do
 	})
 	local matched = last(api, "Positive")
 	expect(matched ~= nil and matched.Confidence == 99,
-		"an exact sub-0.06 full cooling window must identify Shadow at 99%")
+		"an exact sub-0.08 full cooling window must identify Shadow at 99%")
 end
 
 do
@@ -336,34 +384,15 @@ do
 		DecreaseCount = 7,
 		AverageDecrease = 0.09,
 		RequiredCoolingChanges = 7,
-		RequiredRuleOutWindows = 2,
+		RequiredRuleOutWindows = 1,
 		RuleOutStreak = 1,
-		Outcome = "RuleOutCandidate",
-		ShadowAverageThreshold = 0.06,
-		RuleOutAverageThreshold = 0.08,
-	})
-	expect(last(api, "Positive") == nil and last(api, "RuleOut") == nil,
-		"one high-average window must not rule Shadow out")
-	observer:OnEvent({
-		Type = "RoomTemperatureWindow",
-		Qualified = true,
-		Completed = true,
-		SameRoom = true,
-		RoomName = "Library",
-		ResidenceSeconds = 10,
-		SampleCount = 7,
-		DecreaseCount = 7,
-		AverageDecrease = 0.085,
-		RequiredCoolingChanges = 7,
-		RequiredRuleOutWindows = 2,
-		RuleOutStreak = 2,
 		Outcome = "RuleOut",
 		ShadowAverageThreshold = 0.06,
 		RuleOutAverageThreshold = 0.08,
 	})
 	local ruledOut = last(api, "RuleOut")
 	expect(ruledOut ~= nil and ruledOut.Confidence == 99,
-		"the authoritative second consecutive high window must rule Shadow out")
+		"one exact seven-change average above 0.08 must rule Shadow out")
 end
 
 do
@@ -383,8 +412,8 @@ do
 		Outcome = "Inconclusive",
 		RuleOutPatternObserved = true,
 	})
-	expect(last(api, "Positive") == nil and last(api, "RuleOut") == nil,
-		"the Shadow observer must consume the tracker's outcome without re-deriving stale flags")
+	expect(last(api, "Positive") ~= nil and last(api, "RuleOut") == nil,
+		"the Shadow observer must recompute the canonical sub-0.08 boundary instead of trusting stale outcome flags")
 end
 
 do

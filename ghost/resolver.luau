@@ -1,6 +1,8 @@
 local Resolver = {}
 Resolver.__index = Resolver
 
+local HARD_NEGATIVE_THRESHOLD = 95
+
 local function maximumConfidence(entries)
 	local result = 0
 	for _, entry in ipairs(entries) do
@@ -47,7 +49,22 @@ function Resolver:ResolveGhost(ghost)
 	local hasSupport = #positives > 0
 	local hasOpposition = #negatives > 0 or #ruleOuts > 0
 	local conflicted = hasSupport and hasOpposition
-	local ruledOut = #ruleOuts > 0
+	local confidence = maximumConfidence(positives)
+	local negativeConfidence = math.max(
+		maximumConfidence(negatives),
+		maximumConfidence(ruleOuts)
+	)
+	local ruleOutConfidence = maximumConfidence(ruleOuts)
+	-- The tracker specification uses 95-99% negatives as operational
+	-- cross-outs. Resolve that once here so the GUI, Journal, automation, and
+	-- timed selector cannot disagree about eligibility.
+	local hardNegative = negativeConfidence >= HARD_NEGATIVE_THRESHOLD
+		and negativeConfidence >= confidence
+	-- A scored rule-out remains a confidence-bearing observation. In
+	-- particular, Skinwalker's canonical impossible/fourth-Orb result is 100%
+	-- and must not be erased by a contradictory 99% behavioural sample.
+	local ruledOut = hardNegative
+		or (#ruleOuts > 0 and ruleOutConfidence >= confidence)
 	local status
 	if conflicted then
 		status = "Conflicted"
@@ -61,11 +78,6 @@ function Resolver:ResolveGhost(ghost)
 		status = "Unknown"
 	end
 
-	local confidence = maximumConfidence(positives)
-	local negativeConfidence = math.max(
-		maximumConfidence(negatives),
-		maximumConfidence(ruleOuts)
-	)
 	return {
 		Ghost = ghost,
 		Status = status,
@@ -73,6 +85,7 @@ function Resolver:ResolveGhost(ghost)
 		NegativeConfidence = negativeConfidence,
 		Score = ruledOut and 0 or math.max(0, confidence - negativeConfidence),
 		RuledOut = ruledOut,
+		HardNegative = hardNegative,
 		Conflicted = conflicted,
 		Eligible = not ruledOut,
 		Positives = positives,

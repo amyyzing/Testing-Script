@@ -33,23 +33,26 @@ local scenarios = {
 	{
 		Name = "Phantom",
 		Reject = {
-			Type = Events.Types.FlatHuntSpeed,
+			Type = Events.Types.NonPhantomPattern,
 			Hunting = true,
 			Qualified = true,
 			Completed = true,
 			PairCount = 7,
 			RequiredPairs = 7,
-			Outcome = "Equal",
+			Outcome = "Flat",
 		},
 		Match = {
 			Type = Events.Types.PhantomPattern,
 			Hunting = true,
 			Qualified = true,
+			Completed = true,
 			PairCount = 7,
 			RequiredPairs = 7,
 			VisibleSpeed = 11,
 			InvisibleSpeed = 13.5,
 			Ratio = 13.5 / 11,
+			AbsoluteBaseFit = true,
+			Multiplier = 1,
 		},
 	},
 	{
@@ -67,8 +70,11 @@ local scenarios = {
 			Type = Events.Types.DullahanPattern,
 			Hunting = true,
 			Qualified = true,
+			Completed = true,
+			PhantomExcluded = true,
 			DifferentPairCount = 7,
 			DifferentPairs = 7,
+			UpwardStepCount = 1,
 			PairCount = 7,
 			RequiredPairs = 7,
 			SampleCount = 14,
@@ -76,6 +82,7 @@ local scenarios = {
 	},
 	{
 		Name = "Oni",
+		LaterRejectSupersedes = true,
 		Reject = {
 			Type = Events.Types.HuntSpeedMathResult,
 			Hunting = true,
@@ -85,16 +92,18 @@ local scenarios = {
 			RequiredPairs = 7,
 			Best = "Ordinary",
 			BaseSpeed = 11,
+			Fits = {Oni = {Base = 13.5, Matched = false}},
 		},
 		Match = {
 			Type = Events.Types.HuntSpeedMathResult,
 			Hunting = true,
 			Qualified = true,
+			Completed = true,
 			PairCount = 7,
 			RequiredPairs = 7,
 			Best = "Oni",
 			BaseSpeed = 13.5,
-			Fits = {Oni = {Matched = true}},
+			Fits = {Oni = {Base = 13.5, Matched = true}},
 		},
 	},
 	{
@@ -143,8 +152,20 @@ for _, scenario in ipairs(scenarios) do
 
 	coordinator:Emit(scenario.Reject)
 	local persistent = coordinator:Resolve({scenario.Name})[scenario.Name]
-	expect(persistent.Status == "Supported" and persistent.Conflicted == false, scenario.Name .. " unique positive must survive a later contradictory sample")
-	expect(#scoredEntries(coordinator, scenario.Name) == 2, scenario.Name .. " later noise must not append a contradictory scored decision")
+	if scenario.LaterRejectSupersedes then
+		local corrected = scoredEntries(coordinator, scenario.Name)
+		expect(
+			persistent.RuledOut == true and persistent.Conflicted == false,
+			scenario.Name .. " must allow a later complete contradictory hunt to correct its result"
+		)
+		expect(
+			#corrected == 3 and corrected[3].Supersedes == corrected[2].Id,
+			scenario.Name .. " later correction must extend one explicit supersession chain"
+		)
+	else
+		expect(persistent.Status == "Supported" and persistent.Conflicted == false, scenario.Name .. " unique positive must survive a later contradictory sample")
+		expect(#scoredEntries(coordinator, scenario.Name) == 2, scenario.Name .. " later noise must not append a contradictory scored decision")
+	end
 
 	coordinator:Destroy()
 end
@@ -153,21 +174,22 @@ do
 	local coordinator = Coordinator.new({Definitions = {profiles.Wraith}})
 	coordinator:Start({})
 	coordinator:Emit({
-		Type = Events.Types.SaltContact,
+		Type = Events.Types.SaltContactResult,
 		ContactId = "late-disturbance",
 		DirectContact = true,
-		Time = 10,
+		Disturbed = false,
+		Completed = true,
+		Elapsed = 1.25,
 	})
-	coordinator:Emit({Type = Events.Types.Tick, Time = 14.1})
 	expect(
 		coordinator:Resolve({"Wraith"}).Wraith.Status == "Supported",
-		"Wraith should resolve only after the four-second undisturbed grace"
+		"Wraith should resolve only from the salt tracker's completed undisturbed result"
 	)
 	coordinator:Emit({
 		Type = Events.Types.SaltDisturbed,
 		ContactId = "late-disturbance",
+		Disturbed = true,
 		DirectContact = false,
-		Time = 14.2,
 	})
 	local corrected = coordinator:Resolve({"Wraith"}).Wraith
 	local entries = scoredEntries(coordinator, "Wraith")
@@ -186,16 +208,17 @@ do
 	local coordinator = Coordinator.new({Definitions = {profiles.Wraith}})
 	coordinator:Start({})
 	coordinator:Emit({
-		Type = Events.Types.SaltContact,
+		Type = Events.Types.SaltContactResult,
 		ContactId = "salt-a",
 		DirectContact = true,
-		Time = 20,
+		Disturbed = false,
+		Completed = true,
+		Elapsed = 1.25,
 	})
-	coordinator:Emit({Type = Events.Types.Tick, Time = 24.1})
 	coordinator:Emit({
 		Type = Events.Types.SaltDisturbed,
 		ContactId = "salt-b",
-		Time = 24.2,
+		Disturbed = true,
 	})
 	local globallyRejected = coordinator:Resolve({"Wraith"}).Wraith
 	local decisions = scoredEntries(coordinator, "Wraith")
@@ -208,12 +231,13 @@ do
 		"different salt contacts must share one Wraith supersession chain"
 	)
 	coordinator:Emit({
-		Type = Events.Types.SaltContact,
+		Type = Events.Types.SaltContactResult,
 		ContactId = "salt-c",
 		DirectContact = true,
-		Time = 25,
+		Disturbed = false,
+		Completed = true,
+		Elapsed = 1.25,
 	})
-	coordinator:Emit({Type = Events.Types.Tick, Time = 29.1})
 	expect(
 		#scoredEntries(coordinator, "Wraith") == 2,
 		"later undisturbed salt must not resurrect Wraith after any disturbance"
@@ -290,20 +314,61 @@ do
 		Hunting = false,
 		Qualified = true,
 		SingleDevice = true,
+		Count = 7,
+		Duration = 2.5,
+		Clean = true,
+		PlayerCaused = false,
+		AutomationCaused = false,
+		FuseCaused = false,
+	})
+	expect(
+		coordinator:Resolve({"Leviathan"}).Leviathan.Status == "Unknown",
+		"a partially qualified burst must not identify Leviathan"
+	)
+	coordinator:Emit({
+		Type = "DeviceToggleBurst",
+		Hunting = false,
+		Qualified = true,
+		SingleDevice = true,
+		Count = 7,
+		Duration = 2.5,
+		Clean = true,
+		Alternating = true,
+		Rapid = true,
+		PlayerCaused = false,
+		AutomationCaused = true,
+		FuseCaused = false,
+	})
+	expect(
+		coordinator:Resolve({"Leviathan"}).Leviathan.Status == "Unknown",
+		"an automation-caused burst must not identify Leviathan"
+	)
+	coordinator:Emit({
+		Type = "DeviceToggleBurst",
+		Hunting = false,
+		Qualified = true,
+		SingleDevice = true,
+		Count = 6,
+		Duration = 2,
 		Rapid = true,
 		PlayerCaused = false,
 		AutomationCaused = false,
 		FuseCaused = false,
 	})
 	expect(
-		coordinator:Resolve({"Leviathan"}).Leviathan.Confidence == 60,
-		"one Leviathan tell must remain Maybe"
+		coordinator:Resolve({"Leviathan"}).Leviathan.Status == "Unknown",
+		"fewer than seven eligible device toggles must remain inconclusive"
 	)
 	coordinator:Emit({
-		Type = "RoomLightOff",
+		Type = "DeviceToggleBurst",
 		Hunting = false,
 		Qualified = true,
-		WorkingCircuit = true,
+		SingleDevice = true,
+		Count = 7,
+		Duration = 2.5,
+		Clean = true,
+		Alternating = true,
+		Rapid = true,
 		PlayerCaused = false,
 		AutomationCaused = false,
 		FuseCaused = false,
@@ -312,11 +377,11 @@ do
 	local decisions = scoredEntries(coordinator, "Leviathan")
 	expect(
 		leviathan.Status == "Supported" and leviathan.Confidence == 99,
-		"both distinct Leviathan tells must upgrade the conclusion"
+		"seven clean toggles on one eligible device within 2.5 seconds must identify Leviathan"
 	)
 	expect(
-		#decisions == 2 and decisions[2].Supersedes == decisions[1].Id,
-		"the Leviathan upgrade must supersede its provisional Maybe"
+		#decisions == 1 and decisions[1].Polarity == "Positive",
+		"incomplete, partial, and suppressed Leviathan bursts must not leave scored residue"
 	)
 	coordinator:Destroy()
 end
@@ -387,6 +452,159 @@ do
 	expect(
 		#decisions == 2 and decisions[2].Supersedes == decisions[1].Id,
 		"the 65% Specter decision must replace rather than duplicate 35%"
+	)
+	coordinator:Destroy()
+end
+
+do
+	local coordinator = Coordinator.new({Definitions = {require("../Wisp")}})
+	coordinator:Start({})
+	coordinator:Emit({
+		Type = "HolyOilCollision",
+		ModelId = "oil-a",
+		Hunting = true,
+		Burning = true,
+		Qualified = true,
+		CanCollide = true,
+	})
+	expect(
+		coordinator:Resolve({"Wisp"}).Wisp.RuledOut == true,
+		"one qualified blocking oil may initially rule Wisp out"
+	)
+	coordinator:Emit({
+		Type = "HolyOilCollision",
+		ModelId = "oil-b",
+		Hunting = true,
+		Burning = true,
+		Qualified = true,
+		CanCollide = false,
+	})
+	local corrected = coordinator:Resolve({"Wisp"}).Wisp
+	local decisions = scoredEntries(coordinator, "Wisp")
+	expect(
+		corrected.Status == "Supported" and corrected.Conflicted == false,
+		"a qualified Wisp pass on another oil must supersede the earlier blocking model"
+	)
+	expect(
+		#decisions == 2 and decisions[2].Supersedes == decisions[1].Id,
+		"all Holy Oil models must share one Wisp decision chain"
+	)
+	coordinator:Emit({
+		Type = "HolyOilCollision",
+		ModelId = "oil-c",
+		Hunting = true,
+		Burning = true,
+		Qualified = true,
+		CanCollide = true,
+	})
+	expect(
+		#scoredEntries(coordinator, "Wisp") == 2
+			and coordinator:Resolve({"Wisp"}).Wisp.Status == "Supported",
+		"a different unused blocking oil must not resurrect a Wisp rule-out"
+	)
+	coordinator:Destroy()
+end
+
+do
+	local coordinator = Coordinator.new({Definitions = {require("../Wisp")}})
+	coordinator:Start({})
+	coordinator:Emit({
+		Type = "HuntRoomRelation",
+		HuntId = "outside-first",
+		Hunting = true,
+		Qualified = true,
+		Completed = true,
+		InFavouriteRoom = false,
+	})
+	expect(
+		coordinator:Resolve({"Wisp"}).Wisp.RuledOut == true,
+		"a hunt starting outside the favourite room must create a hard historical Wisp negative"
+	)
+	for index = 1, 2 do
+		coordinator:Emit({
+			Type = "HuntRoomRelation",
+			HuntId = "favourite-later-" .. tostring(index),
+			Hunting = true,
+			Qualified = true,
+			Completed = true,
+			InFavouriteRoom = true,
+		})
+	end
+	local roomDecisions = scoredEntries(coordinator, "Wisp")
+	expect(
+		#roomDecisions == 1
+			and roomDecisions[1].Polarity == "Negative"
+			and coordinator:Resolve({"Wisp"}).Wisp.RuledOut == true,
+		"later ordinary favourite-room hunts must not supersede or erase the outside-room Wisp negative"
+	)
+	coordinator:Emit({
+		Type = "HolyOilCollision",
+		ModelId = "oil-after-room-negative",
+		Hunting = true,
+		Burning = true,
+		Qualified = true,
+		CanCollide = false,
+	})
+	local separatedDomains = scoredEntries(coordinator, "Wisp")
+	expect(
+		#separatedDomains == 2
+			and separatedDomains[1].Polarity == "Negative"
+			and separatedDomains[2].Supersedes == nil
+			and separatedDomains[2].Polarity == "Positive"
+			and separatedDomains[1].Id ~= separatedDomains[2].Id,
+		"Holy Oil evidence must remain separate without superseding the historical hunt-room negative"
+	)
+	coordinator:Destroy()
+end
+
+do
+	local coordinator = Coordinator.new({Definitions = {require("../Spirit")}})
+	coordinator:Start({})
+	coordinator:Emit({
+		Type = "HolyOilColor",
+		ModelId = "oil-a",
+		Hunting = true,
+		Burning = true,
+		Qualified = true,
+		Stable = true,
+		Blue = false,
+	})
+	expect(
+		coordinator:Resolve({"Spirit"}).Spirit.RuledOut == true,
+		"one qualified stable non-blue oil may initially rule Spirit out"
+	)
+	coordinator:Emit({
+		Type = "HolyOilColor",
+		ModelId = "oil-b",
+		Hunting = true,
+		Burning = true,
+		Qualified = true,
+		Stable = true,
+		Blue = true,
+	})
+	local corrected = coordinator:Resolve({"Spirit"}).Spirit
+	local decisions = scoredEntries(coordinator, "Spirit")
+	expect(
+		corrected.Status == "Supported" and corrected.Conflicted == false,
+		"a qualified blue flame on another oil must supersede the earlier non-blue model"
+	)
+	expect(
+		#decisions == 2 and decisions[2].Supersedes == decisions[1].Id,
+		"all Holy Oil models must share one Spirit decision chain"
+	)
+	coordinator:Emit({
+		Type = "HolyOilColor",
+		ModelId = "oil-c",
+		Hunting = true,
+		Burning = true,
+		Qualified = true,
+		Stable = true,
+		Blue = false,
+	})
+	expect(
+		#scoredEntries(coordinator, "Spirit") == 2
+			and coordinator:Resolve({"Spirit"}).Spirit.Status == "Supported",
+		"a different non-blue oil must not resurrect a Spirit rule-out after blue was observed"
 	)
 	coordinator:Destroy()
 end

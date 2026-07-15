@@ -1,6 +1,10 @@
 return function(dependencies)
 	dependencies = type(dependencies) == "table" and dependencies or {}
 	local Events = assert(dependencies.Events, "RoomTemperature requires Events")
+	local Specification = type(dependencies.Specification) == "table"
+		and dependencies.Specification or {}
+	local TemperatureSpec = type(Specification.RoomTemperature) == "table"
+		and Specification.RoomTemperature or {}
 	local RoomTemperature = {}
 	RoomTemperature.__index = RoomTemperature
 
@@ -13,7 +17,6 @@ return function(dependencies)
 				From = change.From,
 				To = change.To,
 				Decrease = change.Decrease,
-				NormalizedDecrease = change.NormalizedDecrease,
 			}
 		end
 		return result
@@ -33,7 +36,7 @@ return function(dependencies)
 		local minimum = nil
 		local maximum = nil
 		for _, change in ipairs(changes) do
-			local decrease = change.NormalizedDecrease or change.Decrease
+			local decrease = change.Decrease
 			sum = sum + decrease
 			minimum = minimum and math.min(minimum, decrease) or decrease
 			maximum = maximum and math.max(maximum, decrease) or decrease
@@ -57,18 +60,25 @@ return function(dependencies)
 			Name = options.Name or "RoomTemperature",
 			Category = "Dormant",
 			Status = "Idle",
-			SampleInterval = tonumber(options.SampleInterval) or 0.25,
-			ResidenceSeconds = tonumber(options.ResidenceSeconds) or 5,
+			SampleInterval = tonumber(options.SampleInterval)
+				or tonumber(TemperatureSpec.SampleInterval) or 0.25,
+			ResidenceSeconds = tonumber(options.ResidenceSeconds)
+				or tonumber(TemperatureSpec.ResidenceSeconds) or 5,
 			RequiredCoolingChanges = math.max(
-				7,
-				math.floor(tonumber(options.RequiredCoolingChanges) or 7)
+				1,
+				math.floor(tonumber(options.RequiredCoolingChanges)
+					or tonumber(TemperatureSpec.RequiredCoolingChanges) or 7)
 			),
 			RequiredRuleOutWindows = math.max(
 				1,
 				math.floor(tonumber(options.RequiredRuleOutWindows) or 1)
 			),
-			ShadowAverageThreshold = tonumber(options.ShadowAverageThreshold) or 0.06,
-			RuleOutAverageThreshold = tonumber(options.RuleOutAverageThreshold) or 0.08,
+			ShadowAverageThreshold = tonumber(options.ShadowAverageThreshold)
+				or tonumber(TemperatureSpec.ShadowThreshold) or 0.08,
+			RuleOutAverageThreshold = tonumber(options.RuleOutAverageThreshold)
+				or tonumber(TemperatureSpec.ShadowThreshold) or 0.08,
+			ComparisonEpsilon = tonumber(options.ComparisonEpsilon)
+				or tonumber(TemperatureSpec.ComparisonEpsilon) or 1e-9,
 			_context = nil,
 			_roundStarted = false,
 			_roomName = nil,
@@ -143,9 +153,12 @@ return function(dependencies)
 
 	function RoomTemperature:_readRoomName(event)
 		local roomName = Events.Read(event, "CurrentRoom")
-		if roomName == nil and type(self._context.ReadCurrentRoom) == "function" then
-			roomName = self._context.ReadCurrentRoom()
+		if roomName == nil
+			and type(self._context.ReadPhysicalCurrentRoom) == "function" then
+			roomName = self._context.ReadPhysicalCurrentRoom()
 		end
+		-- Do not fall back to Ghost.CurrentRoom. That replicated attribute can lag
+		-- behind the model and would blend cooling from a room the ghost has left.
 		if roomName == nil or tostring(roomName) == "" then return nil end
 		return tostring(roomName)
 	end
@@ -176,9 +189,9 @@ return function(dependencies)
 		)
 		local average = stats.AverageDecrease
 		local shadowObserved = average ~= nil
-			and average < self.ShadowAverageThreshold - 1e-9
+			and average < self.ShadowAverageThreshold - self.ComparisonEpsilon
 		local highAverage = average ~= nil
-			and average > self.RuleOutAverageThreshold + 1e-9
+			and average >= self.RuleOutAverageThreshold - self.ComparisonEpsilon
 		if highAverage then
 			self._ruleOutStreak = self._ruleOutStreak + 1
 		else
@@ -250,18 +263,19 @@ return function(dependencies)
 			local decrease = self._previousTemperature - temperature
 			if decrease > 0 then
 				local elapsed = math.max(0, now - (self._previousTemperatureAt or now))
-				local normalizedDecrease = decrease
-				if elapsed > 1e-6 then
-					normalizedDecrease = decrease * self.SampleInterval / elapsed
-				end
 				table.insert(self._coolingChanges, {
 					Time = now,
 					Elapsed = elapsed,
 					From = self._previousTemperature,
 					To = temperature,
 					Decrease = decrease,
-					NormalizedDecrease = normalizedDecrease,
 				})
+				-- Shadow is decided from exactly seven cooling changes. Until the
+				-- five-second same-room gate opens, retain the seven changes nearest
+				-- that decision point instead of averaging an ever-growing history.
+				while #self._coolingChanges > self.RequiredCoolingChanges do
+					table.remove(self._coolingChanges, 1)
+				end
 			elseif decrease < 0 then
 				self._ignoredIncreases = self._ignoredIncreases + 1
 			else

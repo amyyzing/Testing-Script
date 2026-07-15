@@ -1,4 +1,4 @@
-local GhostModule = require("../ghost-module")
+local GhostModule = require("../evidence-catalog")
 
 local observerProfiles = {
 	require("../../ghost/Aswang"), require("../../ghost/Banshee"),
@@ -345,6 +345,47 @@ local skinwalkerWithOrb = GhostModule.SelectHighestConfidenceGuess({
 })
 expect(skinwalkerWithOrb == "Skinwalker", "Orb should remove the Skinwalker penalty")
 
+local partialSkinwalkerOrb = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Banshee", "Ghoul", "Vex", "Skinwalker"},
+	Detections = {
+		Banshee = 60,
+		Ghoul = 60,
+		Vex = 60,
+		Skinwalker = 60,
+	},
+	ConfirmedEvidence = {
+		FreezingTemperatures = true,
+		GhostOrb = true,
+	},
+	RandomIndex = function(count)
+		expect(count == 4, "confirmed partial Orb evidence must retain an equally weighted Skinwalker")
+		return 4
+	end,
+})
+expect(
+	partialSkinwalkerOrb == "Skinwalker",
+	"Skinwalker must keep equal timeout weight while Orb is part of an incomplete evidence set"
+)
+
+local exactRealOrbCombination = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Banshee", "Skinwalker"},
+	Detections = {Banshee = 0, Skinwalker = 99},
+	ConfirmedEvidence = {
+		FreezingTemperatures = true,
+		GhostOrb = true,
+		Handprints = true,
+	},
+	OrbObserved = true,
+	RandomIndex = function(count)
+		expect(count == 1, "a complete real evidence triple must beat Skinwalker's partial false Orb")
+		return 1
+	end,
+})
+expect(
+	exactRealOrbCombination == "Banshee",
+	"partial Skinwalker Orb support must not override a complete valid real evidence combination"
+)
+
 local detectionBeatsCurrent = GhostModule.SelectHighestConfidenceGuess({
 	Candidates = {"Siren", "Keres"},
 	Detections = {Siren = 99},
@@ -370,6 +411,36 @@ local allZero = GhostModule.SelectHighestConfidenceGuess({
 	end,
 })
 expect(allZero == "Umbra", "all-zero candidates should use the random chooser")
+
+local strongNegativeLoses = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Specter", "Keres"},
+	Detections = {},
+	NegativeConfidence = {Keres = 99},
+	CurrentGuess = "Keres",
+	CurrentScore = 35,
+	RandomIndex = function(count)
+		expect(count == 1, "a 99% negative must not remain tied with an unopposed ghost")
+		return 1
+	end,
+})
+expect(
+	strongNegativeLoses == "Specter",
+	"negative confidence must affect the final timeout choice and stale current guess"
+)
+
+local netDetectionIsNotDoublePenalized = GhostModule.SelectHighestConfidenceGuess({
+	Candidates = {"Specter", "Entity"},
+	Detections = {
+		Specter = {Confidence = 35, NetConfidence = 35},
+		Entity = 20,
+	},
+	NegativeConfidence = {Specter = 60},
+	RandomIndex = function(count)
+		expect(count == 1, "stored net confidence must not be penalized a second time")
+		return 1
+	end,
+})
+expect(netDetectionIsNotDoublePenalized == "Specter", "net scores must remain authoritative")
 
 local deduplicated = GhostModule.SelectHighestConfidenceGuess({
 	Candidates = {"Siren", "Siren", Keres = true},
@@ -400,4 +471,4 @@ expect(
 	"an invalid deterministic chooser result should return nil"
 )
 
-print("ghost-module.spec: catalog, filtering, ranking, clone, and timeout guess assertions passed")
+print("evidence-catalog.spec: catalog, filtering, ranking, clone, and timeout guess assertions passed")

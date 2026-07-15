@@ -1,5 +1,4 @@
 local StaticGhostFacts = require("../trackers/discardable/static-ghost-facts")
-local QualifiedOneShot = require("../trackers/discardable/qualified-one-shot")
 
 local function expect(condition, message)
 	if not condition then error(message, 2) end
@@ -47,19 +46,4 @@ static:Reset()
 static:Start(context)
 expect(reads == 2, "round reset should permit exactly one new static scan")
 
-local oneShotReads = 0
-local oneShot = QualifiedOneShot.new({
-	TriggerTypes = {"OilBurning"},
-	Qualify = function(event) return event.Qualified == true end,
-	Read = function()
-		oneShotReads = oneShotReads + 1
-		return {Colour = "Blue"}
-	end,
-})
-oneShot:Start(context)
-oneShot:OnEvent({Type = "OilBurning", Qualified = false})
-oneShot:OnEvent({Type = "OilBurning", Qualified = true})
-oneShot:OnEvent({Type = "OilBurning", Qualified = true})
-expect(oneShotReads == 1 and oneShot:Snapshot().Status == "Discarded", "qualified one-shot must wait for prerequisites and then discard itself")
-
-print("core-lifecycle.spec: discardable fixed-model and qualified one-shot lifecycles passed")
+print("core-lifecycle.spec: fixed-model discardable lifecycle passed")

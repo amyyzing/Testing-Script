@@ -48,6 +48,27 @@ expect(
 	"ghost ranking must use net confidence so contradicted raw support cannot override the actual leader"
 )
 
+local hardNegativeLedger = Ledger.new()
+local hardNegativeResolver = Resolver.new(hardNegativeLedger)
+hardNegativeLedger:Positive("Keres", "female model support", 25)
+hardNegativeLedger:Negative("Keres", "verified male VisualModel", 99)
+local hardNegative = hardNegativeResolver:ResolveGhost("Keres")
+expect(
+	hardNegative.RuledOut == true
+		and hardNegative.HardNegative == true
+		and hardNegative.Eligible == false,
+	"a 95-99% negative must produce the same operational cross-out for every consumer"
+)
+
+local strongerSupportLedger = Ledger.new()
+local strongerSupportResolver = Resolver.new(strongerSupportLedger)
+strongerSupportLedger:Positive("Skinwalker", "impossible fourth-Orb combination", 100)
+strongerSupportLedger:RuleOut("Skinwalker", "contradictory behavioural sample", 99)
+local strongerSupport = strongerSupportResolver:ResolveGhost("Skinwalker")
+expect(strongerSupport.Conflicted == true and strongerSupport.RuledOut == false
+	and strongerSupport.Eligible == true and strongerSupport.Confidence == 100,
+	"a 99% contradiction must remain visible without crossing out canonical 100% Skinwalker evidence")
+
 local normalized = Events.Normalize({
 	Type = "Example",
 	Payload = {Qualified = true, Count = 3},

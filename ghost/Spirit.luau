@@ -1,43 +1,37 @@
 local NAME = "Spirit"
 
 local function createObserver(api)
-	local state = {Destroyed = false, Models = {}, EvidenceIds = {}}
+	local state = {Destroyed = false, Checked = false, Blue = nil, EvidenceId = nil}
 	local observer = {}
+	local function conclude(polarity, reason, event)
+		local entry
+		if state.EvidenceId and api and type(api.Supersede) == "function" then
+			entry = api:Supersede(NAME, state.EvidenceId, polarity, reason, 99, event)
+		elseif api and type(api[polarity]) == "function" then
+			entry = api[polarity](api, NAME, reason, 99, event)
+		end
+		state.EvidenceId = type(entry) == "table" and entry.Id or state.EvidenceId
+	end
 	function observer:OnEvent(event)
-		if state.Destroyed or type(event) ~= "table" or (event.Type or event.Kind) ~= "HolyOilColor" then return false end
+		if state.Destroyed or type(event) ~= "table"
+			or (event.Type or event.Kind) ~= "HolyOilColor" then return false end
+		if event.Burning ~= true or event.Qualified ~= true
+			or event.Stable ~= true or type(event.Blue) ~= "boolean" then return true end
+		if state.Blue == true and event.Blue == false then return true end
+		if state.Blue == event.Blue then return true end
+		state.Checked, state.Blue = true, event.Blue
 		if api and type(api.Record) == "function" then api:Record(NAME, event) end
-		if event.Hunting ~= true or event.Burning ~= true or event.Qualified ~= true or event.Stable ~= true then return true end
-		local id = event.ModelId or "default"
-		if event.Blue == true then
-			if state.Models[id] == "Blue" then return true end
-			state.Models[id] = "Blue"
-			local previous = state.EvidenceIds[id]
-			local entry
-			local skinwalker = api and type(api.Resolve) == "function"
-				and api:Resolve("Skinwalker") or nil
-			local skinwalkerExcluded = type(skinwalker) == "table"
-				and skinwalker.RuledOut == true
-			local confidence = skinwalkerExcluded and 99 or 60
-			local reason = event.Reason or (skinwalkerExcluded
-				and "eligible burning Holy Oil produced a stable blue fire color after Skinwalker was excluded"
-				or "eligible burning Holy Oil produced a stable blue fire color while Skinwalker remains possible")
-			if previous and api and type(api.Supersede) == "function" then
-				entry = api:Supersede(NAME, previous, "Positive", reason, confidence, event)
-			elseif api and type(api.Positive) == "function" then
-				entry = api:Positive(NAME, reason, confidence, event)
-			end
-			state.EvidenceIds[id] = type(entry) == "table" and entry.Id or previous
-		elseif event.Blue == false and state.Models[id] == nil then
-			state.Models[id] = "NotBlue"
-			local entry = api and type(api.RuleOut) == "function"
-				and api:RuleOut(NAME, event.Reason or "eligible burning Holy Oil produced a stable non-blue fire color", 99, event)
-				or nil
-			state.EvidenceIds[id] = type(entry) == "table" and entry.Id or nil
+		if event.Blue then
+			conclude("Positive", event.Reason or "qualified Burning Holy Oil produced blue fire", event)
+		else
+			conclude("RuleOut", event.Reason or "qualified Burning Holy Oil produced a non-blue fire colour", event)
 		end
 		return true
 	end
-	function observer:Reset() state.Models, state.EvidenceIds = {}, {} end
-	function observer:Snapshot() return {Destroyed = state.Destroyed, Models = state.Models} end
+	function observer:Reset() state.Checked, state.Blue, state.EvidenceId = false, nil, nil end
+	function observer:Snapshot()
+		return {Destroyed = state.Destroyed, Checked = state.Checked, Blue = state.Blue}
+	end
 	function observer:Destroy() state.Destroyed = true end
 	return observer
 end
@@ -46,6 +40,10 @@ return {
 	Name = NAME,
 	Evidence = {"GhostWriting", "Handprints", "SpiritBox"},
 	ObservationEvents = {"HolyOilColor"},
-	Perks = { ["Pretty Sure"] = {"Eligible stable Holy Oil fire is blue after Skinwalker is excluded."}, Maybe = {"One stable blue flame while Skinwalker remains possible."}, Idk = {"An unlit or transitioning effect is not a negative."} },
+	Perks = {
+		["Pretty Sure"] = {"Qualified Burning Holy Oil has blue fire."},
+		Maybe = {},
+		Idk = {"A stable non-blue fire colour rules Spirit out; an unlit or transitioning effect is ignored."},
+	},
 	CreateObserver = createObserver,
 }

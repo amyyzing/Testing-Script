@@ -6,34 +6,53 @@ Events.Types = {
 	HuntEnded = "HuntEnded",
 	HuntTransitionSettled = "HuntTransitionSettled",
 	TransparencyChanged = "TransparencyChanged",
+	WalkSpeedChanged = "WalkSpeedChanged",
+	PlayerDeath = "PlayerDeath",
+	Tick = "Tick",
 	SpeedPairSample = "SpeedPairSample",
 	SpeedPairWindow = "SpeedPairWindow",
 	DullahanPattern = "DullahanPattern",
 	DullahanPatternAbsent = "DullahanPatternAbsent",
 	PhantomPattern = "PhantomPattern",
+	NonPhantomPattern = "NonPhantomPattern",
 	FlatHuntSpeed = "FlatHuntSpeed",
 	HuntSpeedMathResult = "HuntSpeedMathResult",
+	NonHuntSpeedMathResult = "NonHuntSpeedMathResult",
 	WendigoCurveResult = "WendigoCurveResult",
 	SpeedProbeResult = "SpeedProbeResult",
 	SpeedProbeRecovery = "SpeedProbeRecovery",
-	PlayerDeath = "PlayerDeath",
 	HuntEndedAfterDeath = "HuntEndedAfterDeath",
 	HuntContinuedAfterDeath = "HuntContinuedAfterDeath",
+	SaltPilePlaced = "SaltPilePlaced",
+	SaltPileTouched = "SaltPileTouched",
+	SaltPileDisturbed = "SaltPileDisturbed",
 	SaltContact = "SaltContact",
+	SaltContactResult = "SaltContactResult",
 	SaltDisturbed = "SaltDisturbed",
+	HolyOilBurningChanged = "HolyOilBurningChanged",
+	HolyOilWallChanged = "HolyOilWallChanged",
+	HolyOilTouched = "HolyOilTouched",
+	HolyOilCollision = "HolyOilCollision",
+	HolyOilPass = "HolyOilPass",
+	GhostFireEffect = "GhostFireEffect",
+	HolyOilColor = "HolyOilColor",
 	RoomTemperatureWindow = "RoomTemperatureWindow",
-	WalkSpeedChanged = "WalkSpeedChanged",
-	Tick = "Tick",
-}
-
-Events.CompatibilityAliases = {
-	DullahanPattern = {"HuntSpeedSteps"},
-	DullahanPatternAbsent = {"HuntSpeedStepsAbsent"},
-	FlatHuntSpeed = {"StableHuntSpeed"},
-	HuntSpeedMathResult = {"HuntingSpeedMath"},
-	WendigoCurveResult = {"SanitySpeedCurve"},
-	HuntEndedAfterDeath = {"KillHuntOutcome"},
-	HuntContinuedAfterDeath = {"KillHuntOutcome"},
+	BrokenGlassBurst = "BrokenGlassBurst",
+	CrossMotion = "CrossMotion",
+	ObjectTeleportResult = "ObjectTeleportResult",
+	HuntElectronicDisabled = "HuntElectronicDisabled",
+	GhostModelSex = "GhostModelSex",
+	DeviceToggleBurst = "DeviceToggleBurst",
+	VortexPattern = "VortexPattern",
+	LineOfSightPlayerSpeed = "LineOfSightPlayerSpeed",
+	SpiritBoxResponse = "SpiritBoxResponse",
+	FalseOrb = "FalseOrb",
+	SpecterTrial = "SpecterTrial",
+	RootSoundScan = "RootSoundScan",
+	LidarState = "LidarState",
+	HuntRoomRelation = "HuntRoomRelation",
+	StaticGhostFacts = "StaticGhostFacts",
+	EvidenceSnapshot = "EvidenceSnapshot",
 }
 
 local function copy(value, seen)
@@ -101,21 +120,6 @@ function Events.Normalize(event, defaults)
 			normalized[key] = copy(value)
 		end
 	end
-	local aliases = event.Aliases or Events.CompatibilityAliases[kind]
-	if type(aliases) == "table" then
-		normalized.Aliases = copy(aliases)
-		normalized.Payload.Aliases = copy(aliases)
-	end
-	if kind == Events.Types.SpeedProbeResult then
-		local trigger = normalized.Trigger or normalized.Payload.Trigger
-		if trigger == Events.Types.SaltContact then
-			normalized.Aliases = {"SaltContactSpeed"}
-		elseif trigger == Events.Types.PlayerDeath then
-			normalized.Aliases = {"KillSpeedChange"}
-		end
-		normalized.Payload.Aliases = copy(normalized.Aliases)
-	end
-
 	if normalized.HuntId == nil then
 		normalized.HuntId = readDefault(defaults, "HuntId")
 	end

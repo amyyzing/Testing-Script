@@ -72,9 +72,9 @@ Aesthetic.Copy = {
 	PerkLogs = {
 		Title = "Ghost Perk Log",
 		Positive = "Positive observations",
-		Negative = "Ruled out",
+		Negative = "Negative observations",
 		EmptyPositive = "No positive perk observations",
-		EmptyNegative = "No ruled-out ghosts",
+		EmptyNegative = "No negative observations",
 		Toggle = "LOGS",
 	},
 	Descriptions = {

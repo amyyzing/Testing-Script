@@ -3,10 +3,13 @@ return function(dependencies)
 	local Events = assert(dependencies.Events, "Coordinator requires Events")
 	local EvidenceLedger = assert(dependencies.EvidenceLedger, "Coordinator requires EvidenceLedger")
 	local Resolver = assert(dependencies.Resolver, "Coordinator requires Resolver")
+	local DefaultSpecification = type(dependencies.Specification) == "table"
+		and dependencies.Specification or {}
 
 	local Coordinator = {}
 	Coordinator.__index = Coordinator
-	local TRANSIENT_EVENTS = {
+
+	local TRANSIENT = {
 		[Events.Types.Tick] = true,
 		[Events.Types.WalkSpeedChanged] = true,
 		[Events.Types.TransparencyChanged] = true,
@@ -15,47 +18,32 @@ return function(dependencies)
 
 	local function values(input)
 		local result = {}
-		if type(input) ~= "table" then
-			return result
-		end
-		for _, value in pairs(input) do
-			table.insert(result, value)
-		end
+		if type(input) ~= "table" then return result end
+		for _, value in pairs(input) do table.insert(result, value) end
 		return result
 	end
 
+	local function ownerName(owner)
+		return type(owner) == "table" and owner.Name or tostring(owner)
+	end
+
 	local function callSafely(self, owner, method, ...)
-		local callback = owner and owner[method]
-		if type(callback) ~= "function" then
-			return true, nil
-		end
+		local callback = type(owner) == "table" and owner[method] or nil
+		if type(callback) ~= "function" then return true, nil end
 		local ok, result = pcall(callback, owner, ...)
 		if not ok then
 			local failure = {
-				Owner = owner.Name or tostring(owner),
+				Owner = ownerName(owner),
 				Method = method,
 				Error = tostring(result),
 				Time = self._clock(),
 			}
 			table.insert(self._errors, failure)
 			if type(self._onError) == "function" then
-				self._onError(failure)
+				pcall(self._onError, failure)
 			end
 		end
 		return ok, result
-	end
-
-	local function evidenceEvent(event)
-		event = type(event) == "table" and event or {}
-		return {
-			Time = event.Time,
-			Source = event.Source,
-			EventId = event.Id or event.EventId,
-			HuntId = event.HuntId,
-			Supersedes = event.Supersedes,
-			Tags = event.Tags,
-			Details = event.Payload or event.Details,
-		}
 	end
 
 	function Coordinator.new(options)
@@ -74,12 +62,17 @@ return function(dependencies)
 			_recordEvents = options.RecordEvents ~= false,
 			_recordTransientEvents = options.RecordTransientEvents == true,
 			_historyLimit = math.max(0, math.floor(tonumber(options.HistoryLimit) or 512)),
+			_specification = type(options.Specification) == "table"
+				and options.Specification or DefaultSpecification,
 			_ledger = ledger,
-			_resolver = options.ResolverInstance or Resolver.new(ledger, {Catalog = options.Catalog}),
+			_resolver = options.ResolverInstance
+				or Resolver.new(ledger, {Catalog = options.Catalog}),
 			_trackers = values(options.Trackers),
 			_analyzers = values(options.Analyzers),
 			_definitions = values(options.Definitions or options.Profiles),
 			_observers = {},
+			_observerRoutes = {},
+			_wildcardObservers = {},
 			_eventHistory = {},
 			_errors = {},
 			_queue = {},
@@ -97,6 +90,19 @@ return function(dependencies)
 	end
 
 	Coordinator.New = Coordinator.new
+
+	function Coordinator:_notify(kind, payload)
+		if type(self._onChanged) ~= "function" then return end
+		local ok, failure = pcall(self._onChanged, kind, Events.Copy(payload), self)
+		if not ok then
+			table.insert(self._errors, {
+				Owner = self.Name,
+				Method = "OnChanged",
+				Error = tostring(failure),
+				Time = self._clock(),
+			})
+		end
+	end
 
 	function Coordinator:_observerApi()
 		local coordinator = self
@@ -142,42 +148,31 @@ return function(dependencies)
 			return self:Record(name, event)
 		end
 
-		function api:Emit(event)
-			return coordinator:Emit(event)
-		end
-
-		function api:Resolve(name)
-			return coordinator._resolver:ResolveGhost(name)
-		end
-
-		function api:IsHunting()
-			return coordinator._hunting
-		end
-
-		function api:HuntId()
-			return coordinator._huntId
-		end
-
+		function api:Emit(event) return coordinator:Emit(event) end
+		function api:Resolve(name) return coordinator._resolver:ResolveGhost(name) end
+		function api:IsHunting() return coordinator._hunting end
+		function api:HuntId() return coordinator._huntId end
+		function api:Specification() return coordinator._specification end
 		return api
 	end
 
-	function Coordinator:_notify(kind, payload)
-		if type(self._onChanged) ~= "function" then
-			return
-		end
-		local ok, failure = pcall(self._onChanged, kind, Events.Copy(payload), self)
-		if not ok then
-			table.insert(self._errors, {
-				Owner = self.Name,
-				Method = "OnChanged",
-				Error = tostring(failure),
-				Time = self._clock(),
-			})
+	function Coordinator:_routeObserver(observer, definition)
+		local routes = type(definition.ObservationEvents) == "table"
+			and definition.ObservationEvents or {}
+		for _, eventType in ipairs(routes) do
+			if eventType == "*" then
+				table.insert(self._wildcardObservers, observer)
+			elseif type(eventType) == "string" and eventType ~= "" then
+				self._observerRoutes[eventType] = self._observerRoutes[eventType] or {}
+				table.insert(self._observerRoutes[eventType], observer)
+			end
 		end
 	end
 
 	function Coordinator:_createObservers()
 		table.clear(self._observers)
+		table.clear(self._observerRoutes)
+		table.clear(self._wildcardObservers)
 		local api = self:_observerApi()
 		for _, definition in ipairs(self._definitions) do
 			if type(definition) == "table" and type(definition.CreateObserver) == "function" then
@@ -185,6 +180,7 @@ return function(dependencies)
 				if ok and type(observer) == "table" then
 					observer.Name = observer.Name or definition.Name
 					table.insert(self._observers, observer)
+					self:_routeObserver(observer, definition)
 				else
 					table.insert(self._errors, {
 						Owner = definition.Name or "UnknownProfile",
@@ -204,6 +200,7 @@ return function(dependencies)
 		end
 		context.Clock = context.Clock or self._clock
 		context.Schedule = context.Schedule or self._schedule
+		context.Specification = context.Specification or self._specification
 		context.Emit = function(event)
 			event = Events.Copy(event)
 			if event.ParentId == nil and self._currentEvent then
@@ -212,33 +209,6 @@ return function(dependencies)
 			return self:Emit(event)
 		end
 		return context
-	end
-
-	function Coordinator:Start(runtimeContext)
-		assert(not self._destroyed, "coordinator has been destroyed")
-		if self._started then
-			return
-		end
-		self._runtimeContext = runtimeContext or {}
-		self._started = true
-		self.Status = "Active"
-		local context = self:_trackerContext(self._runtimeContext)
-		-- Hold events emitted by one Start() call until every tracker and analyzer
-		-- has entered its lifecycle. This keeps discardable one-shot facts visible
-		-- to components registered later in the list.
-		self._dispatching = true
-		for _, tracker in ipairs(self._trackers) do
-			callSafely(self, tracker, "Start", context)
-		end
-		for _, analyzer in ipairs(self._analyzers) do
-			callSafely(self, analyzer, "Start", context)
-		end
-		self._dispatching = true
-		while #self._queue > 0 do
-			local nextEvent = table.remove(self._queue, 1)
-			self:_dispatch(nextEvent)
-		end
-		self._dispatching = false
 	end
 
 	function Coordinator:_normalize(event)
@@ -252,34 +222,21 @@ return function(dependencies)
 		return normalized
 	end
 
-	function Coordinator:_recordNormalizedEvent(event)
-		if not self._recordEvents then
-			return
-		end
-		local metadata = evidenceEvent(event)
+	function Coordinator:_shouldRecord(event)
+		return self._recordEvents
+			and (self._recordTransientEvents or TRANSIENT[event.Type] ~= true)
+	end
+
+	function Coordinator:_record(event)
 		self._ledger:Record({
 			Polarity = "Observation",
 			Reason = event.Type,
-			Source = metadata.Source,
-			Time = metadata.Time,
-			EventId = metadata.EventId,
-			HuntId = metadata.HuntId,
-			Details = {
-				Type = event.Type,
-				Aliases = event.Aliases,
-				Payload = event.Payload,
-			},
+			Source = event.Source,
+			Time = event.Time,
+			EventId = event.Id,
+			HuntId = event.HuntId,
+			Details = {Type = event.Type, Payload = event.Payload},
 		})
-	end
-
-	function Coordinator:_shouldRecordEvent(event)
-		if not self._recordEvents then
-			return false
-		end
-		if self._recordTransientEvents then
-			return true
-		end
-		return TRANSIENT_EVENTS[event.Type] ~= true
 	end
 
 	function Coordinator:_updateHuntState(event)
@@ -295,74 +252,78 @@ return function(dependencies)
 		end
 	end
 
-	function Coordinator:_dispatch(event)
-		self:_updateHuntState(event)
-		local recordEvent = self:_shouldRecordEvent(event)
-		if recordEvent then
-			table.insert(self._eventHistory, Events.Copy(event))
-			while #self._eventHistory > self._historyLimit do
-				table.remove(self._eventHistory, 1)
-			end
-			self:_recordNormalizedEvent(event)
-		end
-		self._currentEvent = event
-		for _, tracker in ipairs(self._trackers) do
-			callSafely(self, tracker, "OnEvent", event)
-		end
-		for _, analyzer in ipairs(self._analyzers) do
-			callSafely(self, analyzer, "OnEvent", event)
-		end
-		for _, observer in ipairs(self._observers) do
+	function Coordinator:_dispatchObservers(event)
+		local dispatched = setmetatable({}, {__mode = "k"})
+		for _, observer in ipairs(self._observerRoutes[event.Type] or {}) do
+			dispatched[observer] = true
 			callSafely(self, observer, "OnEvent", event)
 		end
-		self._currentEvent = nil
-		if recordEvent then
-			self:_notify("Event", event)
+		for _, observer in ipairs(self._wildcardObservers) do
+			if not dispatched[observer] then callSafely(self, observer, "OnEvent", event) end
 		end
+	end
+
+	function Coordinator:_dispatch(event)
+		self:_updateHuntState(event)
+		local recorded = self:_shouldRecord(event)
+		if recorded then
+			table.insert(self._eventHistory, Events.Copy(event))
+			while #self._eventHistory > self._historyLimit do table.remove(self._eventHistory, 1) end
+			self:_record(event)
+		end
+		self._currentEvent = event
+		for _, tracker in ipairs(self._trackers) do callSafely(self, tracker, "OnEvent", event) end
+		for _, analyzer in ipairs(self._analyzers) do callSafely(self, analyzer, "OnEvent", event) end
+		self:_dispatchObservers(event)
+		self._currentEvent = nil
+		if recorded then self:_notify("Event", event) end
+	end
+
+	function Coordinator:_drain()
+		if self._dispatching then return end
+		self._dispatching = true
+		while #self._queue > 0 do
+			self:_dispatch(table.remove(self._queue, 1))
+		end
+		self._dispatching = false
+	end
+
+	function Coordinator:Start(runtimeContext)
+		assert(not self._destroyed, "coordinator has been destroyed")
+		if self._started then return end
+		self._runtimeContext = runtimeContext or {}
+		self._started = true
+		self.Status = "Active"
+		local context = self:_trackerContext(self._runtimeContext)
+		-- Start atomically: facts emitted by an early tracker remain queued until
+		-- every lifecycle is ready to receive them.
+		self._dispatching = true
+		for _, tracker in ipairs(self._trackers) do callSafely(self, tracker, "Start", context) end
+		for _, analyzer in ipairs(self._analyzers) do callSafely(self, analyzer, "Start", context) end
+		self._dispatching = false
+		self:_drain()
 	end
 
 	function Coordinator:Emit(event)
 		assert(not self._destroyed, "coordinator has been destroyed")
 		local normalized = self:_normalize(event)
 		table.insert(self._queue, normalized)
-		if self._dispatching then
-			return normalized.Id
-		end
-		self._dispatching = true
-		while #self._queue > 0 do
-			local nextEvent = table.remove(self._queue, 1)
-			self:_dispatch(nextEvent)
-		end
-		self._dispatching = false
+		self:_drain()
 		return normalized.Id
 	end
 
 	Coordinator.Receive = Coordinator.Emit
 
-	function Coordinator:Resolve(names)
-		return self._resolver:Resolve(names)
-	end
-
-	function Coordinator:Rank(names, options)
-		return self._resolver:Rank(names, options)
-	end
-
-	function Coordinator:Ledger()
-		return self._ledger
-	end
+	function Coordinator:Resolve(names) return self._resolver:Resolve(names) end
+	function Coordinator:Rank(names, options) return self._resolver:Rank(names, options) end
+	function Coordinator:Ledger() return self._ledger end
 
 	function Coordinator:Reset(options)
 		assert(not self._destroyed, "coordinator has been destroyed")
 		local restart = self._started
-		for _, tracker in ipairs(self._trackers) do
-			callSafely(self, tracker, "Reset")
-		end
-		for _, analyzer in ipairs(self._analyzers) do
-			callSafely(self, analyzer, "Reset")
-		end
-		for _, observer in ipairs(self._observers) do
-			callSafely(self, observer, "Reset")
-		end
+		for _, tracker in ipairs(self._trackers) do callSafely(self, tracker, "Reset") end
+		for _, analyzer in ipairs(self._analyzers) do callSafely(self, analyzer, "Reset") end
+		for _, observer in ipairs(self._observers) do callSafely(self, observer, "Reset") end
 		self._ledger:Reset(options)
 		table.clear(self._eventHistory)
 		table.clear(self._errors)
@@ -374,25 +335,15 @@ return function(dependencies)
 		self._nextEventId = Events.MakeIdFactory("ghost-event-")
 		self._started = false
 		self.Status = "Idle"
-		if restart then
-			self:Start(self._runtimeContext)
-		end
+		if restart then self:Start(self._runtimeContext) end
 		self:_notify("Reset", {Round = self._ledger:Snapshot().Round})
 	end
 
 	function Coordinator:Destroy()
-		if self._destroyed then
-			return
-		end
-		for _, tracker in ipairs(self._trackers) do
-			callSafely(self, tracker, "Destroy")
-		end
-		for _, analyzer in ipairs(self._analyzers) do
-			callSafely(self, analyzer, "Destroy")
-		end
-		for _, observer in ipairs(self._observers) do
-			callSafely(self, observer, "Destroy")
-		end
+		if self._destroyed then return end
+		for _, tracker in ipairs(self._trackers) do callSafely(self, tracker, "Destroy") end
+		for _, analyzer in ipairs(self._analyzers) do callSafely(self, analyzer, "Destroy") end
+		for _, observer in ipairs(self._observers) do callSafely(self, observer, "Destroy") end
 		table.clear(self._queue)
 		self._currentEvent = nil
 		self._runtimeContext = nil
@@ -402,17 +353,15 @@ return function(dependencies)
 	end
 
 	function Coordinator:Snapshot()
-		local trackers = {}
+		local trackers, analyzers, observers = {}, {}, {}
 		for _, tracker in ipairs(self._trackers) do
 			local ok, snapshot = callSafely(self, tracker, "Snapshot")
 			table.insert(trackers, ok and snapshot or {Name = tracker.Name, Status = "SnapshotFailed"})
 		end
-		local analyzers = {}
 		for _, analyzer in ipairs(self._analyzers) do
 			local ok, snapshot = callSafely(self, analyzer, "Snapshot")
 			table.insert(analyzers, ok and snapshot or {Name = analyzer.Name, Status = "SnapshotFailed"})
 		end
-		local observers = {}
 		for _, observer in ipairs(self._observers) do
 			local ok, snapshot = callSafely(self, observer, "Snapshot")
 			table.insert(observers, ok and snapshot or {Name = observer.Name, Status = "SnapshotFailed"})

@@ -1,54 +1,75 @@
 local NAME = "Dullahan"
 
+local function specification(api)
+	local all = api and type(api.Specification) == "function" and api:Specification() or {}
+	return type(all.SpeedPairs) == "table" and all.SpeedPairs or {}
+end
+
 local function createObserver(api)
-	local state = {Destroyed = false, LastDifferentPairs = 0, Matched = false, EvidenceId = nil}
+	local requiredPairs = tonumber(specification(api).RequiredPairs) or 7
+	local state = {
+		Destroyed = false,
+		Outcome = nil,
+		DifferentPairs = 0,
+		UpwardSteps = 0,
+		EvidenceId = nil,
+	}
 	local observer = {}
-	local function conclude(polarity, reason, confidence, event)
+
+	local function conclude(polarity, reason, event)
 		local entry
 		if state.EvidenceId and api and type(api.Supersede) == "function" then
-			entry = api:Supersede(NAME, state.EvidenceId, polarity, reason, confidence, event)
+			entry = api:Supersede(NAME, state.EvidenceId, polarity, reason, 99, event)
 		elseif api and type(api[polarity]) == "function" then
-			entry = api[polarity](api, NAME, reason, confidence, event)
+			entry = api[polarity](api, NAME, reason, 99, event)
 		end
 		state.EvidenceId = type(entry) == "table" and entry.Id or state.EvidenceId
 	end
+
 	function observer:OnEvent(event)
 		if state.Destroyed or type(event) ~= "table" then return false end
 		local kind = event.Type or event.Kind
-		if kind ~= "HuntSpeedSteps"
-			and kind ~= "DullahanPattern" and kind ~= "DullahanPatternAbsent" then return false end
+		if kind ~= "DullahanPattern" and kind ~= "DullahanPatternAbsent" then return false end
 		if api and type(api.Record) == "function" then api:Record(NAME, event) end
-		if kind ~= "DullahanPatternAbsent"
-			and (event.Hunting == false or event.Qualified == false) then return true end
-		local different = math.max(0, math.floor(tonumber(
-			event.DifferentPairs or event.DifferentPairCount
-				or event.UpwardPairs or event.UpwardSteps or event.IncreaseCount
-		) or 0))
-		state.LastDifferentPairs = different
-		local pairCount = math.max(0, math.floor(tonumber(event.PairCount) or 0))
-		local requiredPairs = math.max(7, math.floor(tonumber(event.RequiredPairs) or 7))
-		if (kind == "DullahanPattern" or kind == "DullahanPatternAbsent")
-			and pairCount < requiredPairs then return true end
-		local minimum = math.max(requiredPairs, math.floor(tonumber(
-			event.RequiredDifferentPairs
-				or event.RequiredUpwardPairs or event.RequiredUpwardSteps
-		) or requiredPairs))
-		if kind == "DullahanPatternAbsent" then
-			if state.Matched then return true end
-			state.Matched = false
-			conclude("RuleOut", event.Reason or "the seven local pairs matched Phantom, were flat, or included an equal pair", 99, event)
-		elseif kind == "DullahanPattern" or different >= minimum then
-			state.Matched = true
-			conclude("Positive", event.Reason or "all seven settled hunt-speed pairs contained two different values", 99, event)
-		elseif event.Completed == true and event.PhantomExcluded == true and different == 0 then
-			if state.Matched then return true end
-			state.Matched = false
-			conclude("RuleOut", event.Reason or "at least one of seven settled hunt-speed pairs repeated the same value", 99, event)
+		if event.Hunting ~= true or event.Qualified ~= true or event.Completed ~= true
+			or (tonumber(event.PairCount) or 0) ~= requiredPairs then return true end
+		state.DifferentPairs = tonumber(
+			event.PatternChangeCount or event.DifferentPairCount or event.DifferentPairs
+		) or 0
+		state.UpwardSteps = tonumber(event.UpwardStepCount) or 0
+		if kind == "DullahanPattern" and event.PhantomExcluded == true
+			and state.UpwardSteps > 0 then
+			state.Outcome = "Matched"
+			conclude(
+				"Positive",
+				event.Reason or "after Phantom and flat speed were excluded, the seven-pair hunt window contained a nonzero upward speed step",
+				event
+			)
+		elseif kind == "DullahanPatternAbsent" then
+			-- Valid Phantom and exactly-flat windows are hard negatives, but a
+			-- previously confirmed upward ramp remains the unique stronger tell.
+			if state.Outcome == "Matched" then return true end
+			state.Outcome = "Rejected"
+			conclude(
+				"RuleOut",
+				event.Reason or "the complete hunt window was a valid Phantom pattern or exactly flat",
+				event
+			)
 		end
 		return true
 	end
-	function observer:Reset() state.LastDifferentPairs, state.Matched, state.EvidenceId = 0, false, nil end
-	function observer:Snapshot() return {Destroyed = state.Destroyed, LastDifferentPairs = state.LastDifferentPairs, Matched = state.Matched} end
+
+	function observer:Reset()
+		state.Outcome, state.DifferentPairs, state.UpwardSteps, state.EvidenceId = nil, 0, 0, nil
+	end
+	function observer:Snapshot()
+		return {
+			Destroyed = state.Destroyed,
+			Outcome = state.Outcome,
+			DifferentPairs = state.DifferentPairs,
+			UpwardSteps = state.UpwardSteps,
+		}
+	end
 	function observer:Destroy() state.Destroyed = true end
 	return observer
 end
@@ -56,7 +77,11 @@ end
 return {
 	Name = NAME,
 	Evidence = {"FreezingTemperatures", "LaserProjector", "Wither"},
-	ObservationEvents = {"HuntSpeedSteps", "DullahanPattern", "DullahanPatternAbsent"},
-	Perks = { ["Pretty Sure"] = {"Both values differ in every one of seven settled visible/invisible pairs; direction and difference size do not matter."}, Maybe = {}, Idk = {"Seven local Phantom-ratio pairs or seven equal Normal/Oni pairs rule Dullahan out immediately; fewer than seven pairs are insufficient."} },
+	ObservationEvents = {"DullahanPattern", "DullahanPatternAbsent"},
+	Perks = {
+		["Pretty Sure"] = {"After valid Phantom and exactly-flat patterns are excluded, any nonzero upward speed step in the complete seven-pair hunt window identifies Dullahan."},
+		Maybe = {},
+		Idk = {"Decreases and resets are ignored. A complete sequence with no upward interval is inconclusive, including a stable invalid A/B window whose tracked direction only decreases."},
+	},
 	CreateObserver = createObserver,
 }

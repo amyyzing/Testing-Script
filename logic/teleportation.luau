@@ -81,6 +81,9 @@ return function(dependencies)
 		end
 		busy = true
 		local lease = {Released = false}
+		function lease:IsActive()
+			return not self.Released and optionsAreActive(options)
+		end
 		function lease:Release()
 			if self.Released then
 				return
@@ -124,11 +127,43 @@ return function(dependencies)
 			AutoRotate = humanoid.AutoRotate,
 			StateEnabled = stateEnabled,
 		} or nil
+		local callerIsActive = options.IsActive
+		local function combinedIsActive()
+			if not runtimeIsActive() then
+				return false
+			end
+			if type(callerIsActive) ~= "function" then
+				return true
+			end
+			local ok, active = pcall(callerIsActive)
+			return ok and active == true
+		end
+		local guardInstalled = pcall(function()
+			options.IsActive = combinedIsActive
+		end)
+		if not guardInstalled then
+			lease:Release()
+			return false, "movement request could not install its activity guard"
+		end
 		local ok, first, second = xpcall(callback, debug.traceback)
+		local activeAfterCallback = combinedIsActive()
+		local guardRestored = pcall(function()
+			if options.IsActive == combinedIsActive then
+				options.IsActive = callerIsActive
+			end
+		end)
 		lease:Release()
 		if not ok then
 			restoreSnapshot(snapshot)
 			return false, tostring(first):match("^[^\n]+")
+		end
+		if not guardRestored then
+			restoreSnapshot(snapshot)
+			return false, "movement request could not restore its activity guard"
+		end
+		if not activeAfterCallback then
+			restoreSnapshot(snapshot)
+			return false, "movement request was cancelled"
 		end
 		return first, second
 	end
@@ -171,6 +206,58 @@ return function(dependencies)
 		}, center
 	end
 
+	local function finiteNumber(value)
+		return type(value) == "number"
+			and value == value
+			and value > -math.huge
+			and value < math.huge
+	end
+
+	local function validBoundingPartGeometry(boundingPart)
+		if not boundingPart then
+			return nil, nil
+		end
+		local ok, parent, frame, size, sizeX, sizeY, sizeZ = pcall(function()
+			local partSize = boundingPart.Size
+			return boundingPart.Parent,
+				boundingPart.CFrame,
+				partSize,
+				partSize.X,
+				partSize.Y,
+				partSize.Z
+		end)
+		if not ok
+			or not parent
+			or not frame
+			or not size
+			or not finiteNumber(sizeX)
+			or not finiteNumber(sizeY)
+			or not finiteNumber(sizeZ)
+			or sizeX <= 0
+			or sizeY <= 0
+			or sizeZ <= 0 then
+			return nil, nil
+		end
+		return frame, size
+	end
+
+	local function horizontalDistanceToPart(
+		frame: any,
+		size: any,
+		position: any
+	): number?
+		local ok, localPosition = pcall(function()
+			return frame:PointToObjectSpace(position)
+		end)
+		if not ok or not localPosition then
+			return nil
+		end
+		local dx = math.max(math.abs(localPosition.X) - size.X * 0.5, 0)
+		local dz = math.max(math.abs(localPosition.Z) - size.Z * 0.5, 0)
+		local distance = math.sqrt(dx ^ 2 + dz ^ 2)
+		return finiteNumber(distance) and distance or nil
+	end
+
 	local function findRoomForTarget(target, preferredPositions)
 		local rooms = findRoomsFolder()
 		if not rooms then
@@ -185,24 +272,48 @@ return function(dependencies)
 		local bestInsideCount = -1
 		local bestDistance = math.huge
 		for _, room in ipairs(rooms:GetChildren()) do
-			local insideCount = 0
-			local distance = math.huge
-			for _, boundingPart in ipairs(getRoomBoundingParts(room)) do
-				for _, position in ipairs(preferredPositions or {}) do
-					if pointIsInsidePart(boundingPart, position) then
-						insideCount = insideCount + 1
-					end
-				end
-				for _, position in ipairs(distancePositions) do
-					local localPosition = boundingPart.CFrame:PointToObjectSpace(position)
-					local half = boundingPart.Size * 0.5
-					local dx = math.max(math.abs(localPosition.X) - half.X, 0)
-					local dz = math.max(math.abs(localPosition.Z) - half.Z, 0)
-					distance = math.min(distance, math.sqrt(dx ^ 2 + dz ^ 2))
+			local boundingParts = {}
+			for _, boundingPart in ipairs(getRoomBoundingParts(room) or {}) do
+				local frame, size = validBoundingPartGeometry(boundingPart)
+				if frame then
+					table.insert(boundingParts, {
+						Part = boundingPart,
+						Frame = frame,
+						Size = size,
+					})
 				end
 			end
-			if insideCount > bestInsideCount
-				or (insideCount == bestInsideCount and distance < bestDistance) then
+			local insideCount = 0
+			local distance = math.huge
+			for _, position in ipairs(preferredPositions or {}) do
+				for _, bounding in ipairs(boundingParts) do
+					local ok, inside = pcall(
+						pointIsInsidePart,
+						bounding.Part,
+						position
+					)
+					if ok and inside then
+						insideCount = insideCount + 1
+						break
+					end
+				end
+			end
+			for _, bounding in ipairs(boundingParts) do
+				for _, position in ipairs(distancePositions) do
+					local candidateDistance = horizontalDistanceToPart(
+						bounding.Frame,
+						bounding.Size,
+						position
+					)
+					if candidateDistance ~= nil then
+						distance = math.min(distance, candidateDistance)
+					end
+				end
+			end
+			if #boundingParts > 0
+				and finiteNumber(distance)
+				and (insideCount > bestInsideCount
+					or (insideCount == bestInsideCount and distance < bestDistance)) then
 				bestRoom = room
 				bestInsideCount = insideCount
 				bestDistance = distance

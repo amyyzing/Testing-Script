@@ -1,6 +1,10 @@
 return function(dependencies)
 	dependencies = type(dependencies) == "table" and dependencies or {}
 	local Events = assert(dependencies.Events, "SpeedPairs requires Events")
+	local Specification = type(dependencies.Specification) == "table"
+		and dependencies.Specification or {}
+	local PairSpec = type(Specification.SpeedPairs) == "table"
+		and Specification.SpeedPairs or {}
 	local SpeedPairs = {}
 	SpeedPairs.__index = SpeedPairs
 
@@ -57,15 +61,19 @@ function SpeedPairs.new(options)
 		Name = options.Name or "SpeedPairs",
 		Category = "Dormant",
 		Status = "Idle",
-		SettleDelay = tonumber(options.SettleDelay) or 0.095,
-		PhaseConfirmDelay = tonumber(options.PhaseConfirmDelay) or 0.04,
-		RequiredPairs = math.max(1, math.floor(tonumber(options.RequiredPairs) or 7)),
+		SettleDelay = tonumber(options.SettleDelay)
+			or tonumber(PairSpec.SettleDelay) or 0.04,
+		PhaseConfirmDelay = tonumber(options.PhaseConfirmDelay)
+			or tonumber(PairSpec.PhaseConfirmDelay) or 0.01,
+		RequiredPairs = math.max(1, math.floor(tonumber(options.RequiredPairs)
+			or tonumber(PairSpec.RequiredPairs) or 7)),
 		_context = nil,
 		_hunting = false,
 		_huntId = nil,
 		_lastInvisible = nil,
 		_token = 0,
 		_cancelPending = nil,
+		_pendingPhase = nil,
 		_samples = {},
 		_sampleSerial = 0,
 		_windowCount = 0,
@@ -92,6 +100,7 @@ function SpeedPairs:_cancelSettledRead()
 		self._cancelPending()
 	end
 	self._cancelPending = nil
+	self._pendingPhase = nil
 end
 
 function SpeedPairs:_beginHunt(event)
@@ -230,10 +239,32 @@ function SpeedPairs:OnEvent(event)
 		return
 	end
 	if kind ~= Events.Types.TransparencyChanged
-		or not self._hunting
+		and kind ~= Events.Types.WalkSpeedChanged then
+		return
+	end
+	if not self._hunting
 		or self._windowCount > 0
 		or event.Hunting == false
 		or (event.HuntId ~= nil and event.HuntId ~= self._huntId) then
+		return
+	end
+
+	-- A WalkSpeed signal belonging to the phase edge is stronger than a delayed
+	-- property read: it carries the new value and cannot be cancelled merely
+	-- because the blink changes again before the settling timer completes.
+	if kind == Events.Types.WalkSpeedChanged then
+		local pending = self._pendingPhase
+		if pending == nil or pending.Token ~= self._token then return end
+		if type(self._context.ReadTransparency) == "function" then
+			local qualified, liveInvisible = Events.IsBinaryTransparency(
+				self._context.ReadTransparency()
+			)
+			if not qualified or liveInvisible ~= pending.Invisible then return end
+		end
+		local speed = readSpeed(self._context, event, false)
+		if not speed or speed <= 0 then return end
+		self:_recordSample(pending.Invisible, event, pending.Token, speed)
+		self:_cancelSettledRead()
 		return
 	end
 
@@ -252,6 +283,10 @@ function SpeedPairs:OnEvent(event)
 	self:_cancelSettledRead()
 	self._lastInvisible = invisible
 	local token = self._token
+	self._pendingPhase = {
+		Invisible = invisible,
+		Token = token,
+	}
 	self._cancelPending = schedule(self._context, self.SettleDelay, function()
 		if not self._hunting or token ~= self._token
 			or invisible ~= self._lastInvisible then
@@ -263,6 +298,7 @@ function SpeedPairs:OnEvent(event)
 		-- WalkSpeed and turn one Phantom pair into a false Dullahan window.
 		self._cancelPending = schedule(self._context, self.PhaseConfirmDelay, function()
 			self._cancelPending = nil
+			self._pendingPhase = nil
 			if not self._hunting or token ~= self._token
 				or invisible ~= self._lastInvisible then return end
 			if type(self._context.ReadTransparency) == "function" then
@@ -310,6 +346,7 @@ function SpeedPairs:Snapshot()
 		Samples = copyArray(self._samples),
 		WindowCount = self._windowCount,
 		RequiredPairs = self.RequiredPairs,
+		SettleDelay = self.SettleDelay,
 		PhaseConfirmDelay = self.PhaseConfirmDelay,
 		PendingSettledRead = self._cancelPending ~= nil,
 	}

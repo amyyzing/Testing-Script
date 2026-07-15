@@ -147,6 +147,13 @@ function LobbySettings.ReadSelectedJobSite(player)
 	return selected, locationCount > 0
 end
 
+function LobbySettings.JobSiteMatches(selectedJobSite, stateReady, expectedJobSite)
+	return stateReady == true
+		and type(expectedJobSite) == "string"
+		and expectedJobSite ~= ""
+		and selectedJobSite == expectedJobSite
+end
+
 function LobbySettings.ReadSelectedDifficulty(player)
 	local playerGui = player and player:FindFirstChild("PlayerGui")
 	local label = findPath(playerGui, {
@@ -215,6 +222,19 @@ function LobbySettings.ReadChallengeStates(player)
 		end
 	end
 	return states
+end
+
+function LobbySettings.ChallengeStatesMatch(currentStates, desiredStates)
+	if type(currentStates) ~= "table" or type(desiredStates) ~= "table" then
+		return false
+	end
+	for index = 1, 3 do
+		if type(currentStates[index]) ~= "boolean"
+			or currentStates[index] ~= (desiredStates[index] == true) then
+			return false
+		end
+	end
+	return true
 end
 
 local function new(className, properties)
@@ -426,7 +446,27 @@ function LobbySettings.Create(options)
 			SortOrder = Enum.SortOrder.LayoutOrder,
 			Parent = list,
 		})
-		local dropdown = {Button = button, List = list, Open = false}
+		local dropdown = {
+			Button = button,
+			List = list,
+			Open = false,
+			OptionConnections = {},
+		}
+
+		function dropdown:ClearOptionConnections()
+			for _, connection in ipairs(self.OptionConnections) do
+				if connection.Connected then
+					connection:Disconnect()
+				end
+			end
+			table.clear(self.OptionConnections)
+		end
+
+		function dropdown:ConnectOption(signal, callback)
+			local connection = signal:Connect(callback)
+			table.insert(self.OptionConnections, connection)
+			return connection
+		end
 
 		function dropdown:SetOpen(open)
 			self.Open = open == true
@@ -435,6 +475,7 @@ function LobbySettings.Create(options)
 		end
 
 		function dropdown:Refresh()
+			self:ClearOptionConnections()
 			for _, child in ipairs(list:GetChildren()) do
 				if child ~= layout then
 					child:Destroy()
@@ -457,13 +498,17 @@ function LobbySettings.Create(options)
 					Parent = list,
 				})
 				new("UIPadding", {PaddingLeft = UDim.new(0, 10), Parent = option})
-				connect(option.MouseEnter, function()
+				self:ConnectOption(option.MouseEnter, function()
 					option.BackgroundColor3 = COLORS.ControlHover
 				end)
-				connect(option.MouseLeave, function()
+				self:ConnectOption(option.MouseLeave, function()
 					option.BackgroundColor3 = index % 2 == 0 and COLORS.Control or COLORS.Panel
 				end)
-				connect(option.Activated, function()
+				self:ConnectOption(option.Activated, function()
+					if busy then
+						dropdown:SetOpen(false)
+						return
+					end
 					config.OnSelected(item.Value)
 					dropdown:SetOpen(false)
 				end)
@@ -473,6 +518,11 @@ function LobbySettings.Create(options)
 			return #items
 		end
 
+		function dropdown:Destroy()
+			self:ClearOptionConnections()
+			self:SetOpen(false)
+		end
+
 		connect(button.MouseEnter, function()
 			button.BackgroundColor3 = COLORS.ControlHover
 		end)
@@ -480,6 +530,10 @@ function LobbySettings.Create(options)
 			button.BackgroundColor3 = COLORS.Control
 		end)
 		connect(button.Activated, function()
+			if busy then
+				dropdown:SetOpen(false)
+				return
+			end
 			local open = not dropdown.Open
 			closeDropdowns(dropdown)
 			if open then
@@ -659,6 +713,22 @@ function LobbySettings.Create(options)
 			persist()
 		end,
 	})
+	task.spawn(function()
+		local previousSignature
+		local deadline = os.clock() + 10
+		while not destroyed and os.clock() < deadline do
+			local names = LobbySettings.ReadEquipmentPresets(player)
+			local signature = table.concat(names, "\0")
+			if signature ~= previousSignature then
+				previousSignature = signature
+				equipmentDropdown:Refresh()
+			end
+			if #names > 0 then
+				break
+			end
+			task.wait(0.25)
+		end
+	end)
 
 	label("Daily Challenges", 466)
 	local challengeButtons = {}
@@ -764,6 +834,9 @@ function LobbySettings.Create(options)
 	function view:SetBusy(value, allowAutoChange)
 		busy = value == true
 		autoMutableWhileBusy = busy and allowAutoChange == true
+		if busy then
+			closeDropdowns()
+		end
 		startButton.Text = busy and "Starting..." or "Start Round"
 		startButton.BackgroundColor3 = busy and COLORS.Control or COLORS.Accent
 	end
@@ -782,6 +855,9 @@ function LobbySettings.Create(options)
 			return
 		end
 		destroyed = true
+		for _, dropdown in ipairs(dropdowns) do
+			dropdown:Destroy()
+		end
 		for _, connection in ipairs(connections) do
 			if connection.Connected then
 				connection:Disconnect()
@@ -794,9 +870,8 @@ function LobbySettings.Create(options)
 		if busy then
 			return
 		end
-		local equipmentPresets = LobbySettings.ReadEquipmentPresets(player)
-		if not settings.EquipmentPreset
-			or not table.find(equipmentPresets, settings.EquipmentPreset) then
+		if type(settings.EquipmentPreset) ~= "string"
+			or settings.EquipmentPreset == "" then
 			view:SetStatus("Select a saved equipment preset before starting.", true)
 			equipmentDropdown:Refresh()
 			return

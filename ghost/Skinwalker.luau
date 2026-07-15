@@ -4,59 +4,89 @@ local function createObserver(api)
 	local state = {
 		Destroyed = false,
 		FalseOrb = false,
-		Mimics = {},
+		MimicFacts = {},
+		OilEvidenceId = nil,
 		Humming = false,
 		ModelSex = nil,
 		HummingMaleResolved = false,
 	}
 	local observer = {}
-	local function positive(reason, confidence, event)
-		if api and type(api.Positive) == "function" then api:Positive(NAME, reason, confidence, event) end
+
+	local function mimicCount()
+		local count = 0
+		for _ in pairs(state.MimicFacts) do count = count + 1 end
+		return count
 	end
-	local function resolveHummingMaleModel(event)
-		if state.Humming and state.ModelSex == "Male" and not state.HummingMaleResolved then
-			state.HummingMaleResolved = true
-			positive(
-				"Spirit Box humming paired with a male VisualModel identifies a Skinwalker mimicking Siren",
-				99,
-				event
-			)
+
+	local function positiveMimic(key, reason, event)
+		if state.MimicFacts[key] then return end
+		state.MimicFacts[key] = true
+		local confidence = mimicCount() >= 2 and 99 or 60
+		if api and type(api.Positive) == "function" then
+			api:Positive(NAME, reason, confidence, event)
 		end
 	end
+
+	local function concludeOil(polarity, reason, confidence, event)
+		local entry
+		if state.OilEvidenceId and api and type(api.Supersede) == "function" then
+			entry = api:Supersede(NAME, state.OilEvidenceId, polarity, reason, confidence, event)
+		elseif api and type(api[polarity]) == "function" then
+			entry = api[polarity](api, NAME, reason, confidence, event)
+		end
+		state.OilEvidenceId = type(entry) == "table" and entry.Id or state.OilEvidenceId
+	end
+
 	function observer:OnEvent(event)
 		if state.Destroyed or type(event) ~= "table" then return false end
 		local kind = event.Type or event.Kind
-		if kind ~= "FalseOrb" and kind ~= "MimickedAbility"
-			and kind ~= "SpiritBoxResponse" and kind ~= "GhostModelSex" then return false end
+		if kind ~= "FalseOrb" and kind ~= "GhostFireEffect"
+			and kind ~= "RootSoundScan" and kind ~= "SpiritBoxResponse"
+			and kind ~= "GhostModelSex" then return false end
 		if api and type(api.Record) == "function" then api:Record(NAME, event) end
 		if event.Qualified ~= true then return true end
-		if kind == "FalseOrb" and (event.FourthEvidence == true or event.ImpossibleCombination == true or event.RealEvidenceDisabled == true) then
-			state.FalseOrb = true
-			positive(event.Reason or "Ghost Orb formed a fourth or impossible evidence combination", 100, event)
-		elseif kind == "MimickedAbility" and type(event.Ability) == "string" and event.Ability ~= "" then
-			state.Mimics[event.Ability] = true
-			positive(event.Reason or ("a qualified " .. event.Ability .. " ability may have been mimicked"), tonumber(event.Confidence) or 65, event)
-		elseif kind == "SpiritBoxResponse" and event.Response == "- HUMMING -" then
-			state.Humming = true
-			resolveHummingMaleModel(event)
+
+		if kind == "SpiritBoxResponse" then
+			if event.Response == "- HUMMING -" then state.Humming = true end
 		elseif kind == "GhostModelSex" then
 			state.ModelSex = event.Sex
-			resolveHummingMaleModel(event)
+		elseif kind == "FalseOrb" then
+			if event.FourthEvidence == true or event.ImpossibleCombination == true then
+				if not state.FalseOrb and api and type(api.Positive) == "function" then
+					api:Positive(NAME, event.Reason or "Ghost Orb formed a fourth or impossible evidence combination", 100, event)
+				end
+				state.FalseOrb = true
+			end
+		elseif kind == "GhostFireEffect" then
+			if event.Completed ~= true or event.DirectContact ~= true
+				or event.Burning ~= true or type(event.CaughtFire) ~= "boolean" then return true end
+			if event.CaughtFire then
+				concludeOil("RuleOut", "the ghost caught fire after directly passing through Burning Holy Oil", 99, event)
+			else
+				positiveMimic("NoOilFire", "the ghost passed through Burning Holy Oil without catching fire, matching a Skinwalker mimic", event)
+			end
+		elseif kind == "RootSoundScan" and event.HasOtherSound == false then
+			positiveMimic(
+				"NoRootSound",
+				"the qualified HumanoidRootPart scan contained no Sound besides Hunting, matching a Skinwalker mimic",
+				event
+			)
+		end
+		if state.Humming and state.ModelSex == "Male" and not state.HummingMaleResolved then
+			state.HummingMaleResolved = true
+			if api and type(api.Positive) == "function" then
+				api:Positive(NAME, "Spirit Box humming paired with a male VisualModel identifies a Skinwalker mimic", 99, event)
+			end
 		end
 		return true
 	end
+
 	function observer:Reset()
-		state.FalseOrb, state.Mimics, state.Humming, state.ModelSex, state.HummingMaleResolved = false, {}, false, nil, false
+		state.FalseOrb, state.MimicFacts, state.OilEvidenceId = false, {}, nil
+		state.Humming, state.ModelSex, state.HummingMaleResolved = false, nil, false
 	end
 	function observer:Snapshot()
-		return {
-			Destroyed = state.Destroyed,
-			FalseOrb = state.FalseOrb,
-			Mimics = state.Mimics,
-			Humming = state.Humming,
-			ModelSex = state.ModelSex,
-			HummingMaleResolved = state.HummingMaleResolved,
-		}
+		return {Destroyed = state.Destroyed, FalseOrb = state.FalseOrb, MimicFacts = state.MimicFacts}
 	end
 	function observer:Destroy() state.Destroyed = true end
 	return observer
@@ -66,8 +96,12 @@ return {
 	Name = NAME,
 	Evidence = {"FreezingTemperatures", "GhostWriting", "SpiritBox"},
 	FalseEvidence = {"GhostOrb"},
-	ObservationEvents = {"FalseOrb", "MimickedAbility", "SpiritBoxResponse", "GhostModelSex"},
+	ObservationEvents = {"FalseOrb", "GhostFireEffect", "RootSoundScan", "SpiritBoxResponse", "GhostModelSex"},
 	PersistentFindings = true,
-	Perks = { ["Pretty Sure"] = {"An Orb is the fourth/impossible evidence, or Siren humming is paired with a male VisualModel."}, Maybe = {"One mimickable ability keeps Skinwalker beside the original ghost."}, Idk = {"An Orb with fewer than three total observations is not enough; GhostFireEffect=false is not a Skinwalker negative."} },
+	Perks = {
+		["Pretty Sure"] = {"Orb creates a fourth/impossible evidence combination, multiple exclusive mimic facts agree, or humming pairs with a male VisualModel."},
+		Maybe = {"No fire after a qualified Holy Oil passage, or a qualified root scan with no Sound besides Hunting."},
+		Idk = {"Catching fire after Holy Oil is a 99% negative; Orb alone is not false evidence until its combination is impossible."},
+	},
 	CreateObserver = createObserver,
 }

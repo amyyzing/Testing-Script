@@ -30,6 +30,7 @@ function GuiLogic.new(dependencies)
 	self.PerkLogOpen = false
 	self.PerkLogDrawerTween = nil
 	self.PerkLogTabTween = nil
+	self.PerkLogSignatures = {}
 	self.GhostIdentificationLock = nil
 	return self
 end
@@ -201,25 +202,64 @@ function GuiLogic:SetDoRoundState(enabled, elapsedSeconds, phase)
 end
 
 function GuiLogic:SetPerkLogs(positiveEntries, negativeEntries)
-	local function render(list, placeholder, entries, color)
+	local function normalize(entries)
+		local rows = {}
+		for _, entry in ipairs(type(entries) == "table" and entries or {}) do
+			if type(entry) == "table" then
+				table.insert(rows, {
+					At = tonumber(entry.At) or 0,
+					Ghost = tostring(entry.Ghost or "Unknown"),
+					Confidence = math.floor((tonumber(entry.Confidence) or 0) + 0.5),
+					Reason = tostring(entry.Reason or "No reason recorded"),
+				})
+			end
+		end
+		table.sort(rows, function(left, right)
+			if left.At ~= right.At then
+				return left.At > right.At
+			end
+			if left.Ghost ~= right.Ghost then
+				return left.Ghost < right.Ghost
+			end
+			if left.Reason ~= right.Reason then
+				return left.Reason < right.Reason
+			end
+			return left.Confidence > right.Confidence
+		end)
+		return rows
+	end
+
+	local function signatureFor(rows)
+		local parts = {tostring(#rows), ";"}
+		local function appendField(value)
+			local text = tostring(value)
+			table.insert(parts, tostring(#text))
+			table.insert(parts, ":")
+			table.insert(parts, text)
+		end
+		for _, row in ipairs(rows) do
+			appendField(row.Ghost)
+			appendField(row.Confidence)
+			appendField(row.Reason)
+		end
+		return table.concat(parts)
+	end
+
+	local function render(cacheKey, list, placeholder, entries, color)
+		local rows = normalize(entries)
+		local signature = signatureFor(rows)
+		if self.PerkLogSignatures[cacheKey] == signature then
+			return
+		end
 		for _, child in ipairs(list:GetChildren()) do
 			if child:GetAttribute("PerkLogRow") then
 				child:Destroy()
 			end
 		end
-		table.sort(entries, function(left, right)
-			local leftAt = tonumber(left.At) or 0
-			local rightAt = tonumber(right.At) or 0
-			if leftAt == rightAt then
-				return tostring(left.Ghost) < tostring(right.Ghost)
-			end
-			return leftAt > rightAt
-		end)
-		placeholder.Visible = #entries == 0
-		for index, entry in ipairs(entries) do
-			local confidence = math.floor((tonumber(entry.Confidence) or 0) + 0.5)
+		placeholder.Visible = #rows == 0
+		for index, entry in ipairs(rows) do
 			local row = Instance.new("TextLabel")
-			row.Name = tostring(entry.Ghost or "Unknown")
+			row.Name = entry.Ghost
 			row.Parent = list
 			row.LayoutOrder = index + 1
 			row.Size = UDim2.new(1, -4, 0, 40)
@@ -227,11 +267,11 @@ function GuiLogic:SetPerkLogs(positiveEntries, negativeEntries)
 			row.BackgroundColor3 = self.View.Colors.cardHover
 			row.BorderSizePixel = 0
 			row.Font = Enum.Font.Gotham
-			row.Text = tostring(entry.Ghost or "Unknown")
+			row.Text = entry.Ghost
 				.. " ["
-				.. tostring(confidence)
+				.. tostring(entry.Confidence)
 				.. "%]\n"
-				.. tostring(entry.Reason or "No reason recorded")
+				.. entry.Reason
 			row.TextColor3 = color
 			row.TextSize = 11
 			row.TextWrapped = true
@@ -252,14 +292,17 @@ function GuiLogic:SetPerkLogs(positiveEntries, negativeEntries)
 			stroke.Thickness = 1
 			stroke.LineJoinMode = Enum.LineJoinMode.Miter
 		end
+		self.PerkLogSignatures[cacheKey] = signature
 	end
 	render(
+		"Positive",
 		self.View.PositivePerkLog,
 		self.View.PositivePerkPlaceholder,
 		positiveEntries or {},
 		self.View.Colors.green
 	)
 	render(
+		"Negative",
 		self.View.NegativePerkLog,
 		self.View.NegativePerkPlaceholder,
 		negativeEntries or {},

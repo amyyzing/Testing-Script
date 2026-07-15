@@ -6,7 +6,7 @@ local function createObserver(api)
 	function observer:OnEvent(event)
 		if state.Destroyed or type(event) ~= "table" or (event.Type or event.Kind) ~= "VortexPattern" then return false end
 		if api and type(api.Record) == "function" then api:Record(NAME, event) end
-		if event.Hunting ~= true or event.Qualified ~= true then return true end
+		if event.Qualified ~= true then return true end
 		local count = math.floor(tonumber(event.DistinctObjects) or 0)
 		local duration = tonumber(event.Duration) or 0
 		local intervals = math.floor(tonumber(event.Intervals) or 0)

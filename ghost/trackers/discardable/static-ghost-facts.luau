@@ -6,22 +6,25 @@ local FEMALE_MODELS = {Abaddon = true, Leech = true, Rattle = true, Watcher = tr
 local function replicatedValue(ghost, valueName)
 	if type(ghost.GetAttribute) == "function" then
 		local direct = ghost:GetAttribute(valueName)
-		if direct ~= nil then return direct end
+		if direct ~= nil then return true, direct end
 	end
 	if type(ghost.GetDescendants) == "function" then
 		for _, descendant in ipairs(ghost:GetDescendants()) do
 			if type(descendant.GetAttribute) == "function" then
 				local attribute = descendant:GetAttribute(valueName)
-				if attribute ~= nil then return attribute end
+				if attribute ~= nil then return true, attribute end
 			end
 			if descendant.Name == valueName
 				and type(descendant.IsA) == "function"
 				and descendant:IsA("ValueBase") then
-				return descendant.Value
+				-- Vex is keyed to the replicated member's existence, not its value.
+				-- ObjectValue.Value may legitimately be nil, so preserve existence
+				-- separately instead of collapsing nil into "member missing".
+				return true, descendant.Value
 			end
 		end
 	end
-	return nil
+	return false, nil
 end
 
 local function defaultFacts(ghost)
@@ -36,8 +39,10 @@ local function defaultFacts(ghost)
 		local root = ghost:FindFirstChild("HumanoidRootPart")
 		facts.HasHumanoidRootPart = root ~= nil
 		facts.RootSoundNames = {}
-		if root and type(root.GetChildren) == "function" then
-			for _, child in ipairs(root:GetChildren()) do
+		if root then
+			local sounds = type(root.GetDescendants) == "function" and root:GetDescendants()
+				or (type(root.GetChildren) == "function" and root:GetChildren() or {})
+			for _, child in ipairs(sounds) do
 				if child.ClassName == "Sound" or type(child.IsA) == "function" and child:IsA("Sound") then
 					table.insert(facts.RootSoundNames, child.Name)
 				end
@@ -45,8 +50,10 @@ local function defaultFacts(ghost)
 		end
 	end
 	local attributes = facts.Attributes or {}
-	local lidarValue = replicatedValue(ghost, "InvisibleOnLIDAR")
-	facts.LidarExists = lidarValue == true
+	local lidarExists, lidarValue = replicatedValue(ghost, "InvisibleOnLIDAR")
+	-- Vex is keyed to the replicated member's existence. A present false value is
+	-- still the Vex fact; only a genuinely missing member is a negative.
+	facts.LidarExists = lidarExists
 	facts.LidarValue = lidarValue
 	facts.VisualModel = attributes.VisualModel
 	facts.Sex = attributes.Sex or attributes.Gender

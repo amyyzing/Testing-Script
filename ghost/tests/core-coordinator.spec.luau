@@ -22,6 +22,7 @@ function tracker:Snapshot() return lifecycle end
 local observerResets = 0
 local profile = {
 	Name = "TestGhost",
+	ObservationEvents = {"Support", "Oppose"},
 	CreateObserver = function(api)
 		return {
 			OnEvent = function(_, event)

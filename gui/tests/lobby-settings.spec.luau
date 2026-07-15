@@ -149,8 +149,32 @@ expect(equipmentPresets[1] == "EvidenceRun" and equipmentPresets[2] == "green", 
 local selectedJobSite, jobSitesReady = LobbySettings.ReadSelectedJobSite(player)
 expect(jobSitesReady == true, "loaded job-site frames should report ready")
 expect(selectedJobSite == "School", "the Selected attribute should identify the current job site")
+expect(LobbySettings.JobSiteMatches(selectedJobSite, jobSitesReady, "School"),
+	"the exact live Job Site should pass the macro confirmation helper")
+expect(not LobbySettings.JobSiteMatches(selectedJobSite, jobSitesReady, "Prison"),
+	"a different requested Job Site must fail macro confirmation")
 local missingJobSite, missingJobSitesReady = LobbySettings.ReadSelectedJobSite(node("Player", "Player"))
 expect(missingJobSite == nil and missingJobSitesReady == false, "missing job-site GUI should not report ready")
+local noSelectionLocations = node("Locations", "Frame", {
+	node("School", "Frame"),
+	node("Prison", "Frame"),
+})
+local noSelectionPlayer = node("Player", "Player", {
+	node("PlayerGui", "PlayerGui", {
+		node("ComputerScreen", "ScreenGui", {
+			node("JobSite", "Frame", {
+				node("Content", "Frame", {
+					node("MapContainer", "Frame", {noSelectionLocations}),
+				}),
+			}),
+		}),
+	}),
+})
+local noSelectedJobSite, noSelectionReady = LobbySettings.ReadSelectedJobSite(noSelectionPlayer)
+expect(noSelectedJobSite == nil and noSelectionReady == true,
+	"loaded locations with no selection should be ready for ChangeJobSite, not mistaken for missing data")
+expect(not LobbySettings.JobSiteMatches(noSelectedJobSite, noSelectionReady, "School"),
+	"an empty live selection must not confirm ChangeJobSite")
 
 local selectedDifficulty, difficultyReady = LobbySettings.ReadSelectedDifficulty(player)
 expect(difficultyReady == true and selectedDifficulty == "Custom", "difficulty label should identify the live difficulty")
@@ -175,5 +199,11 @@ local challengeStates = LobbySettings.ReadChallengeStates(player)
 expect(challengeStates[1] == true, "Challenge1 ON label should read true")
 expect(challengeStates[2] == false, "Challenge2 OFF label should read false")
 expect(challengeStates[3] == true, "Challenge3 ON label should read true")
+expect(LobbySettings.ChallengeStatesMatch(challengeStates, {true, false, true}),
+	"all three exact requested challenge states should confirm")
+expect(not LobbySettings.ChallengeStatesMatch(challengeStates, {true, true, true}),
+	"one mismatched challenge must block AttemptStart")
+expect(not LobbySettings.ChallengeStatesMatch({true, false}, {true, false, false}),
+	"an unreported challenge state must not be treated as OFF")
 
 print("lobby-settings.spec: maps, presets, live lobby state, and challenge-state reading passed")

@@ -13,7 +13,7 @@ local emitted = {}
 local tracker = RoomTemperature.new()
 tracker:Start({
 	Clock = function() return now end,
-	ReadCurrentRoom = function() return currentRoom end,
+	ReadPhysicalCurrentRoom = function() return currentRoom end,
 	ReadRoundStarted = function() return roundStarted end,
 	ReadRoomTemperature = function(roomName) return temperatures[roomName] end,
 	Emit = function(event) table.insert(emitted, event) end,
@@ -60,7 +60,7 @@ settleResidence(openedAt)
 expect(#emitted == 1, "the first post-opening seven-change window should emit after five seconds")
 local openedShadow = emitted[1].Payload
 expect(openedShadow.AverageDecrease < 0.06 and openedShadow.Outcome == "Shadow",
-	"a post-opening seven-change average below 0.06 must identify Shadow")
+	"a post-opening seven-change average below 0.08 must identify Shadow")
 
 reset("Library", 12)
 cool(0.059999, 3)
@@ -94,6 +94,19 @@ expect(ignored.DecreaseCount == 7 and ignored.IgnoredIncreaseCount == 1,
 expect(ignored.IgnoredUnchangedCount >= 2 and ignored.AverageDecrease < 0.06,
 	"unchanged readings must be ignored without diluting the average")
 
+reset("Library", 25)
+cool(0.3, 3)
+cool(0.04, 7)
+expect(#emitted == 0, "a full rolling set must still wait for five seconds in one room")
+settleResidence(0)
+local rolling = emitted[1].Payload
+expect(rolling.DecreaseCount == 7 and #rolling.CoolingChanges == 7,
+	"Shadow must emit exactly seven cooling changes even when more were observed")
+expect(math.abs(rolling.AverageDecrease - 0.04) <= 1e-9
+	and math.abs(rolling.MinimumDecrease - 0.04) <= 1e-9
+	and math.abs(rolling.MaximumDecrease - 0.04) <= 1e-9,
+	"Shadow must use the seven cooling changes closest to the five-second decision point")
+
 reset("Library", 10)
 cool(0.059999, 3)
 currentRoom = "Hallway"
@@ -111,8 +124,9 @@ reset("Library", 20)
 cool(0.07, 7)
 settleResidence(0)
 local middle = emitted[1].Payload
-expect(middle.AverageDecrease > 0.06 and middle.AverageDecrease < 0.08,
-	"the full 0.06-to-0.08 average must remain inconclusive")
+expect(middle.AverageDecrease > 0.06 and middle.AverageDecrease < 0.08
+	and middle.Outcome == "Shadow",
+	"the full sub-0.08 average must identify Shadow without an obsolete deadband")
 
 reset("Library", 30)
 cool(0.080001, 7)
@@ -138,22 +152,37 @@ for _ = 1, 7 do
 end
 settleResidence(0)
 local delayed = emitted[1].Payload
-expect(math.abs(delayed.AverageDecrease - 0.08) <= 1e-9
-	and delayed.Outcome == "Inconclusive",
-	"late samples must normalize their cooling change to the configured 0.25-second interval")
+expect(math.abs(delayed.AverageDecrease - 0.16) <= 1e-9
+	and delayed.Outcome == "RuleOut",
+	"sample timing must not change the exact temperature drops used by the average")
 
 reset("Library", 60)
 cool(0.08, 7)
 settleResidence(0)
 expect(math.abs(emitted[1].Payload.AverageDecrease - 0.08) <= 1e-9
-	and emitted[1].Payload.Outcome == "Inconclusive",
-	"exactly 0.08 must remain inconclusive")
+	and emitted[1].Payload.Outcome == "RuleOut",
+	"exactly 0.08 must rule Shadow out")
 
 reset("Library", 70)
 cool(0.06, 7)
 settleResidence(0)
 expect(math.abs(emitted[1].Payload.AverageDecrease - 0.06) <= 1e-9
-	and emitted[1].Payload.Outcome == "Inconclusive",
-	"exactly 0.06 must remain inconclusive")
+	and emitted[1].Payload.Outcome == "Shadow",
+	"exactly 0.06 remains below the canonical 0.08 split and must identify Shadow")
+
+tracker:Reset()
+table.clear(emitted)
+now = 0
+roundStarted = true
+tracker:Start({
+	Clock = function() return now end,
+	ReadCurrentRoom = function() return "Library" end,
+	ReadRoundStarted = function() return roundStarted end,
+	ReadRoomTemperature = function() return 10 end,
+	Emit = function(event) table.insert(emitted, event) end,
+})
+tick(0)
+expect(tracker:Snapshot().RoomName == nil and #emitted == 0,
+	"a stale CurrentRoom attribute must not substitute for physical room occupancy")
 
 print("core-room-temperature.spec: seven-change round-gated Shadow averages passed")
