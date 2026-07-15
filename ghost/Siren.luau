@@ -55,7 +55,7 @@ local function createObserver(api)
 			state.ModelSex = event.Sex
 			if event.Sex == "Female" then emit(api, "Positive", event.Reason or "the ghost uses a female VisualModel", 25, event)
 			elseif event.Sex == "Male" and not state.Humming then
-				emit(api, "Negative", event.Reason or "the ghost uses a male VisualModel", 25, event)
+				emit(api, "Negative", event.Reason or "the ghost uses a male VisualModel", 99, event)
 			end
 			resolveHummingModelConflict(event)
 		end
@@ -83,6 +83,6 @@ return {
 	Name = NAME,
 	Evidence = {"EMFLevel5", "SpiritBox", "Wither"},
 	ObservationEvents = {"SpiritBoxResponse", "LineOfSightPlayerSpeed", "GhostModelSex"},
-	Perks = { ["Pretty Sure"] = {"Spirit Box humming or a qualified line-of-sight player slowdown."}, Maybe = {"A female VisualModel is weak support."}, Idk = {"Humming is mimickable; a male VisualModel rules Siren out in favor of Skinwalker."} },
+	Perks = { ["Pretty Sure"] = {"Spirit Box humming or a qualified line-of-sight player slowdown."}, Maybe = {"A female VisualModel is weak support."}, Idk = {"A male VisualModel is a 99% negative for Siren.", "Humming is mimickable; humming with a male VisualModel identifies Skinwalker."} },
 	CreateObserver = createObserver,
 }

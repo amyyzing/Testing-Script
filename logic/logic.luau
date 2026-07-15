@@ -1461,12 +1461,46 @@ perkTrackerState.syncJournal = function(forcedGhost)
 			-- selection as incomplete so completion retries after the row exists.
 			return false
 		end
+		local candidates = perkTrackerState.getRemainingCandidates(false)
+		if #candidates == 0 then
+			candidates = perkTrackerState.getRemainingCandidates(true)
+		end
+		local candidateSet = {}
+		for _, ghostName in ipairs(candidates) do
+			candidateSet[ghostName] = true
+		end
+		-- The completion lock owns the final row even if a soft rule-out raced the
+		-- exact selection. Every other row still follows normal Journal cross-outs.
+		candidateSet[forcedGhost] = true
 		perkTrackerState.journalMutationBusy = true
-		local mutationCall, selectedApplied = pcall(
-			perkTrackerState.confirmJournalGhostSelection,
-			frame,
-			forcedGhost
-		)
+		local mutationCall, selectedApplied = pcall(function()
+			for _, profile in ipairs(GHOST_PROFILES) do
+				local ghostName = profile.Name
+				if ghostName ~= forcedGhost then
+					local applicable = candidateSet[ghostName] == true
+					local desiredState = false
+					if applicable then
+						desiredState = nil
+					end
+					local otherFrame = ghostTypes:FindFirstChild(ghostName)
+					if otherFrame and otherFrame:IsA("Frame") then
+						perkTrackerState.applyJournalRowState(
+							otherFrame,
+							desiredState
+						)
+					end
+					perkTrackerState.journalDesiredApplicability[ghostName] =
+						applicable
+				end
+			end
+			perkTrackerState.journalDesiredApplicability[forcedGhost] = true
+			-- Select last because crossing another row can clear the current
+			-- highlight in the game's Journal controller.
+			return perkTrackerState.confirmJournalGhostSelection(
+				frame,
+				forcedGhost
+			)
+		end)
 		finishJournalMutation()
 		if mutationCall and selectedApplied then
 			perkTrackerState.lastJournalSelectedGhost = forcedGhost

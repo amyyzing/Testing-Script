@@ -126,6 +126,23 @@ exercise("Keres", {Type = "GhostModelSex", Qualified = true, Sex = "Female"}, "P
 exercise("Siren", {Type = "GhostModelSex", Qualified = true, Sex = "Female"}, "Positive")
 
 do
+	for _, ghostName in ipairs({"Keres", "Siren"}) do
+		local api = newApi()
+		local observer = byName[ghostName].CreateObserver(api)
+		observer:OnEvent({
+			Type = "GhostModelSex",
+			Qualified = true,
+			Sex = "Male",
+		})
+		local negative = last(api, "Negative")
+		expect(
+			negative ~= nil and negative.Confidence == 99,
+			ghostName .. " must receive a 99% negative from a male VisualModel"
+		)
+	end
+end
+
+do
 	local skinwalkerApi = newApi()
 	local skinwalker = byName.Skinwalker.CreateObserver(skinwalkerApi)
 	skinwalker:OnEvent({Type = "GhostModelSex", Qualified = true, Sex = "Male"})

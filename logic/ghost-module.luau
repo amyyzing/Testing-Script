@@ -260,6 +260,7 @@ local Profiles = {
 		note("It appears to prioritize the party member with the least energy.", SOURCE.Keres, "wiki-documented", false, "Trait"),
 	}, {
 		note("A feminine VisualModel only narrows the ghost to Keres or Siren.", SOURCE.Keres, "wiki-documented", false, "Model"),
+		note("A male VisualModel is a 99% negative for Keres.", SOURCE.Keres, "user-observed", false, "Model"),
 	})),
 	profile("Leviathan", {"GhostOrb", "GhostWriting", "Handprints"}, "wiki-stub", perks({
 		note("Both nearby-equipment flicker and actual light-switch shutoff outside hunts were observed.", SOURCE.Leviathan, "wiki-stub", true, "Ability", "The current wiki recommends observing both because Skinwalker may copy one."),
@@ -319,6 +320,7 @@ local Profiles = {
 		note("The Spirit Box returns - HUMMING -, which can also be a mimicking Skinwalker.", SOURCE.Siren, "wiki-documented", true, "Ability"),
 	}, {
 		note("A feminine model only narrows the ghost to Siren or Keres.", SOURCE.Siren, "wiki-documented", false, "Model"),
+		note("A male VisualModel is a 99% negative for Siren.", SOURCE.Siren, "user-observed", false, "Model"),
 		note("Spirit Box humming paired with a male VisualModel rules Siren out and identifies a mimicking Skinwalker.", SOURCE.Siren, "wiki-documented", false, "Caveat"),
 	})),
 	profile("Skinwalker", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "wiki-disputed", perks({

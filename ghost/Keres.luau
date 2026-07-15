@@ -65,7 +65,7 @@ local function createObserver(api)
 			if event.Sex == "Female" then
 				emit(api, "Positive", event.Reason or "the ghost uses a female VisualModel", 25, event)
 			elseif event.Sex == "Male" then
-				emit(api, "Negative", event.Reason or "the ghost uses a male VisualModel", 25, event)
+				emit(api, "Negative", event.Reason or "the ghost uses a male VisualModel", 99, event)
 			end
 		elseif event.Unique == true and event.Hunting == true and event.Qualified == true then
 			state.LastKillDirection = event.Direction
@@ -91,6 +91,6 @@ return {
 	Name = NAME,
 	Evidence = {"Handprints", "SpiritBox", "Wither"},
 	ObservationEvents = {"KillSpeedChange", "GhostModelSex", "SpeedProbeResult"},
-	Perks = { ["Pretty Sure"] = {"Stable speed decreases after a unique player kill."}, Maybe = {"A female VisualModel is weak support."}, Idk = {"Do not probe kill speed when the hunt ended; Revenant owns that result."} },
+	Perks = { ["Pretty Sure"] = {"Stable speed decreases after a unique player kill."}, Maybe = {"A female VisualModel is weak support."}, Idk = {"A male VisualModel is a 99% negative for Keres.", "Do not probe kill speed when the hunt ended; Revenant owns that result."} },
 	CreateObserver = createObserver,
 }
