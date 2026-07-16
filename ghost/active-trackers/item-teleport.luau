@@ -6,11 +6,13 @@ return function(dependencies)
 	local interval = tonumber(dependencies.SampleInterval) or 0.4
 	local maximumElapsed = tonumber(dependencies.MaximumElapsed) or 0.65
 	local minimumDistance = tonumber(dependencies.MinimumDisplacement) or 25
+	local minimumDistanceSquared = minimumDistance * minimumDistance
 	local customRoomAt = dependencies.RoomAt
 	local Tracker = {
 		Kind = "active",
 		Running = true,
 		Previous = setmetatable({}, {__mode = "k"}),
+		Objects = setmetatable({}, {__mode = "k"}),
 		BoundContainers = setmetatable({}, {__mode = "k"}),
 		Connections = {},
 		Accumulator = 0,
@@ -20,15 +22,14 @@ return function(dependencies)
 	local function position(object)
 		if object:IsA("BasePart") then return object.Position end
 		if not object:IsA("Model") then return nil end
-		local ok, pivot = pcall(object.GetPivot, object)
-		return ok and pivot.Position or nil
+		return object:GetPivot().Position
 	end
 
-	local function distance(first, second)
+	local function distanceSquared(first, second)
 		local dx = first.X - second.X
 		local dy = first.Y - second.Y
 		local dz = first.Z - second.Z
-		return math.sqrt(dx * dx + dy * dy + dz * dz)
+		return dx * dx + dy * dy + dz * dz
 	end
 
 	local roomParts = setmetatable({}, {__mode = "k"})
@@ -84,57 +85,70 @@ return function(dependencies)
 	function Tracker:BindContainer(container)
 		if self.BoundContainers[container] then return end
 		self.BoundContainers[container] = true
-		for _, signal in ipairs({container.ChildAdded, container.ChildRemoved}) do
-			if signal then
-				table.insert(self.Connections, signal:Connect(function(object)
-					self.Previous[object] = nil
-				end))
-			end
-		end
+		for _, object in ipairs(container:GetChildren()) do self.Objects[object] = true end
+		table.insert(self.Connections, container.ChildAdded:Connect(function(object)
+			self.Objects[object] = true
+			self.Previous[object] = nil
+		end))
+		table.insert(self.Connections, container.ChildRemoved:Connect(function(object)
+			self.Objects[object] = nil
+			self.Previous[object] = nil
+		end))
 	end
 
 	function Tracker:Sample()
 		local now = clock()
-		local seen = setmetatable({}, {__mode = "k"})
-		for _, containerName in ipairs({"Items", "Interactables"}) do
-			local container = World:FindFirstChild(containerName)
-			if container then self:BindContainer(container) end
-			for _, object in ipairs(container and container:GetChildren() or {}) do
-				local current = position(object)
-				if current then
-					seen[object] = true
-					local previous = self.Previous[object]
-					local currentRoom = roomAt(current, previous and previous.Room)
-					if previous then
-						local elapsed = now - previous.Time
-						local displacement = distance(current, previous.Position)
-						if elapsed > 0 and elapsed <= maximumElapsed
-							and displacement >= minimumDistance
-							and previous.Room and currentRoom
-							and previous.Room ~= currentRoom then
-							self.NextId += 1
-							Traffic("ItemTeleported", {
-								EventId = "item-teleport-" .. self.NextId,
-								Item = object,
-								From = previous.Position,
-								To = current,
-								Distance = displacement,
-								Elapsed = elapsed,
-								FromRoom = previous.Room,
-								ToRoom = currentRoom,
-								Time = now,
-							}):SendTo("SmokeHolder")
-						end
+		for object in pairs(self.Objects) do
+			local current = position(object)
+			if not current then
+				self.Previous[object] = nil
+			else
+				local previous = self.Previous[object]
+				if previous then
+					local sampleElapsed = now - previous.Time
+					local displacementSquared = distanceSquared(current, previous.Position)
+					if displacementSquared <= 0.000001 then
+						previous.Position, previous.Time = current, now
+						continue
 					end
+					local currentRoom = roomAt(current, previous.Room)
+					if sampleElapsed > 0 and sampleElapsed <= maximumElapsed
+						and displacementSquared >= minimumDistanceSquared
+						and previous.Room and currentRoom
+						and previous.Room ~= currentRoom then
+						self.NextId += 1
+						Traffic("ItemTeleported", {
+							EventId = "item-teleport-" .. self.NextId,
+							Item = object,
+							From = previous.Position,
+							To = current,
+							Distance = math.sqrt(displacementSquared),
+							Elapsed = sampleElapsed,
+							FromRoom = previous.Room,
+							ToRoom = currentRoom,
+							Time = now,
+						}):SendTo("SmokeHolder")
+					end
+					previous.Position, previous.Room, previous.Time = current, currentRoom, now
+				else
+					local currentRoom = roomAt(current)
 					self.Previous[object] = {Position = current, Room = currentRoom, Time = now}
 				end
 			end
 		end
-		for object in pairs(self.Previous) do
-			if not seen[object] then self.Previous[object] = nil end
-		end
 	end
 
+	for _, containerName in ipairs({"Items", "Interactables"}) do
+		local container = World:FindFirstChild(containerName)
+		if container then Tracker:BindContainer(container) end
+	end
+	if World.ChildAdded then
+		table.insert(Tracker.Connections, World.ChildAdded:Connect(function(container)
+			if container.Name == "Items" or container.Name == "Interactables" then
+				Tracker:BindContainer(container)
+			end
+		end))
+	end
 	Tracker:Sample()
 	Tracker.Connection = RunService.Heartbeat:Connect(function(deltaTime)
 		if not Tracker.Running then return end
@@ -151,6 +165,7 @@ return function(dependencies)
 		for _, connection in ipairs(self.Connections) do connection:Disconnect() end
 		table.clear(self.Connections)
 		table.clear(self.Previous)
+		table.clear(self.Objects)
 	end
 
 	return Tracker

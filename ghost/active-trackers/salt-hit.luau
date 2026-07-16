@@ -10,6 +10,7 @@ return function(dependencies)
 		Connections = {},
 		Bound = setmetatable({}, {__mode = "k"}),
 		Watched = setmetatable({}, {__mode = "k"}),
+		PendingSpatial = setmetatable({}, {__mode = "k"}),
 		Touched = setmetatable({}, {__mode = "k"}),
 		Disturbed = setmetatable({}, {__mode = "k"}),
 		NextContactId = 0,
@@ -51,6 +52,7 @@ return function(dependencies)
 		local salt = saltObject(part)
 		if self.Touched[salt] then return end
 		self.Touched[salt] = true
+		self.PendingSpatial[salt] = nil
 		local payload = payloadFor(self, salt)
 		Traffic("SaltHit", payload):SendTo("SaltStateAfterHit", "SpeedTracker")
 	end
@@ -59,6 +61,7 @@ return function(dependencies)
 		local salt = saltObject(object)
 		if self.Disturbed[salt] then return end
 		self.Disturbed[salt] = true
+		self.PendingSpatial[salt] = nil
 		local payload = payloadFor(self, salt)
 		Traffic("SaltHit", payload):SendTo("SpeedTracker")
 		Traffic("SaltStateAfterHit", {
@@ -71,9 +74,12 @@ return function(dependencies)
 	end
 
 	function Tracker:Watch(object)
-		if not object:IsA("Model") or self.Watched[object] then return end
+		if self.Watched[object] then return end
 		self.Watched[object] = true
 		table.insert(self.Connections, object:GetPropertyChangedSignal("Name"):Connect(function()
+			if self.Running and isDisturbed(object) then self:ReportDisturbed(object) end
+		end))
+		table.insert(self.Connections, object:GetAttributeChangedSignal("Disturbed"):Connect(function()
 			if self.Running and isDisturbed(object) then self:ReportDisturbed(object) end
 		end))
 	end
@@ -86,6 +92,8 @@ return function(dependencies)
 			return
 		end
 		self.Bound[part] = true
+		local salt = saltObject(part)
+		self.PendingSpatial[salt] = self.PendingSpatial[salt] or part
 		table.insert(self.Connections, part.Touched:Connect(function(hit)
 			if self.Running and hit and hit:IsDescendantOf(Ghost) then
 				self:Report(part)
@@ -93,27 +101,46 @@ return function(dependencies)
 		end))
 	end
 
-	local overlap = (dependencies.NewOverlapParams or OverlapParams.new)()
-	overlap.FilterType = dependencies.IncludeFilterType or Enum.RaycastFilterType.Include
-	overlap.FilterDescendantsInstances = {Ghost}
-	overlap.MaxParts = 1
+	local queryGhost = dependencies.QueryGhostOverlap
+	if not queryGhost then
+		local overlap = (dependencies.NewOverlapParams or OverlapParams.new)()
+		overlap.FilterType = dependencies.IncludeFilterType or Enum.RaycastFilterType.Include
+		overlap.FilterDescendantsInstances = {Ghost}
+		overlap.MaxParts = 1
+		queryGhost = function(salt, part)
+			local cframe, size = part.CFrame, part.Size
+			if salt:IsA("Model") then cframe, size = salt:GetBoundingBox() end
+			return #World:GetPartBoundsInBox(
+				cframe,
+				size + Vector3.new(0.6, 1, 0.6),
+				overlap
+			) > 0
+		end
+	end
+
+	local function replacementPart(salt)
+		if salt:IsA("BasePart") then return salt end
+		for _, object in ipairs(salt:GetDescendants()) do
+			if object:IsA("BasePart") then return object end
+		end
+		return nil
+	end
+
 	local elapsed = 0
 	table.insert(Tracker.Connections, RunService.Heartbeat:Connect(function(deltaTime)
 		if not Tracker.Running then return end
 		elapsed += deltaTime
 		if elapsed < 0.1 then return end
 		elapsed = 0
-		for part in pairs(Tracker.Bound) do
-			local salt = saltObject(part)
-			if part.Parent and hasDisturbed(salt) then
-				Tracker:ReportDisturbed(salt)
-			elseif part.Parent and not Tracker.Touched[salt] then
-				local touching = World:GetPartBoundsInBox(
-					part.CFrame,
-					part.Size + Vector3.new(0.6, 1, 0.6),
-					overlap
-				)
-				if #touching > 0 then Tracker:Report(part) end
+		for salt, part in pairs(Tracker.PendingSpatial) do
+			if not salt.Parent or Tracker.Touched[salt] or Tracker.Disturbed[salt] then
+				Tracker.PendingSpatial[salt] = nil
+			else
+				if not part.Parent then
+					part = replacementPart(salt)
+					Tracker.PendingSpatial[salt] = part
+				end
+				if part and queryGhost(salt, part) then Tracker:Report(part) end
 			end
 		end
 	end))

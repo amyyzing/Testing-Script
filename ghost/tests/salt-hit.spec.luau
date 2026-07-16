@@ -81,6 +81,7 @@ local Verdict = createVerdict({Traffic = Traffic})
 local aswang = Aswang.new({Traffic = Traffic})
 local speedTracker = createSpeedTracker({Traffic = Traffic, Ghost = Ghost})
 local received = {}
+local spatialQueries = 0
 Traffic:Receive("SpeedTracker", function(name, payload)
 	table.insert(received, {name = name, payload = payload})
 end)
@@ -93,7 +94,22 @@ local tracker = createSaltHit({
 	RunService = RunService,
 	NewOverlapParams = function() return {} end,
 	IncludeFilterType = "Include",
+	QueryGhostOverlap = function()
+		spatialQueries += 1
+		return false
+	end,
 })
+
+local cleanSalt = instance("SaltPile2", "Model", SaltFolder)
+local cleanPartA = instance("SaltA", "BasePart", cleanSalt)
+local cleanPartB = instance("SaltB", "BasePart", cleanSalt)
+cleanSalt.Descendants = {cleanPartA, cleanPartB}
+SaltFolder.DescendantAdded:Fire(cleanSalt)
+SaltFolder.DescendantAdded:Fire(cleanPartA)
+SaltFolder.DescendantAdded:Fire(cleanPartB)
+RunService.Heartbeat:Fire(0.1)
+expect(spatialQueries == 2,
+	"spatial contact fallback should query once per salt pile, not once per part")
 
 Humanoid.WalkSpeed = 16.5
 speedChanged:Fire()

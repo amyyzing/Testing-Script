@@ -1,17 +1,25 @@
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "kill-count requires Traffic")
 	local Players = dependencies.Players or game:GetService("Players")
-	local Tracker = {Kind = "active", Running = true, Alive = {}, Dead = {}, Connections = {}}
+	local Tracker = {
+		Kind = "active", Running = true,
+		Alive = {}, Dead = {},
+		AliveSet = {}, DeadSet = {},
+		Connections = {},
+	}
 
-	local function remove(list, value)
+	local function remove(list, set, value)
+		if not set[value] then return end
+		set[value] = nil
 		local index = table.find(list, value)
 		if index then table.remove(list, index) end
 	end
 
 	local function killed(player, emit)
 		local id = player.UserId
-		remove(Tracker.Alive, id)
-		if not table.find(Tracker.Dead, id) then
+		remove(Tracker.Alive, Tracker.AliveSet, id)
+		if not Tracker.DeadSet[id] then
+			Tracker.DeadSet[id] = true
 			table.insert(Tracker.Dead, id)
 			if emit then
 				Traffic("PlayerKilled", {userId = id, Time = os.clock()}):SendTo("SpeedTracker")
@@ -22,7 +30,8 @@ return function(dependencies)
 	local function update(player, emit)
 		if player:GetAttribute("Dead") == true then
 			killed(player, emit)
-		elseif not table.find(Tracker.Alive, player.UserId) then
+		elseif not Tracker.AliveSet[player.UserId] then
+			Tracker.AliveSet[player.UserId] = true
 			table.insert(Tracker.Alive, player.UserId)
 		end
 	end
@@ -60,7 +69,7 @@ return function(dependencies)
 	end
 
 	local function untrack(player)
-		remove(Tracker.Alive, player.UserId)
+		remove(Tracker.Alive, Tracker.AliveSet, player.UserId)
 		for _, connection in ipairs(Tracker.Connections[player] or {}) do connection:Disconnect() end
 		Tracker.Connections[player] = nil
 	end
@@ -78,6 +87,8 @@ return function(dependencies)
 			for _, connection in ipairs(connections) do connection:Disconnect() end
 		end
 		table.clear(self.Connections)
+		table.clear(self.AliveSet)
+		table.clear(self.DeadSet)
 	end
 
 	return Tracker

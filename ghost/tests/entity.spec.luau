@@ -29,8 +29,12 @@ local heartbeat, descendantAdded = signal(), signal()
 local item = {Current = {X = 0, Y = 0, Z = 0}}
 function item:IsA(class) return class == "Model" end
 function item:GetPivot() return {Position = self.Current} end
+local itemScans = 0
 local items = {ChildAdded = signal(), ChildRemoved = signal()}
-function items:GetChildren() return {item} end
+function items:GetChildren()
+	itemScans += 1
+	return {item}
+end
 local World = {DescendantAdded = descendantAdded, Smoke = nil}
 function World:FindFirstChild(name)
 	if name == "Items" then return items end
@@ -115,6 +119,8 @@ now = 5
 heartbeat:Fire(0.4)
 expect(#teleports == 3,
 	"a large movement that remains inside the same room must not count as a teleport")
+expect(itemScans == 1,
+	"the item container should be indexed once instead of rescanned on every sample")
 
 Verdict:Reset()
 Traffic("Support", {Ghost = "Entity", Confidence = 99}):SendTo("Verdict")

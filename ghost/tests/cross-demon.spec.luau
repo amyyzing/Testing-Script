@@ -21,6 +21,7 @@ local function signal()
 		Fire = function(_, ...)
 			for _, callback in ipairs(callbacks) do callback(...) end
 		end,
+		Count = function() return #callbacks end,
 	}
 end
 
@@ -74,10 +75,12 @@ local function run(animated)
 	})
 
 	now = 4
+	expect(heartbeat:Count() == 0, "Cross animation should have no idle Heartbeat callback")
 	heartbeat:Fire()
 	expect(Verdict.Confidence[3] == nil and not table.find(Verdict.RuledOut, 3),
 		"an idle Cross must not create a Demon verdict")
 	cross:SetDisabled(true)
+	expect(heartbeat:Count() == 1, "a burning Cross should start one temporary Heartbeat callback")
 	if animated then
 		part.CFrame = cframe(0, 0.5, 0, math.rad(60))
 		part.Position = part.CFrame.Position
@@ -86,6 +89,7 @@ local function run(animated)
 		now = 8.1
 	end
 	heartbeat:Fire()
+	expect(heartbeat:Count() == 0, "the Heartbeat callback should stop after the probe finishes")
 
 	burn:Destroy()
 	animation:Destroy()

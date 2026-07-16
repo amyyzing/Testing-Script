@@ -6,7 +6,15 @@ return function(dependencies)
 		Kind = "discardable",
 		Running = true,
 		Active = setmetatable({}, {__mode = "k"}),
+		ActiveCount = 0,
 	}
+	local step
+
+	local function stopHeartbeat()
+		if not Tracker.Connection then return end
+		Tracker.Connection:Disconnect()
+		Tracker.Connection = nil
+	end
 
 	local function findPart(cross)
 		local part = cross and cross:FindFirstChild("Cross", true)
@@ -14,11 +22,20 @@ return function(dependencies)
 	end
 
 	local function finish(cross, animated)
+		if not Tracker.Active[cross] then return end
 		Tracker.Active[cross] = nil
+		Tracker.ActiveCount -= 1
 		Traffic("CrossAnimation", {
 			Cross = cross,
 			Animated = animated,
 		}):SendTo("Demon")
+		if Tracker.ActiveCount == 0 then stopHeartbeat() end
+	end
+
+	local function startHeartbeat()
+		if not Tracker.Connection then
+			Tracker.Connection = RunService.Heartbeat:Connect(step)
+		end
 	end
 
 	Tracker.DisconnectTraffic = Traffic:Receive("CrossAnimation", function(signal, payload)
@@ -32,11 +49,13 @@ return function(dependencies)
 			LastCFrame = part.CFrame,
 			Angle = 0,
 			Rise = 0,
-			Horizontal = 0,
+			HorizontalSquared = 0,
 		}
+		Tracker.ActiveCount += 1
+		startHeartbeat()
 	end)
 
-	Tracker.Connection = RunService.Heartbeat:Connect(function()
+	step = function()
 		if not Tracker.Running then return end
 		local now = clock()
 		for cross, observation in pairs(Tracker.Active) do
@@ -53,11 +72,14 @@ return function(dependencies)
 				local dy = current.Position.Y - observation.StartPosition.Y
 				local dz = current.Position.Z - observation.StartPosition.Z
 				observation.Rise = math.max(observation.Rise, dy)
-				observation.Horizontal = math.max(observation.Horizontal, math.sqrt(dx * dx + dz * dz))
+				observation.HorizontalSquared = math.max(
+					observation.HorizontalSquared,
+					dx * dx + dz * dz
+				)
 				observation.LastCFrame = current
 				local animated = observation.Rise >= 0.45
 					and observation.Angle >= math.rad(45)
-					and observation.Horizontal <= 5
+					and observation.HorizontalSquared <= 25
 				if animated then
 					finish(cross, true)
 				elseif now - observation.Started >= 4 then
@@ -65,13 +87,13 @@ return function(dependencies)
 				end
 			end
 		end
-	end)
+	end
 
 	function Tracker:Destroy()
 		if not self.Running then return end
 		self.Running = false
 		self.DisconnectTraffic()
-		self.Connection:Disconnect()
+		stopHeartbeat()
 		table.clear(self.Active)
 	end
 
