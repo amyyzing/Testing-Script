@@ -78,7 +78,7 @@ return function(dependencies)
 	local humanoid = Ghost:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		Tracker.SpeedConnection = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
-			if Tracker.hunting and (Tracker.afterSalt or Tracker.afterKill) then
+			if Tracker.hunting then
 				sample()
 				sendSalt(false)
 				sendKill(false)

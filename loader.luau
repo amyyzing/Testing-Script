@@ -161,7 +161,13 @@ local function startTrackers()
 	if not saltStarted and saltPiles then
 		saltStarted = true
 		remember(createSaltState({Traffic = session.Traffic, SaltFolder = saltPiles}))
-		remember(createSaltHit({Traffic = session.Traffic, Ghost = session.Ghost, SaltFolder = saltPiles}))
+		remember(createSaltHit({
+			Traffic = session.Traffic,
+			Ghost = session.Ghost,
+			SaltFolder = saltPiles,
+			Workspace = Services.Workspace,
+			RunService = Services.RunService,
+		}))
 		disconnectWaiting()
 	end
 end

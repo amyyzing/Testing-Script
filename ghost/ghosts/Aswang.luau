@@ -9,15 +9,29 @@ function Aswang.new(dependencies)
 		data = type(data) == "table" and data or {}
 		if signal == "SaltSpeed" and data.saltState == "disturbed" then
 			local before = data.beforeSalt and data.beforeSalt[#data.beforeSalt]
-			local dropped = false
-			for _, point in ipairs(data.afterSalt or {}) do
-				if before and point.s < before.s - epsilon then dropped = true break end
+			if not before then return end
+			local after = data.afterSalt or {}
+			local dropIndex
+			for index, point in ipairs(after) do
+				if point.s < before.s - epsilon then
+					dropIndex = index
+					break
+				end
 			end
-			if dropped or data.completed then
-				Traffic(dropped and "Support" or "RuleOut", {
+			local recovered = false
+			if dropIndex then
+				for index = dropIndex + 1, #after do
+					if after[index].s >= before.s - epsilon then
+						recovered = true
+						break
+					end
+				end
+			end
+			if recovered or data.completed and not dropIndex then
+				Traffic(recovered and "Support" or "RuleOut", {
 					Ghost = "Aswang",
 					Confidence = 99,
-					Reason = dropped and "hunting salt contact reduced speed"
+					Reason = recovered and "hunting disturbed-salt contact temporarily reduced speed, then recovered"
 						or "hunting salt contact caused no speed reduction",
 				}):SendTo("Verdict")
 			end

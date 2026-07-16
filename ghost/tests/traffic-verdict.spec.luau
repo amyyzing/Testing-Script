@@ -13,9 +13,20 @@ local aswang = Aswang.new({Traffic = Traffic})
 Traffic("SaltSpeed", {
 	saltState = "disturbed",
 	beforeSalt = {{s = 11, v = true}, {s = 11, v = false}},
-	afterSalt = {{s = 11, v = false}, {s = 9, v = true}},
+	afterSalt = {{s = 11, v = false}, {s = 9, v = true}, {s = 11, v = false}},
 }):SendTo("Aswang")
-expect(Verdict:Snapshot().Selected == 1, "hunting salt slowdown should select Aswang")
+expect(Verdict:Snapshot().Selected == 1, "hunting salt slowdown and recovery should select Aswang")
+
+Verdict:Reset()
+Traffic("SaltSpeed", {
+	saltState = "disturbed",
+	beforeSalt = {{s = 11, v = true}},
+	afterSalt = {{s = 11, v = true}, {s = 9, v = false}},
+	completed = true,
+}):SendTo("Aswang")
+local noRecovery = Verdict:Snapshot()
+expect(noRecovery.Selected == nil and #noRecovery["ruled-out"] == 0,
+	"a slowdown without observed recovery should remain unresolved")
 
 Verdict:Reset()
 Traffic("KillSpeed", {
