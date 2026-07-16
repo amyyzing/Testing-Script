@@ -37,6 +37,7 @@ local controller = createPatternLog({
 	View = view,
 	PositiveColor = "green",
 	NegativeColor = "red",
+	EventColor = "blue",
 	CanvasSize = function(x, y) return {X = x, Y = y} end,
 	Defer = function(callback) callback() end,
 })
@@ -50,8 +51,17 @@ expect(entries[1].TextColor3 == "green" and view.Empty.Visible == false,
 Traffic("RuleOut", payload):SendTo("Verdict")
 expect(controller.Count == 2 and entries[2].TextColor3 == "red",
 	"a negative result should be a distinct log")
+Traffic("SaltHit", {ContactId = 7, Hunting = true}):SendTo("SpeedTracker")
+expect(controller.Count == 3 and entries[3].TextColor3 == "blue"
+	and string.find(entries[3].Text, "SALT HIT", 1, true),
+	"salt contacts should create tracker rows")
+Traffic("PlayerKilled", {userId = 42}):SendTo("SpeedTracker")
+expect(controller.Count == 4 and string.find(entries[4].Text, "PLAYER KILLED", 1, true),
+	"unique player kills should create tracker rows")
+Traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
+expect(controller.Count == 4, "unrequested tracker events should not create rows")
 
 controller:Destroy()
-expect(entries[1].Destroyed and entries[2].Destroyed, "destroy should remove every generated log")
+for _, entry in ipairs(entries) do expect(entry.Destroyed, "destroy should remove every generated log") end
 
 print("ghost-pattern-log.spec: unique positive and negative observations passed")
