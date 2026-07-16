@@ -6,9 +6,9 @@ function Leviathan.new(dependencies)
 
 	Processor.Disconnect = Traffic:Receive("Leviathan", function(signal, payload)
 		if Processor.Resolved or signal ~= "FlickerArrayResult"
-			or type(payload) ~= "table" or (tonumber(payload.Count) or 0) < 2
+			or type(payload) ~= "table" or (tonumber(payload.Count) or 0) < 5
 			or (tonumber(payload.Duration) or math.huge)
-				>= (tonumber(payload.Window) or 1) then return end
+				>= (tonumber(payload.Window) or 2) then return end
 		Processor.Resolved = true
 		Traffic("Support", {
 			Ghost = "Leviathan",

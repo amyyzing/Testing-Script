@@ -1,7 +1,7 @@
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "flicker-array requires Traffic")
-	local window = tonumber(dependencies.Window) or 1
-	local requiredSwitches = tonumber(dependencies.RequiredSwitches) or 2
+	local window = tonumber(dependencies.Window) or 2
+	local requiredSwitches = tonumber(dependencies.RequiredSwitches) or 5
 	local Tracker = {
 		Kind = "filter",
 		Running = true,
