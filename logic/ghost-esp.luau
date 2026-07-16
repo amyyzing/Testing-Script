@@ -1,17 +1,12 @@
 return function(dependencies)
 	local ghost = assert(dependencies.Ghost, "ghost-esp requires Ghost")
 	local runService = assert(dependencies.RunService, "ghost-esp requires RunService")
-	local world = dependencies.Workspace or workspace
 	local guiParent = assert(dependencies.GuiParent, "ghost-esp requires GuiParent")
 	local button = dependencies.Button
 	local red = dependencies.Red or Color3.fromRGB(210, 66, 82)
 	local disabledColor = button and button.BackgroundColor3
 	local enabledColor = dependencies.EnabledColor or disabledColor
-	local controller = {
-		Enabled = false,
-		ProxyParts = {},
-		ProxyDirty = false,
-	}
+	local controller = {Enabled = false, Adornments = {}}
 
 	local function new(className, properties)
 		local object = Instance.new(className)
@@ -25,84 +20,36 @@ return function(dependencies)
 		button.BackgroundColor3 = controller.Enabled and enabledColor or disabledColor
 	end
 
-	local function disconnectVisualConnections()
-		if controller.AddedConnection then controller.AddedConnection:Disconnect() end
-		if controller.RemovingConnection then controller.RemovingConnection:Disconnect() end
-		controller.AddedConnection, controller.RemovingConnection = nil, nil
+	local function addAdornment(part)
+		if controller.Adornments[part] or not part:IsA("BasePart") then return end
+		controller.Adornments[part] = new("BoxHandleAdornment", {
+			Name = "UntitledGhostPartAdornment",
+			Parent = guiParent,
+			Adornee = part,
+			AlwaysOnTop = true,
+			Color3 = red,
+			Size = part.Size,
+			Transparency = 0.65,
+			ZIndex = 10,
+		})
+	end
+
+	local function removeAdornment(part)
+		local adornment = controller.Adornments[part]
+		if adornment then adornment:Destroy() end
+		controller.Adornments[part] = nil
 	end
 
 	local function destroyVisuals()
-		disconnectVisualConnections()
 		if controller.TestVisual then controller.TestVisual:Destroy() end
-		for _, object in ipairs({
-			controller.Billboard,
-			controller.DirectHighlight,
-			controller.ProxyHighlight,
-			controller.ProxyModel,
-		}) do
-			if object then object:Destroy() end
-		end
+		if controller.AddedConnection then controller.AddedConnection:Disconnect() end
+		if controller.RemovingConnection then controller.RemovingConnection:Disconnect() end
+		if controller.Billboard then controller.Billboard:Destroy() end
+		if controller.DirectHighlight then controller.DirectHighlight:Destroy() end
+		for part in pairs(controller.Adornments) do removeAdornment(part) end
 		controller.TestVisual = nil
-		controller.Billboard = nil
-		controller.DirectHighlight = nil
-		controller.ProxyHighlight = nil
-		controller.ProxyModel = nil
-		controller.ProxyParts = {}
-		controller.ProxyDirty = false
-	end
-
-	local function configureProxyPart(part)
-		part.Anchored = true
-		part.CanCollide = false
-		part.CanTouch = false
-		part.CanQuery = false
-		part.CastShadow = false
-		part.Massless = true
-		part.Locked = true
-		part.Transparency = 0.99
-		part.LocalTransparencyModifier = 0
-		part.Reflectance = 0
-		part.AssemblyLinearVelocity = Vector3.zero
-		part.AssemblyAngularVelocity = Vector3.zero
-	end
-
-	local function cloneProxyPart(source)
-		local archivable = source.Archivable
-		source.Archivable = true
-		local ok, proxy = pcall(function() return source:Clone() end)
-		source.Archivable = archivable
-		if not ok or not proxy or not proxy:IsA("BasePart") then
-			proxy = Instance.new("Part")
-			if source:IsA("Part") then proxy.Shape = source.Shape end
-		end
-		for _, descendant in ipairs(proxy:GetDescendants()) do
-			if not descendant:IsA("DataModelMesh") then descendant:Destroy() end
-		end
-		proxy.Name = source.Name
-		proxy.Color = red
-		proxy.Size = source.Size
-		proxy.CFrame = source.CFrame
-		configureProxyPart(proxy)
-		return proxy
-	end
-
-	local function updateProxy()
-		if not controller.ProxyModel then return false end
-		controller.ProxyModel.Parent = world.CurrentCamera or world
-		controller.ProxyHighlight.Enabled = controller.Enabled
-		for source, proxy in pairs(controller.ProxyParts) do
-			if not source:IsDescendantOf(ghost) or not proxy.Parent then
-				controller.ProxyDirty = true
-				return false
-			end
-			if proxy.Size ~= source.Size then proxy.Size = source.Size end
-			proxy.CFrame = source.CFrame
-			if not proxy.Anchored or proxy.CanCollide or proxy.CanTouch or proxy.CanQuery
-				or proxy.CastShadow or proxy.Transparency ~= 0.99 then
-				configureProxyPart(proxy)
-			end
-		end
-		return true
+		controller.AddedConnection, controller.RemovingConnection = nil, nil
+		controller.Billboard, controller.DirectHighlight = nil, nil
 	end
 
 	local function buildVisuals()
@@ -146,44 +93,10 @@ return function(dependencies)
 			OutlineTransparency = 0,
 			Enabled = true,
 		})
-
-		controller.ProxyModel = new("Model", {
-			Name = "UntitledGhostHighlightProxy",
-			Parent = nil,
-			Archivable = false,
-		})
-		controller.ProxyModel:SetAttribute("VisualOnlyProxy", true)
-		for _, descendant in ipairs(ghost:GetDescendants()) do
-			if descendant:IsA("BasePart") then
-				local proxy = cloneProxyPart(descendant)
-				proxy.Parent = controller.ProxyModel
-				controller.ProxyParts[descendant] = proxy
-			end
-		end
-		if not next(controller.ProxyParts) then
-			destroyVisuals()
-			return false
-		end
-		controller.AddedConnection = ghost.DescendantAdded:Connect(function(descendant)
-			if descendant:IsA("BasePart") then controller.ProxyDirty = true end
-		end)
-		controller.RemovingConnection = ghost.DescendantRemoving:Connect(function(descendant)
-			if descendant:IsA("BasePart") then controller.ProxyDirty = true end
-		end)
-		controller.ProxyHighlight = new("Highlight", {
-			Name = "UntitledGhostHighlight",
-			Parent = controller.ProxyModel,
-			Adornee = controller.ProxyModel,
-			DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
-			FillColor = red,
-			FillTransparency = 0.72,
-			OutlineColor = Color3.new(1, 1, 1),
-			OutlineTransparency = 0,
-			Enabled = true,
-		})
-		controller.ProxyDirty = false
-		updateProxy()
-		return true
+		for _, descendant in ipairs(ghost:GetDescendants()) do addAdornment(descendant) end
+		controller.AddedConnection = ghost.DescendantAdded:Connect(addAdornment)
+		controller.RemovingConnection = ghost.DescendantRemoving:Connect(removeAdornment)
+		return next(controller.Adornments) ~= nil
 	end
 
 	function controller:SetEnabled(enabled)
@@ -207,14 +120,12 @@ return function(dependencies)
 
 	controller.RenderConnection = runService.RenderStepped:Connect(function()
 		if not controller.Enabled or dependencies.VisualFactory then return end
-		local ghostPart = ghost.PrimaryPart or ghost:FindFirstChildWhichIsA("BasePart", true)
-		if not ghostPart then
-			destroyVisuals()
-		elseif controller.ProxyDirty or not controller.Billboard
-			or controller.Billboard.Adornee ~= ghostPart then
-			buildVisuals()
-		else
-			updateProxy()
+		for part, adornment in pairs(controller.Adornments) do
+			if not part:IsDescendantOf(ghost) then
+				removeAdornment(part)
+			elseif adornment.Size ~= part.Size then
+				adornment.Size = part.Size
+			end
 		end
 	end)
 	if button then
