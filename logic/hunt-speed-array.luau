@@ -54,7 +54,7 @@ return function(dependencies)
 				"--- %s @ P%02d ---",
 				tostring(payload.Label or "MARKER"),
 				index
-			), accentColor, index * 2 + 1)
+			), accentColor, index * 2 - 1)
 		elseif signal == "HuntSpeedEnded" then
 			view.Title.Text = string.format(
 				"  HUNT SPEED ARRAY (ENDED — %d)",
