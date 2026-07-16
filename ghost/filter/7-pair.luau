@@ -1,9 +1,7 @@
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "7-pair requires Traffic")
 	local Ghost = assert(dependencies.Ghost, "7-pair requires Ghost")
-	local RunService = assert(dependencies.RunService, "7-pair requires RunService")
 	local Humanoid = dependencies.Humanoid or Ghost:FindFirstChildOfClass("Humanoid")
-	local interval = tonumber(dependencies.Interval) or 0.1
 	local Tracker = {
 		Kind = "filter",
 		Running = true,
@@ -11,7 +9,7 @@ return function(dependencies)
 		Resolved = false,
 		Pairs = {},
 		Pending = nil,
-		Accumulator = 0,
+		LastVisibility = nil,
 		SampleCount = 0,
 	}
 
@@ -27,7 +25,7 @@ return function(dependencies)
 		Tracker.Resolved = false
 		Tracker.Pairs = {}
 		Tracker.Pending = nil
-		Tracker.Accumulator = 0
+		Tracker.LastVisibility = nil
 		Tracker.SampleCount = 0
 	end
 
@@ -68,6 +66,8 @@ return function(dependencies)
 		else
 			return
 		end
+		if Tracker.LastVisibility == visible then return end
+		Tracker.LastVisibility = visible
 		Tracker.SampleCount += 1
 		local point = {s = speed, v = visible}
 		Traffic("HuntSpeedSample", {
@@ -101,13 +101,11 @@ return function(dependencies)
 
 	local function startSampling()
 		if Tracker.Connection then return end
-		Tracker.Connection = RunService.Heartbeat:Connect(function(deltaTime)
+		Tracker.Connection = Ghost:GetAttributeChangedSignal("Transparency"):Connect(function()
 			if not Tracker.Active or Tracker.Resolved then return end
-			Tracker.Accumulator += math.max(0, tonumber(deltaTime) or 0)
-			if Tracker.Accumulator < interval then return end
-			Tracker.Accumulator %= interval
 			sample()
 		end)
+		sample()
 	end
 
 	Tracker.Disconnect = Traffic:Receive("SevenPair", function(signal, payload)

@@ -25,11 +25,15 @@ local function signal()
 end
 
 local function run(rawSpeed, visibilityMode, mapSize)
-	local heartbeat = signal()
+	local visibility = signal()
 	local Humanoid = {WalkSpeed = rawSpeed}
 	local Ghost = {Transparency = 0}
 	function Ghost:GetAttribute(name)
 		return name == "Transparency" and self.Transparency or nil
+	end
+	function Ghost:GetAttributeChangedSignal(name)
+		expect(name == "Transparency", "seven-pair should observe Workspace.Ghost Transparency")
+		return visibility
 	end
 	function Ghost:FindFirstChild() return nil end
 	function Ghost:FindFirstChildOfClass() return Humanoid end
@@ -46,8 +50,6 @@ local function run(rawSpeed, visibilityMode, mapSize)
 		Traffic = Traffic,
 		Ghost = Ghost,
 		Humanoid = Humanoid,
-		RunService = {Heartbeat = heartbeat},
-		Interval = 0.1,
 	})
 	local filtered
 	Traffic:Receive("Oni", function(signalName, payload)
@@ -57,7 +59,7 @@ local function run(rawSpeed, visibilityMode, mapSize)
 	local function sample(speed, visible)
 		Humanoid.WalkSpeed = speed
 		Ghost.Transparency = visible and 0 or 1
-		heartbeat:Fire(0.1)
+		visibility:Fire()
 	end
 	Traffic("HuntingState", {Hunting = true}):SendTo("SevenPair")
 	for index = 1, 7 do
@@ -88,17 +90,13 @@ local normalSnapshot, normalFilter = run(22, nil, "Small")
 expect(table.find(normalSnapshot["ruled-out"], 11) and normalFilter.BaseSpeed == 11,
 	"seven identical normal 11-base hunting pairs should rule out Oni")
 
-local stateSnapshot, stateFilter = run(13.5 * 1.05, 4)
-expect(stateSnapshot.Selected[1] == 11 and stateFilter.Identical == true,
-	"individual pairs may repeat a state when both states occur across all seven pairs")
-
 local visibleSnapshot, visibleFilter = run(13.5 * 1.05, "all-visible")
 expect(#visibleSnapshot.Selected == 0 and #visibleSnapshot["ruled-out"] == 0
-	and visibleFilter.Identical == false and visibleFilter.HasBothStates == false,
-	"a seven-pair set with only one visibility state should leave Oni unknown")
+	and visibleFilter == nil,
+	"one unchanged visibility state should never finish an Oni comparison")
 
 local invalidSnapshot, invalidFilter = run(13.5 * 1.05 * 1.75)
 expect(table.find(invalidSnapshot["ruled-out"], 11) and invalidFilter.BaseSpeed == nil,
 	"the unsupported 175 percent custom speed must not pass the speed filter")
 
-print("oni.spec: seven-pair map and custom-speed filtering passed")
+print("oni.spec: visibility-driven map and custom-speed filtering passed")
