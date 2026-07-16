@@ -59,6 +59,7 @@ local teleportTracker = createItemTeleport({
 	Workspace = World,
 	RunService = {Heartbeat = heartbeat},
 	Clock = function() return now end,
+	RoomAt = function(point) return point.X < 10 and "RoomA" or "RoomB" end,
 })
 
 item.Current = {X = 25, Y = 0, Z = 0}
@@ -66,6 +67,8 @@ now = 0.4
 heartbeat:Fire(0.4)
 expect(#teleports == 1 and teleports[1].Distance == 25,
 	"a qualifying position jump should emit regardless of calculated speed")
+expect(teleports[1].FromRoom == "RoomA" and teleports[1].ToRoom == "RoomB",
+	"a teleport must cross between two known room bounding boxes")
 local firstDelay = table.remove(delayed, 1)
 expect(firstDelay.Seconds == 3, "Entity should wait three seconds for its Smoke Holder")
 firstDelay.Callback()
@@ -74,7 +77,7 @@ expect(Verdict.NegativeConfidence[6] == 50 and not table.find(Verdict.RuledOut, 
 expect(#Verdict.Selected == 0, "a soft negative alone must not select Entity")
 
 Verdict:Reset()
-item.Current = {X = 80, Y = 0, Z = 0}
+item.Current = {X = 0, Y = 0, Z = 0}
 now = 0.8
 heartbeat:Fire(0.4)
 local smoke = {Name = "Smoke Holder"}
@@ -98,7 +101,7 @@ World.Smoke = nil
 now = 4.2
 heartbeat:Fire(0.4)
 Verdict:Reset()
-item.Current = {X = 160, Y = 0, Z = 0}
+item.Current = {X = 0, Y = 0, Z = 0}
 now = 4.6
 heartbeat:Fire(0.4)
 expect(#teleports == 3 and delayed[1], "a later teleport should begin another smoke probe")
@@ -106,6 +109,12 @@ World.Smoke = {Name = "SmokeHolder"}
 table.remove(delayed, 1).Callback()
 expect(Verdict.Confidence[6] == 99 and not Verdict.NegativeConfidence[6],
 	"the final recursive scan should find a Smoke Holder even without DescendantAdded")
+
+item.Current = {X = -30, Y = 0, Z = 0}
+now = 5
+heartbeat:Fire(0.4)
+expect(#teleports == 3,
+	"a large movement that remains inside the same room must not count as a teleport")
 
 Verdict:Reset()
 Traffic("Support", {Ghost = "Entity", Confidence = 99}):SendTo("Verdict")

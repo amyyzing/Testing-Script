@@ -6,6 +6,7 @@ return function(dependencies)
 	local interval = tonumber(dependencies.SampleInterval) or 0.4
 	local maximumElapsed = tonumber(dependencies.MaximumElapsed) or 0.65
 	local minimumDistance = tonumber(dependencies.MinimumDisplacement) or 25
+	local customRoomAt = dependencies.RoomAt
 	local Tracker = {
 		Kind = "active",
 		Running = true,
@@ -28,6 +29,56 @@ return function(dependencies)
 		local dy = first.Y - second.Y
 		local dz = first.Z - second.Z
 		return math.sqrt(dx * dx + dy * dy + dz * dz)
+	end
+
+	local roomParts = setmetatable({}, {__mode = "k"})
+	local function boundingParts(room)
+		if roomParts[room] then return roomParts[room] end
+		local parts = {}
+		for _, object in ipairs(room:GetDescendants()) do
+			if object:IsA("BasePart") then
+				local parent = object
+				while parent and parent ~= room and parent.Name ~= "BoundingBox" do
+					parent = parent.Parent
+				end
+				if object.Name == "BoundingBox" or parent and parent.Name == "BoundingBox" then
+					table.insert(parts, object)
+				end
+			end
+		end
+		if #parts > 0 then roomParts[room] = parts end
+		return parts
+	end
+
+	local cachedRooms
+	local function roomsFolder()
+		if cachedRooms and cachedRooms.Parent then return cachedRooms end
+		local map = World:FindFirstChild("Map")
+		cachedRooms = map and map:FindFirstChild("Rooms")
+		return cachedRooms
+	end
+
+	local function insideRoom(room, point)
+		for _, part in ipairs(boundingParts(room)) do
+			local localPoint = part.CFrame:PointToObjectSpace(point)
+			local half = part.Size * 0.5
+			if math.abs(localPoint.X) <= half.X
+				and math.abs(localPoint.Y) <= half.Y
+				and math.abs(localPoint.Z) <= half.Z then return true end
+		end
+		return false
+	end
+
+	local function roomAt(point, previousRoom)
+		if customRoomAt then return customRoomAt(point) end
+		local rooms = roomsFolder()
+		if not rooms then return nil end
+		local previous = previousRoom and rooms:FindFirstChild(previousRoom)
+		if previous and insideRoom(previous, point) then return previous.Name end
+		for _, room in ipairs(rooms:GetChildren()) do
+			if room ~= previous and insideRoom(room, point) then return room.Name end
+		end
+		return nil
 	end
 
 	function Tracker:BindContainer(container)
@@ -53,11 +104,14 @@ return function(dependencies)
 				if current then
 					seen[object] = true
 					local previous = self.Previous[object]
+					local currentRoom = roomAt(current, previous and previous.Room)
 					if previous then
 						local elapsed = now - previous.Time
 						local displacement = distance(current, previous.Position)
 						if elapsed > 0 and elapsed <= maximumElapsed
-							and displacement >= minimumDistance then
+							and displacement >= minimumDistance
+							and previous.Room and currentRoom
+							and previous.Room ~= currentRoom then
 							self.NextId += 1
 							Traffic("ItemTeleported", {
 								EventId = "item-teleport-" .. self.NextId,
@@ -66,11 +120,13 @@ return function(dependencies)
 								To = current,
 								Distance = displacement,
 								Elapsed = elapsed,
+								FromRoom = previous.Room,
+								ToRoom = currentRoom,
 								Time = now,
 							}):SendTo("SmokeHolder")
 						end
 					end
-					self.Previous[object] = {Position = current, Time = now}
+					self.Previous[object] = {Position = current, Room = currentRoom, Time = now}
 				end
 			end
 		end
