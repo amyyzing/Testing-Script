@@ -1,0 +1,62 @@
+local createTraffic = require("../traffic")
+local createVerdict = require("../verdict")
+local createSevenPair = require("../filter/7-pair")
+local Dullahan = require("../ghosts/Dullahan")
+
+local function expect(condition, message)
+	if not condition then error(message, 2) end
+end
+
+local Traffic = createTraffic()
+local Verdict = createVerdict({Traffic = Traffic})
+local dullahan = Dullahan.new({Traffic = Traffic})
+local filter = createSevenPair({Traffic = Traffic})
+local lastResult
+Traffic:Receive("Dullahan", function(signal, payload)
+	if signal == "SevenPairResult" then lastResult = payload end
+end)
+
+local function sendPair(visible, invisible)
+	Traffic("HuntSpeedSample", {
+		Point = {s = visible, v = true},
+		Source = "visibility",
+	}):SendTo("SevenPair")
+	Traffic("HuntSpeedSample", {
+		Point = {s = invisible, v = false},
+		Source = "visibility",
+	}):SendTo("SevenPair")
+end
+
+Traffic("HuntingState", {Hunting = true}):SendTo("SevenPair")
+for _ = 1, 7 do sendPair(22, 27) end
+expect(lastResult and #lastResult.Pairs == 7 and lastResult.DistinctPairs == 1,
+	"the repeated Phantom-style pair should remain one distinct pair")
+expect(Verdict:Snapshot()["ruled-out"][1] == 4,
+	"seven repeated visible/invisible pairs should rule out Dullahan")
+
+Traffic("HuntingState", {Hunting = false}):SendTo("SevenPair")
+Traffic("HuntingState", {Hunting = true}):SendTo("SevenPair")
+Verdict:Reset()
+lastResult = nil
+sendPair(22, 22.3)
+sendPair(24, 22) -- a decreasing pair still counts in the comparison
+sendPair(22.9, 23.1)
+for _ = 1, 4 do sendPair(22, 22.3) end
+expect(lastResult and lastResult.DistinctPairs == 3,
+	"all seven pairs, including decreases, should be compared")
+expect(Verdict:Snapshot().Selected[1] == 4,
+	"three distinct pairs should support Dullahan")
+
+Traffic("HuntingState", {Hunting = false}):SendTo("SevenPair")
+Traffic("HuntingState", {Hunting = true}):SendTo("SevenPair")
+Verdict:Reset()
+lastResult = nil
+for _ = 1, 6 do sendPair(22, 22.3) end
+Traffic("HuntingState", {Hunting = false}):SendTo("SevenPair")
+expect(lastResult == nil and #Verdict:Snapshot().Selected == 0
+	and #Verdict:Snapshot()["ruled-out"] == 0,
+	"an incomplete set of seven pairs should not produce a verdict")
+
+filter:Destroy()
+dullahan:Destroy()
+print("dullahan.spec: seven-pair Dullahan comparison passed")
