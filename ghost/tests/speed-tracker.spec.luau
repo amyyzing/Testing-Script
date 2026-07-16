@@ -39,13 +39,16 @@ function Ghost:FindFirstChild() return nil end
 
 local Traffic = createTraffic()
 local now = 0
-local kills, keresKills, salts = {}, {}, {}
+local kills, keresKills, salts, huntLog = {}, {}, {}, {}
 Traffic:Receive("Aswang", function(signalName, payload)
 	if signalName == "KillSpeed" then table.insert(kills, payload) end
 	if signalName == "SaltSpeed" then table.insert(salts, payload) end
 end)
 Traffic:Receive("Keres", function(signalName, payload)
 	if signalName == "KillSpeed" then table.insert(keresKills, payload) end
+end)
+Traffic:Receive("SpeedArrayLog", function(signalName, payload)
+	table.insert(huntLog, {signal = signalName, payload = payload})
 end)
 local tracker = createSpeedTracker({
 	Traffic = Traffic,
@@ -60,7 +63,12 @@ expect(#kills == 0, "non-hunting deaths must not start kill sections")
 
 Ghost.Hunting = true
 Traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
+expect(huntLog[1].signal == "HuntSpeedReset" and huntLog[2].signal == "HuntSpeedSample",
+	"hunt start should reset the displayed array and publish its first sample")
 Traffic("SaltHit", {ContactId = 1}):SendTo("SpeedTracker")
+expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
+	and huntLog[#huntLog].payload.Label == "SALT SPLIT",
+	"salt contact should mark the exact split in the displayed array")
 Humanoid.WalkSpeed = 9
 now = 0.1
 speedChanged:Fire()
@@ -75,6 +83,7 @@ expect(#salts == 2 and salts[2].afterSalt[#salts[2].afterSalt].s == 11,
 Humanoid.WalkSpeed = 12
 now = 1
 speedChanged:Fire()
+local preSignalSpeedIndex = #tracker.samples
 now = 1.1
 Model.Transparency = 1
 visibility:Fire()
@@ -83,6 +92,9 @@ Model.Transparency = 0
 visibility:Fire()
 now = 1.3
 Traffic("PlayerKilled", {userId = 1, Time = now}):SendTo("SpeedTracker")
+expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
+	and huntLog[#huntLog].payload.Index == preSignalSpeedIndex,
+	"timing should correlate a delayed PlayerKilled signal past intervening visibility samples")
 now = 1.4
 Model.Transparency = 1
 visibility:Fire()
@@ -106,10 +118,23 @@ now = 3
 Traffic("PlayerKilled", {userId = 2, Time = now}):SendTo("SpeedTracker")
 expect(kills[#kills].completed == true,
 	"a second unique kill should finalize the previous kill section")
+expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
+	and huntLog[#huntLog].payload.Label == "KILL",
+	"player deaths should mark their exact split in the displayed speed array")
+
+local completedLogCount = #huntLog
+Traffic("SevenPairResult", {Samples = 14}):SendTo("SpeedTracker")
+Humanoid.WalkSpeed = 13
+now = 3.1
+speedChanged:Fire()
+expect(#huntLog == completedLogCount,
+	"seven-pair completion should stop further displayed speed samples")
 
 Ghost.Hunting = false
 Traffic("HuntingState", {Hunting = false}):SendTo("SpeedTracker")
 expect(kills[#kills].completed == true, "hunt end should finalize the active kill section")
+expect(huntLog[#huntLog].signal == "HuntSpeedEnded",
+	"hunt end should retain and mark the completed displayed array")
 
 Ghost.Hunting, Humanoid.WalkSpeed = true, 11
 Traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")

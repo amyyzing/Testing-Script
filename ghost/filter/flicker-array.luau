@@ -26,16 +26,6 @@ return function(dependencies)
 		if last and last.v == payload.Current then return end
 		table.insert(switches, {t = now, v = payload.Current})
 		local duration = switches[#switches].t - switches[1].t
-		Traffic("FlickerArrayUpdate", {
-			Item = payload.Item,
-			ItemName = payload.ItemName,
-			Switches = table.clone(switches),
-			Count = #switches,
-			RequiredSwitches = requiredSwitches,
-			Window = window,
-			Duration = duration,
-			Completed = #switches >= requiredSwitches,
-		}):SendTo("FlickerArrayLog")
 		if #switches < requiredSwitches then return end
 		Tracker.Resolved = true
 		Traffic("FlickerArrayResult", {
