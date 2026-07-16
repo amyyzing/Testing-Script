@@ -56,7 +56,7 @@ return function(dependencies)
 			Pairs = table.clone(Tracker.Pairs),
 			DistinctPairs = distinctPairCount(Tracker.Pairs),
 			Samples = Tracker.SampleCount,
-		}):SendTo("Dullahan", "SpeedFilter", "SpeedArrayLog")
+		}):SendTo("Phantom", "SpeedFilter", "SpeedArrayLog")
 	end
 
 	local function sample()

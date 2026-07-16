@@ -1,6 +1,7 @@
 local createTraffic = require("../traffic")
 local createVerdict = require("../verdict")
 local createSevenPair = require("../filter/7-pair")
+local createSpeedFilter = require("../filter/speed-filter")
 local Dullahan = require("../ghosts/Dullahan")
 
 local function expect(condition, message)
@@ -38,6 +39,9 @@ function Ghost:FindFirstChildOfClass() return Humanoid end
 local Traffic = createTraffic()
 local Verdict = createVerdict({Traffic = Traffic})
 local dullahan = Dullahan.new({Traffic = Traffic})
+local World = {}
+function World:FindFirstChild() return nil end
+local speedFilter = createSpeedFilter({Traffic = Traffic, Workspace = World})
 local delayedStart
 local filter = createSevenPair({
 	Traffic = Traffic,
@@ -51,7 +55,7 @@ local filter = createSevenPair({
 local lastResult
 local displayedSamples = {}
 Traffic:Receive("Dullahan", function(signalName, payload)
-	if signalName == "SevenPairResult" then lastResult = payload end
+	if signalName == "SpeedFilterResult" then lastResult = payload end
 end)
 Traffic:Receive("SpeedArrayLog", function(signalName, payload)
 	if signalName == "HuntSpeedSample" then table.insert(displayedSamples, payload) end
@@ -135,5 +139,6 @@ expect(visibility:Count() == 0,
 	"a hunt ending during the three-second delay must cancel seven-pair sampling")
 
 filter:Destroy()
+speedFilter:Destroy()
 dullahan:Destroy()
 print("dullahan.spec: visibility-driven seven-pair Dullahan comparison passed")

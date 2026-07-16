@@ -5,7 +5,8 @@ function Dullahan.new(dependencies)
 	local Processor = {}
 
 	Processor.Disconnect = Traffic:Receive("Dullahan", function(signal, payload)
-		if signal ~= "SevenPairResult" or type(payload) ~= "table" then return end
+		if signal ~= "SpeedFilterResult" or type(payload) ~= "table"
+			or payload.Complete ~= true then return end
 		local distinct = tonumber(payload.DistinctPairs) or 0
 		local supported = distinct >= 3
 		Traffic(supported and "Support" or "RuleOut", {
