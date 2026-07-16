@@ -63,8 +63,8 @@ expect(#kills == 0, "non-hunting deaths must not start kill sections")
 
 Ghost.Hunting = true
 Traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
-expect(huntLog[1].signal == "HuntSpeedReset" and huntLog[2].signal == "HuntSpeedSample",
-	"hunt start should reset the displayed array and publish its first sample")
+expect(#huntLog == 1 and huntLog[1].signal == "HuntSpeedReset",
+	"hunt start should reset the display without duplicating seven-pair samples")
 Traffic("SaltHit", {ContactId = 1}):SendTo("SpeedTracker")
 expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
 	and huntLog[#huntLog].payload.Label == "SALT SPLIT",
@@ -83,7 +83,7 @@ expect(#salts == 2 and salts[2].afterSalt[#salts[2].afterSalt].s == 11,
 Humanoid.WalkSpeed = 12
 now = 1
 speedChanged:Fire()
-local preSignalSpeedIndex = #tracker.samples
+Traffic("HuntSpeedSample", {Index = 4}):SendTo("SpeedTracker")
 now = 1.1
 Model.Transparency = 1
 visibility:Fire()
@@ -93,8 +93,8 @@ visibility:Fire()
 now = 1.3
 Traffic("PlayerKilled", {userId = 1, Time = now}):SendTo("SpeedTracker")
 expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
-	and huntLog[#huntLog].payload.Index == preSignalSpeedIndex,
-	"timing should correlate a delayed PlayerKilled signal past intervening visibility samples")
+	and huntLog[#huntLog].payload.Index == 4,
+	"a delayed PlayerKilled marker should align with the latest paced display sample")
 now = 1.4
 Model.Transparency = 1
 visibility:Fire()
@@ -122,13 +122,10 @@ expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
 	and huntLog[#huntLog].payload.Label == "KILL",
 	"player deaths should mark their exact split in the displayed speed array")
 
-local completedLogCount = #huntLog
-Traffic("SevenPairResult", {Samples = 14}):SendTo("SpeedTracker")
-Humanoid.WalkSpeed = 13
-now = 3.1
-speedChanged:Fire()
-expect(#huntLog == completedLogCount,
-	"seven-pair completion should stop further displayed speed samples")
+for _, entry in ipairs(huntLog) do
+	expect(entry.signal ~= "HuntSpeedSample",
+		"the active tracker must not duplicate paced seven-pair samples")
+end
 
 Ghost.Hunting = false
 Traffic("HuntingState", {Hunting = false}):SendTo("SpeedTracker")

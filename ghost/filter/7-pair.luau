@@ -54,7 +54,7 @@ return function(dependencies)
 			Pairs = table.clone(Tracker.Pairs),
 			DistinctPairs = distinctPairCount(Tracker.Pairs),
 			Samples = Tracker.SampleCount,
-		}):SendTo("Dullahan", "SpeedFilter", "SpeedArrayLog", "SpeedTracker")
+		}):SendTo("Dullahan", "SpeedFilter", "SpeedArrayLog")
 	end
 
 	local function sample()
@@ -62,6 +62,10 @@ return function(dependencies)
 		if not speed then return end
 		Tracker.SampleCount += 1
 		local point = {s = speed, v = Model:GetAttribute("Transparency") == 0}
+		Traffic("HuntSpeedSample", {
+			Index = Tracker.SampleCount,
+			Point = {s = point.s, v = point.v},
+		}):SendTo("SpeedArrayLog", "SpeedTracker")
 		if not Tracker.Pending then
 			Tracker.Pending = point
 		else

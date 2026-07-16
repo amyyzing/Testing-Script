@@ -65,7 +65,7 @@ return function(dependencies)
 				return
 			end
 			view.Title.Text = string.format(
-				"  HUNT SPEED ARRAY (ENDED — %d)",
+				"  HUNT SPEED ARRAY (ENDED - %d)",
 				tonumber(payload.Count) or #controller.Entries
 			)
 		end

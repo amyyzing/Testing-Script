@@ -44,8 +44,12 @@ local filter = createSevenPair({
 	Interval = 0.1,
 })
 local lastResult
+local displayedSamples = {}
 Traffic:Receive("Dullahan", function(signalName, payload)
 	if signalName == "SevenPairResult" then lastResult = payload end
+end)
+Traffic:Receive("SpeedArrayLog", function(signalName, payload)
+	if signalName == "HuntSpeedSample" then table.insert(displayedSamples, payload) end
 end)
 
 local function sample(speed, visible)
@@ -70,6 +74,8 @@ expect(lastResult.Pairs[1].a.v == true and lastResult.Pairs[1].b.v == false,
 	"each pair should retain both original speed and visibility samples")
 expect(lastResult.Samples == 14 and filter.SampleCount == 14,
 	"exactly fourteen paced samples should form the seven pairs")
+expect(#displayedSamples == 14 and displayedSamples[14].Index == 14,
+	"the speed log should receive every paced sample before completion")
 expect(Verdict:Snapshot()["ruled-out"][1] == 4,
 	"seven repeated visible/invisible pairs should rule out Dullahan")
 expect(heartbeat:Count() == 0,
