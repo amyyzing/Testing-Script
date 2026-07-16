@@ -3,6 +3,7 @@ return function(dependencies)
 	local World = dependencies.Workspace or workspace
 	local Players = dependencies.Players or game:GetService("Players")
 	local defer = dependencies.Defer or task.defer
+	local clock = dependencies.Clock or os.clock
 	local radius = tonumber(dependencies.PlayerRadius) or 15
 	local radiusSquared = radius * radius
 	local eligible = {
@@ -13,7 +14,7 @@ return function(dependencies)
 	local Tracker = {
 		Kind = "active",
 		Running = true,
-		Resolved = false,
+		GhoulResolved = false,
 		Connections = {},
 		BoundItems = setmetatable({}, {__mode = "k"}),
 		BoundStates = setmetatable({}, {__mode = "k"}),
@@ -54,12 +55,21 @@ return function(dependencies)
 			local previous = self.States[state]
 			local current = state:GetAttribute("Enabled")
 			self.States[state] = current
-			if not self.Running or self.Resolved
-				or item.Parent ~= self.Items
-				or previous ~= true or current ~= false then return end
+			if not self.Running or item.Parent ~= self.Items then return end
+			if type(previous) == "boolean" and type(current) == "boolean"
+				and previous ~= current then
+				Traffic("ItemStateChanged", {
+					Item = item,
+					ItemName = item:GetAttribute("ItemName"),
+					Previous = previous,
+					Current = current,
+					Time = clock(),
+				}):SendTo("FlickerArray")
+			end
+			if self.GhoulResolved or previous ~= true or current ~= false then return end
 			local position = itemPosition(item)
 			if not position or playerIsNear(position) then return end
-			self.Resolved = true
+			self.GhoulResolved = true
 			Traffic("ItemDisabledAwayFromPlayers", {
 				Item = item,
 				ItemName = item:GetAttribute("ItemName"),

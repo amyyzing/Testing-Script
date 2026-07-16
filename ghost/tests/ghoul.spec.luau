@@ -65,8 +65,12 @@ local Traffic = createTraffic()
 local Verdict = createVerdict({Traffic = Traffic})
 local ghoul = Ghoul.new({Traffic = Traffic})
 local ruleOutSignals = 0
+local itemStateChanges = {}
 Traffic:Receive("Verdict", function(signalName, payload)
 	if signalName == "RuleOut" and payload.Ghost == "Ghoul" then ruleOutSignals += 1 end
+end)
+Traffic:Receive("FlickerArray", function(signalName, payload)
+	if signalName == "ItemStateChanged" then table.insert(itemStateChanges, payload) end
 end)
 local tracker = createItemState({
 	Traffic = Traffic,
@@ -80,6 +84,9 @@ emf:SetEnabled(false)
 expect(ruleOutSignals == 0, "non-target electronics must be ignored")
 laser:SetEnabled(false)
 expect(ruleOutSignals == 0, "a player exactly 15 studs away should prevent the rule-out")
+expect(#itemStateChanges == 1 and itemStateChanges[1].Previous == true
+	and itemStateChanges[1].Current == false,
+	"an eligible boolean state switch should be sent to the flicker array")
 laser:SetEnabled(true)
 root.Position = {X = 15.01, Y = 0, Z = 0}
 laser:SetEnabled(false)
@@ -88,6 +95,8 @@ expect(ruleOutSignals == 1 and Verdict:Snapshot()["ruled-out"][1] == 7,
 laser:SetEnabled(true)
 laser:SetEnabled(false)
 expect(ruleOutSignals == 1, "Ghoul should only be resolved once")
+expect(#itemStateChanges == 5,
+	"Ghoul resolving must not stop later item switches from reaching the flicker array")
 
 tracker:Destroy()
 ghoul:Destroy()
