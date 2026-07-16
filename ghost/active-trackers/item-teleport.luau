@@ -6,7 +6,6 @@ return function(dependencies)
 	local interval = tonumber(dependencies.SampleInterval) or 0.4
 	local maximumElapsed = tonumber(dependencies.MaximumElapsed) or 0.65
 	local minimumDistance = tonumber(dependencies.MinimumDisplacement) or 25
-	local minimumSpeed = tonumber(dependencies.MinimumSpeed) or 80
 	local Tracker = {
 		Kind = "active",
 		Running = true,
@@ -58,8 +57,7 @@ return function(dependencies)
 						local elapsed = now - previous.Time
 						local displacement = distance(current, previous.Position)
 						if elapsed > 0 and elapsed <= maximumElapsed
-							and displacement >= minimumDistance
-							and displacement / elapsed >= minimumSpeed then
+							and displacement >= minimumDistance then
 							self.NextId += 1
 							Traffic("ItemTeleported", {
 								EventId = "item-teleport-" .. self.NextId,

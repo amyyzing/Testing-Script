@@ -61,11 +61,11 @@ local teleportTracker = createItemTeleport({
 	Clock = function() return now end,
 })
 
-item.Current = {X = 40, Y = 0, Z = 0}
+item.Current = {X = 25, Y = 0, Z = 0}
 now = 0.4
 heartbeat:Fire(0.4)
-expect(#teleports == 1 and teleports[1].Distance == 40,
-	"a 40-stud single-sample jump should emit one item teleport")
+expect(#teleports == 1 and teleports[1].Distance == 25,
+	"a qualifying position jump should emit regardless of calculated speed")
 local firstDelay = table.remove(delayed, 1)
 expect(firstDelay.Seconds == 3, "Entity should wait three seconds for its Smoke Holder")
 firstDelay.Callback()
