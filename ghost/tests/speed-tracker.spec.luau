@@ -117,6 +117,14 @@ expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
 	and huntLog[#huntLog].payload.Label == "KILL",
 	"player deaths should mark their exact split in the displayed speed array")
 
+local completedLogCount = #huntLog
+Traffic("SevenPairResult", {Samples = 14}):SendTo("SpeedTracker")
+Humanoid.WalkSpeed = 13
+now = 3.1
+speedChanged:Fire()
+expect(#huntLog == completedLogCount,
+	"seven-pair completion should stop further displayed speed samples")
+
 Ghost.Hunting = false
 Traffic("HuntingState", {Hunting = false}):SendTo("SpeedTracker")
 expect(kills[#kills].completed == true, "hunt end should finalize the active kill section")

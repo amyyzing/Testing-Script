@@ -4,7 +4,10 @@ return function(dependencies)
 	local Model = dependencies.GhostModel or Ghost:FindFirstChild("GhostModel", true) or Ghost
 	local clock = dependencies.Clock or os.clock
 	local killMatchWindow = tonumber(dependencies.KillMatchWindow) or 0.75
-	local Tracker = {Kind = "active", Running = true, hunting = nil, samples = {}, sampleMeta = {}}
+	local Tracker = {
+		Kind = "active", Running = true,
+		hunting = nil, samples = {}, sampleMeta = {}, logComplete = false,
+	}
 
 	local function sample(source)
 		local humanoid = Ghost:FindFirstChildOfClass("Humanoid")
@@ -15,7 +18,7 @@ return function(dependencies)
 		table.insert(Tracker.sampleMeta, {source = source, time = clock()})
 		if Tracker.afterSalt then table.insert(Tracker.afterSalt, point) end
 		if Tracker.afterKill then table.insert(Tracker.afterKill, point) end
-		if Tracker.hunting then
+		if Tracker.hunting and not Tracker.logComplete then
 			Traffic("HuntSpeedSample", {
 				Index = #Tracker.samples,
 				Point = {s = point.s, v = point.v},
@@ -61,6 +64,7 @@ return function(dependencies)
 			Traffic("HuntSpeedEnded", {Count = #Tracker.samples}):SendTo("SpeedArrayLog")
 		end
 		Tracker.hunting, Tracker.samples, Tracker.sampleMeta = value, {}, {}
+		Tracker.logComplete = false
 		Tracker.beforeSalt, Tracker.afterSalt, Tracker.contact, Tracker.saltState = nil, nil, nil, nil
 		Tracker.beforeKill, Tracker.afterKill = nil, nil
 		Tracker.killUserId, Tracker.killBaseline = nil, nil
@@ -72,6 +76,8 @@ return function(dependencies)
 		payload = type(payload) == "table" and payload or {}
 		if signal == "HuntingState" then
 			hunting(payload.Hunting == true)
+		elseif signal == "SevenPairResult" then
+			Tracker.logComplete = true
 		elseif signal == "SaltHit" and Tracker.hunting then
 			local transition = sample("salt")
 			if not transition then return end

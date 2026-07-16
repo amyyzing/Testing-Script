@@ -64,21 +64,26 @@ expect(heartbeat:Count() == 1, "hunting should start one paced sampler")
 for _ = 1, 7 do sendPair(22, 27) end
 expect(lastResult and #lastResult.Pairs == 7 and lastResult.DistinctPairs == 1,
 	"the repeated Phantom-style pair should remain one distinct pair")
+expect(lastResult.Samples == 14 and filter.SampleCount == 14,
+	"exactly fourteen paced samples should form the seven pairs")
 expect(Verdict:Snapshot()["ruled-out"][1] == 4,
 	"seven repeated visible/invisible pairs should rule out Dullahan")
 expect(heartbeat:Count() == 0,
 	"the sampler should disconnect immediately after exactly seven pairs")
+for _ = 1, 10 do sample(30, true) end
+expect(filter.SampleCount == 14, "no samples should be taken after the seventh pair")
 
 Traffic("HuntingState", {Hunting = false}):SendTo("SevenPair")
 Traffic("HuntingState", {Hunting = true}):SendTo("SevenPair")
 Verdict:Reset()
 lastResult = nil
 sendPair(22, 22.3)
-sendPair(24, 22) -- a decreasing pair still counts in the comparison
+sample(24, true)
+sample(22, true) -- same-visibility and decreasing still forms the second pair
 sendPair(22.9, 23.1)
 for _ = 1, 4 do sendPair(22, 22.3) end
 expect(lastResult and lastResult.DistinctPairs == 3,
-	"all seven paced pairs, including decreases, should be compared")
+	"every two paced samples must form a pair regardless of visibility or decrease")
 expect(Verdict:Snapshot().Selected[1] == 4,
 	"three distinct pairs should support Dullahan")
 

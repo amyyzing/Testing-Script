@@ -5,7 +5,7 @@ return function(dependencies)
 	local accentColor = assert(dependencies.AccentColor, "hunt-speed-array requires AccentColor")
 	local canvasSize = dependencies.CanvasSize or UDim2.fromOffset
 	local defer = dependencies.Defer or task.defer
-	local controller = {Entries = {}, RowCount = 0}
+	local controller = {Entries = {}, RowCount = 0, PairComplete = false}
 
 	local function updateCanvas()
 		view.List.CanvasSize = canvasSize(0, view.Layout.AbsoluteContentSize.Y + 8)
@@ -15,6 +15,7 @@ return function(dependencies)
 		for _, entry in ipairs(controller.Entries) do entry:Destroy() end
 		table.clear(controller.Entries)
 		controller.RowCount = 0
+		controller.PairComplete = false
 		view.Empty.Visible = true
 		view.Empty.Text = "Hunt started; waiting for speed samples."
 	end
@@ -39,7 +40,7 @@ return function(dependencies)
 			clear()
 			view.Title.Text = "  HUNT SPEED ARRAY (LIVE)"
 			updateCanvas()
-		elseif signal == "HuntSpeedSample" then
+		elseif signal == "HuntSpeedSample" and not controller.PairComplete then
 			local point = type(payload.Point) == "table" and payload.Point or {}
 			local index = tonumber(payload.Index) or 0
 			add(string.format(
@@ -55,7 +56,14 @@ return function(dependencies)
 				tostring(payload.Label or "MARKER"),
 				index
 			), accentColor, index * 2 - 1)
+		elseif signal == "SevenPairResult" then
+			controller.PairComplete = true
+			view.Title.Text = "  HUNT SPEED ARRAY (7 PAIRS COMPLETE)"
 		elseif signal == "HuntSpeedEnded" then
+			if controller.PairComplete then
+				view.Title.Text = "  HUNT SPEED ARRAY (ENDED - 7 PAIRS)"
+				return
+			end
 			view.Title.Text = string.format(
 				"  HUNT SPEED ARRAY (ENDED — %d)",
 				tonumber(payload.Count) or #controller.Entries

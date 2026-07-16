@@ -13,6 +13,7 @@ return function(dependencies)
 		Pairs = {},
 		Pending = nil,
 		Accumulator = 0,
+		SampleCount = 0,
 	}
 
 	local function stopSampling()
@@ -28,6 +29,7 @@ return function(dependencies)
 		Tracker.Pairs = {}
 		Tracker.Pending = nil
 		Tracker.Accumulator = 0
+		Tracker.SampleCount = 0
 	end
 
 	local function distinctPairCount(pairs)
@@ -51,22 +53,26 @@ return function(dependencies)
 		Traffic("SevenPairResult", {
 			Pairs = table.clone(Tracker.Pairs),
 			DistinctPairs = distinctPairCount(Tracker.Pairs),
-		}):SendTo("Dullahan")
+			Samples = Tracker.SampleCount,
+		}):SendTo("Dullahan", "SpeedArrayLog", "SpeedTracker")
 	end
 
 	local function sample()
 		local speed = Humanoid and tonumber(Humanoid.WalkSpeed)
 		if not speed then return end
+		Tracker.SampleCount += 1
 		local point = {s = speed, v = Model:GetAttribute("Transparency") == 0}
 		if not Tracker.Pending then
 			Tracker.Pending = point
-		elseif Tracker.Pending.v == point.v then
-			Tracker.Pending = point
 		else
 			local first = Tracker.Pending
-			table.insert(Tracker.Pairs, first.v
-				and {v = first.s, i = point.s}
-				or {v = point.s, i = first.s})
+			if first.v ~= point.v then
+				table.insert(Tracker.Pairs, first.v
+					and {v = first.s, i = point.s}
+					or {v = point.s, i = first.s})
+			else
+				table.insert(Tracker.Pairs, {v = first.s, i = point.s})
+			end
 			Tracker.Pending = nil
 			if #Tracker.Pairs == 7 then finish() end
 		end
