@@ -55,7 +55,7 @@ function Aesthetic.Create(dependencies)
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamMedium,
 		Position = UDim2.fromOffset(12, 0),
-		Size = UDim2.new(1, -58, 1, 0),
+		Size = UDim2.new(1, -92, 1, 0),
 		Text = "Demonology Assistant",
 		TextColor3 = COLORS.Text,
 		TextSize = 14,
@@ -71,6 +71,19 @@ function Aesthetic.Create(dependencies)
 		Position = UDim2.new(1, -34, 0, 0),
 		Size = UDim2.fromOffset(34, 34),
 		Text = "X",
+		TextColor3 = COLORS.Text,
+		TextSize = 18,
+	}, titleBar)
+
+	local minimizeButton = create("TextButton", {
+		Name = "Minimize",
+		AutoButtonColor = false,
+		BackgroundColor3 = COLORS.Control,
+		BorderSizePixel = 0,
+		Font = Enum.Font.GothamBold,
+		Position = UDim2.new(1, -68, 0, 0),
+		Size = UDim2.fromOffset(34, 34),
+		Text = "-",
 		TextColor3 = COLORS.Text,
 		TextSize = 18,
 	}, titleBar)
@@ -93,6 +106,32 @@ function Aesthetic.Create(dependencies)
 		TextColor3 = COLORS.Muted,
 		TextSize = 13,
 		TextXAlignment = Enum.TextXAlignment.Left,
+	}, content)
+
+	local huntEscapeButton = create("TextButton", {
+		Name = "HuntEscape",
+		AutoButtonColor = false,
+		BackgroundColor3 = COLORS.Control,
+		BorderSizePixel = 0,
+		Font = Enum.Font.GothamMedium,
+		Position = UDim2.fromOffset(16, 54),
+		Size = UDim2.new(1, -32, 0, 34),
+		Text = "HUNT ESCAPE: OFF",
+		TextColor3 = COLORS.Text,
+		TextSize = 12,
+	}, content)
+
+	local brightButton = create("TextButton", {
+		Name = "FullBright",
+		AutoButtonColor = false,
+		BackgroundColor3 = COLORS.Control,
+		BorderSizePixel = 0,
+		Font = Enum.Font.GothamMedium,
+		Position = UDim2.fromOffset(16, 96),
+		Size = UDim2.new(1, -32, 0, 34),
+		Text = "FULL BRIGHT: OFF",
+		TextColor3 = COLORS.Text,
+		TextSize = 12,
 	}, content)
 
 	local resizeHandle = create("TextButton", {
@@ -129,9 +168,14 @@ function Aesthetic.Create(dependencies)
 		TitleBar = titleBar,
 		Content = content,
 		CloseButton = closeButton,
+		MinimizeButton = minimizeButton,
 		OpenButton = openButton,
 		ResizeHandle = resizeHandle,
 		Status = status,
+		Buttons = {
+			HuntEscape = huntEscapeButton,
+			Bright = brightButton,
+		},
 		Colors = COLORS,
 	}
 end

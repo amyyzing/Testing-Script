@@ -6,6 +6,8 @@ local environment = (getgenv and getgenv()) or _G
 local Services = {
 	Players = game:GetService("Players"),
 	UserInputService = game:GetService("UserInputService"),
+	TweenService = game:GetService("TweenService"),
+	Lighting = game:GetService("Lighting"),
 	CoreGui = game:GetService("CoreGui"),
 	Workspace = game:GetService("Workspace"),
 }
@@ -45,6 +47,9 @@ local createKillCount = loadModule("ghost/active-trackers/kill-count.luau")
 local createSaltHit = loadModule("ghost/active-trackers/salt-hit.luau")
 local createSpeedTracker = loadModule("ghost/active-trackers/speed-tracker.luau")
 local createSaltState = loadModule("ghost/discardable-trackers/salt-state-after-hit.luau")
+local createEscapeHunt = loadModule("logic/escape-hunt.luau")
+local createBright = loadModule("logic/bright.luau")
+local createTeleportBaseCamp = loadModule("logic/teleport-base-camp.luau")
 
 loading:SetStage("Building interface", 7, 10)
 local view = Aesthetic.Create({
@@ -52,14 +57,23 @@ local view = Aesthetic.Create({
 	Player = player,
 	Environment = environment,
 })
-local presenter = GuiLogic.new({Services = Services, Player = player, View = view})
+local session
+local presenter = GuiLogic.new({
+	Services = Services,
+	Player = player,
+	View = view,
+	OnClose = function()
+		if session then session:Destroy() end
+	end,
+})
 
-local session = {
+session = {
 	Destroyed = false,
 	Connections = {},
 	Trackers = {},
 	View = view,
 	Presenter = presenter,
+	Loading = loading,
 }
 environment.DemonologySession = session
 
@@ -67,6 +81,14 @@ local function remember(value)
 	table.insert(session.Trackers, value)
 	return value
 end
+
+local teleportToBaseCamp = createTeleportBaseCamp({Player = player, Workspace = Services.Workspace})
+session.TeleportToBaseCamp = teleportToBaseCamp
+session.Bright = remember(createBright({
+	Lighting = Services.Lighting,
+	Button = view.Buttons.Bright,
+	EnabledColor = view.Colors.Accent,
+}))
 
 local function disconnectWaiting()
 	for _, connection in ipairs(session.Connections) do connection:Disconnect() end
@@ -83,44 +105,61 @@ function session:Destroy()
 	end
 	self.Presenter:Destroy()
 	if self.View.Gui then self.View.Gui:Destroy() end
+	if self.Loading and not self.Loading.Destroyed then self.Loading:Destroy() end
+	if environment.UntitledGuiInstance == self.View.Gui then environment.UntitledGuiInstance = nil end
 	if environment.DemonologySession == self then environment.DemonologySession = nil end
 end
 
-local started = false
+local coreStarted, saltStarted = false, false
+local descendantConnection
 local function startTrackers()
-	if started or session.Destroyed then return end
+	if session.Destroyed then return end
 	local ghost = Services.Workspace:FindFirstChild("Ghost")
-	local saltPiles = Services.Workspace:FindFirstChild("SaltPiles")
 	local humanoid = ghost and ghost:FindFirstChildOfClass("Humanoid")
-	if not ghost or not humanoid or not saltPiles then
+	if not coreStarted and (not ghost or not humanoid) then
 		view.Status.Text = not ghost and "Waiting for Workspace.Ghost"
-			or not humanoid and "Waiting for Ghost Humanoid"
-			or "Waiting for Workspace.SaltPiles"
+			or "Waiting for Ghost Humanoid"
 		return
 	end
 
-	started = true
-	disconnectWaiting()
-	local Traffic = createTraffic()
-	local Verdict = createVerdict({Traffic = Traffic})
-	session.Traffic, session.Verdict = Traffic, Verdict
+	if not coreStarted then
+		coreStarted = true
+		if descendantConnection then descendantConnection:Disconnect() end
+		local Traffic = createTraffic()
+		local Verdict = createVerdict({Traffic = Traffic})
+		session.Traffic, session.Verdict, session.Ghost = Traffic, Verdict, ghost
+		remember(Aswang.new({Traffic = Traffic}))
+		session.EscapeHunt = remember(createEscapeHunt({
+			Player = player,
+			Ghost = ghost,
+			TeleportToSafety = teleportToBaseCamp,
+			Button = view.Buttons.HuntEscape,
+			EnabledColor = view.Colors.Accent,
+		}))
+		remember(createSpeedTracker({Traffic = Traffic, Ghost = ghost}))
+		remember(createKillCount({Traffic = Traffic, Players = Services.Players}))
+		remember(createHuntingState({Traffic = Traffic, Ghost = ghost}))
+	end
 
-	remember(Aswang.new({Traffic = Traffic}))
-	remember(createSpeedTracker({Traffic = Traffic, Ghost = ghost}))
-	remember(createKillCount({Traffic = Traffic, Players = Services.Players}))
-	remember(createSaltState({Traffic = Traffic, SaltFolder = saltPiles}))
-	remember(createSaltHit({Traffic = Traffic, Ghost = ghost, SaltFolder = saltPiles}))
-	remember(createHuntingState({Traffic = Traffic, Ghost = ghost}))
-	view.Status.Text = "Aswang tracker running"
+	local saltPiles = Services.Workspace:FindFirstChild("SaltPiles")
+	if not saltStarted and saltPiles then
+		saltStarted = true
+		remember(createSaltState({Traffic = session.Traffic, SaltFolder = saltPiles}))
+		remember(createSaltHit({Traffic = session.Traffic, Ghost = session.Ghost, SaltFolder = saltPiles}))
+		disconnectWaiting()
+	end
+	view.Status.Text = saltStarted and "Aswang tracker running"
+		or "Aswang kill tracker running; waiting for salt"
 end
 
 loading:SetStage("Starting Aswang tracker", 8, 10)
 table.insert(session.Connections, Services.Workspace.ChildAdded:Connect(startTrackers))
-table.insert(session.Connections, Services.Workspace.DescendantAdded:Connect(startTrackers))
+descendantConnection = Services.Workspace.DescendantAdded:Connect(startTrackers)
+table.insert(session.Connections, descendantConnection)
 startTrackers()
 presenter:Bind()
 
-loading:SetStage(started and "Ready" or "Waiting for round", 10, 10)
+loading:SetStage(coreStarted and "Ready" or "Waiting for round", 10, 10)
 task.delay(0.2, function()
 	if not loading.Destroyed then loading:Destroy() end
 end)

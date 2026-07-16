@@ -9,6 +9,15 @@ return function(dependencies)
 		FogEnd = lighting.FogEnd,
 	}
 	local controller = {Enabled = false}
+	local button = dependencies.Button
+	local disabledColor = button and button.BackgroundColor3
+	local enabledColor = dependencies.EnabledColor or disabledColor
+
+	local function render()
+		if not button then return end
+		button.Text = controller.Enabled and "FULL BRIGHT: ON" or "FULL BRIGHT: OFF"
+		button.BackgroundColor3 = controller.Enabled and enabledColor or disabledColor
+	end
 
 	function controller:SetEnabled(enabled)
 		self.Enabled = enabled == true
@@ -25,6 +34,7 @@ return function(dependencies)
 			lighting.GlobalShadows = original.GlobalShadows
 			lighting.FogEnd = original.FogEnd
 		end
+		render()
 		return self.Enabled
 	end
 
@@ -34,7 +44,15 @@ return function(dependencies)
 
 	function controller:Destroy()
 		self:SetEnabled(false)
+		if self.ButtonConnection then self.ButtonConnection:Disconnect() end
 	end
+
+	if button then
+		controller.ButtonConnection = button.MouseButton1Click:Connect(function()
+			controller:Toggle()
+		end)
+	end
+	render()
 
 	return controller
 end

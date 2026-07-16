@@ -37,9 +37,12 @@ function character:PivotTo(value) self.Pivot = value end
 local player = {Character = character}
 local escaped = 0
 local endDuringTeleport = false
+local button = {MouseButton1Click = signal(), BackgroundColor3 = "off"}
 local controller = createEscapeHunt({
 	Player = player,
 	Ghost = ghost,
+	Button = button,
+	EnabledColor = "on",
 	TeleportToSafety = function()
 		escaped += 1
 		character.Pivot = "safe"
@@ -48,7 +51,9 @@ local controller = createEscapeHunt({
 	end,
 })
 
-controller:SetEnabled(true)
+expect(button.Text == "HUNT ESCAPE: OFF", "button should initialize off")
+button.MouseButton1Click:Fire()
+expect(controller.Enabled and button.Text == "HUNT ESCAPE: ON", "button should toggle the controller")
 ghost:SetHunting(true)
 expect(escaped == 1 and character.Pivot == "safe", "hunt start should escape once")
 ghost:SetHunting(true)
@@ -59,6 +64,7 @@ expect(character.Pivot == "original", "hunt end should restore the original pivo
 ghost:SetHunting(true)
 controller:SetEnabled(false)
 expect(character.Pivot == "original", "disabling during a hunt should restore immediately")
+expect(button.Text == "HUNT ESCAPE: OFF", "disabling should refresh the button")
 
 controller:SetEnabled(true)
 endDuringTeleport = true

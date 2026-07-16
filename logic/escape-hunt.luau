@@ -6,6 +6,15 @@ return function(dependencies)
 		"escape-hunt requires TeleportToSafety"
 	)
 	local controller = {Enabled = false, Escaped = false, Busy = false, Generation = 0}
+	local button = dependencies.Button
+	local disabledColor = button and button.BackgroundColor3
+	local enabledColor = dependencies.EnabledColor or disabledColor
+
+	local function render()
+		if not button then return end
+		button.Text = controller.Enabled and "HUNT ESCAPE: ON" or "HUNT ESCAPE: OFF"
+		button.BackgroundColor3 = controller.Enabled and enabledColor or disabledColor
+	end
 
 	local function restore()
 		if not controller.Escaped then return false end
@@ -58,6 +67,7 @@ return function(dependencies)
 			self.Generation += 1
 			restore()
 		end
+		render()
 		return self.Enabled
 	end
 
@@ -70,7 +80,15 @@ return function(dependencies)
 		self.Generation += 1
 		restore()
 		self.Connection:Disconnect()
+		if self.ButtonConnection then self.ButtonConnection:Disconnect() end
 	end
+
+	if button then
+		controller.ButtonConnection = button.MouseButton1Click:Connect(function()
+			controller:Toggle()
+		end)
+	end
+	render()
 
 	return controller
 end
