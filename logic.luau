@@ -116,6 +116,15 @@ local roundAutoHandoff = requestedAuto == true
 local rememberedChallenges = type(rememberedLobbySettings.Challenges) == "table"
 	and rememberedLobbySettings.Challenges
 	or {}
+local rememberedGhostWalkSpeedMultiplier = tonumber(
+	rememberedLobbySettings.GhostWalkSpeedMultiplier
+)
+if rememberedGhostWalkSpeedMultiplier == nil
+	or rememberedGhostWalkSpeedMultiplier ~= math.floor(rememberedGhostWalkSpeedMultiplier)
+	or rememberedGhostWalkSpeedMultiplier < 1
+	or rememberedGhostWalkSpeedMultiplier > 6 then
+	rememberedGhostWalkSpeedMultiplier = nil
+end
 local lobbySettings = {
 	Auto = autoEnabled,
 	JobSite = type(rememberedLobbySettings.JobSite) == "string"
@@ -132,6 +141,7 @@ local lobbySettings = {
 		and rememberedLobbySettings.EquipmentPreset ~= ""
 		and rememberedLobbySettings.EquipmentPreset
 		or "green",
+	GhostWalkSpeedMultiplier = rememberedGhostWalkSpeedMultiplier,
 	Challenges = {
 		[1] = rememberedChallenges[1] == true,
 		[2] = rememberedChallenges[2] == true,
@@ -400,6 +410,7 @@ local succeeded, failure = xpcall(function()
 		Difficulty = %q,
 		CustomPreset = %q,
 		EquipmentPreset = %q,
+		GhostWalkSpeedMultiplier = %s,
 		Challenges = {%s, %s, %s},
 		ChallengesConfigured = %s,
 	}
@@ -487,6 +498,7 @@ end
 		tostring(saved.Difficulty or "Nightmare"),
 		tostring(saved.CustomPreset or ""),
 		tostring(saved.EquipmentPreset or "green"),
+		tostring(tonumber(saved.GhostWalkSpeedMultiplier) or "nil"),
 		tostring(type(saved.Challenges) == "table" and saved.Challenges[1] == true),
 		tostring(type(saved.Challenges) == "table" and saved.Challenges[2] == true),
 		tostring(type(saved.Challenges) == "table" and saved.Challenges[3] == true),
@@ -741,6 +753,11 @@ local function runLobbyStartMacro(
 	local selectedEquipmentPreset = type(settings.EquipmentPreset) == "string"
 		and settings.EquipmentPreset
 		or nil
+	if selectedDifficulty ~= "Custom" then
+		-- Never let a previously selected custom factor leak into a standard
+		-- difficulty round.
+		settings.GhostWalkSpeedMultiplier = nil
+	end
 	if selectedDifficulty == "Custom" then
 		if not selectedCustomPreset or selectedCustomPreset == "" then
 			return false, "Select a saved custom difficulty preset before starting."
@@ -1077,6 +1094,14 @@ local function runLobbyStartMacro(
 		session.LastCustomDifficultyPreset = selectedCustomPreset
 		session.LastCustomDifficultySettings = presetSettings
 		session.LastCustomDifficultyMultiplier = presetMultiplier
+		local ghostSpeedIndex = tonumber(presetSettings.GhostWalkSpeedMultiplier)
+		if ghostSpeedIndex
+			and ghostSpeedIndex == math.floor(ghostSpeedIndex)
+			and ghostSpeedIndex >= 1 and ghostSpeedIndex <= 6 then
+			settings.GhostWalkSpeedMultiplier = ghostSpeedIndex
+		else
+			settings.GhostWalkSpeedMultiplier = nil
+		end
 		local settingsMatch = false
 		local settingsMatchDeadline = os.clock() + LOBBY_STATE_UPDATE_TIMEOUT
 		repeat
@@ -1426,6 +1451,7 @@ if not shouldLoadRoundGui then
 			EquipmentPreset = type(settings.EquipmentPreset) == "string"
 				and settings.EquipmentPreset
 				or "green",
+			GhostWalkSpeedMultiplier = tonumber(settings.GhostWalkSpeedMultiplier),
 			Challenges = {
 				challenges[1] == true,
 				challenges[2] == true,

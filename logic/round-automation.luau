@@ -60,6 +60,8 @@ local ROUND_PICKUP_MAX_DISTANCE = 8
 local ROUND_REMOTE_SAFETY_DELAY = 0.1
 local ROUND_LOBBY_RETRY_SECONDS = 4
 local ROUND_MINIMUM_LEAVE_AGE = 30
+local ROUND_BASE_CAMP_SETTLE_SECONDS = 1.25
+local ROUND_JOURNAL_SETTLE_SECONDS = 0.35
 -- Both retained placement tools are capped at three distinct-door placements.
 local ROUND_SALT_PLACEMENT_LIMIT = 3
 local ROUND_HOLY_OIL_PLACEMENT_LIMIT = 3
@@ -1949,12 +1951,51 @@ local setDoRoundEnabled = (function()
 	local function roundBaseCampRoom()
 		return findBaseCampRoom()
 	end
+	local function roundPlayerRoot()
+		local character = player.Character
+		local root = character
+			and character:FindFirstChild("HumanoidRootPart")
+		return root and root:IsA("BasePart") and root or nil
+	end
 	local function playerIsInsideRoundBaseCamp()
 		local room = roundBaseCampRoom()
-		local character = player.Character
+		local root = roundPlayerRoot()
 		return room ~= nil
-			and character ~= nil
-			and instanceIsInsideRoom(character, room)
+			and root ~= nil
+			and instanceIsInsideRoom(root, room)
+	end
+	local function waitForRoundBaseCampSettle(generation)
+		-- A local Model pivot can already be inside the room while the server still
+		-- sees the previous position. Release every automation movement override,
+		-- then require the replicated character root to remain inside continuously
+		-- before a return request is allowed to race the position update.
+		releasePlayerMovement(true)
+		local stableRoot
+		local stableSince
+		while doRoundOperationActive(generation) do
+			local root = roundPlayerRoot()
+			local humanoid = player.Character
+				and player.Character:FindFirstChildOfClass("Humanoid")
+			local stable = root ~= nil
+				and humanoid ~= nil
+				and humanoid.Health > 0
+				and root.Anchored == false
+				and playerIsInsideRoundBaseCamp()
+			if stable then
+				if stableRoot ~= root then
+					stableRoot = root
+					stableSince = os.clock()
+				elseif os.clock() - (stableSince or os.clock())
+					>= ROUND_BASE_CAMP_SETTLE_SECONDS then
+					return true
+				end
+			else
+				stableRoot = nil
+				stableSince = nil
+			end
+			Services.RunService.Heartbeat:Wait()
+		end
+		return false
 	end
 	local function returnRoundToBase(generation)
 		local failedAttempts = 0
@@ -1966,7 +2007,8 @@ local setDoRoundEnabled = (function()
 			if teleported then
 				Services.RunService.Heartbeat:Wait()
 			end
-			if teleported and playerIsInsideRoundBaseCamp() then
+			if teleported and playerIsInsideRoundBaseCamp()
+				and waitForRoundBaseCampSettle(generation) then
 				return true
 			end
 			failedAttempts = failedAttempts + 1
@@ -3208,6 +3250,38 @@ local function maintainRoundRoomItems(room, generation)
 	end
 end
 
+local function journalSelectionMatchesFinalState(ghostName)
+	local ghostTypes = perkTrackerState.findJournalGhostTypes()
+	local selectedFrame = ghostTypes and ghostTypes:FindFirstChild(ghostName)
+	if not selectedFrame or not selectedFrame:IsA("Frame")
+		or perkTrackerState.readJournalRowState(selectedFrame) ~= true
+		or perkTrackerState.lastJournalSelectedGhost ~= ghostName then
+		return false
+	end
+	local candidates = perkTrackerState.getRemainingCandidates(false)
+	local candidateSet = {[ghostName] = true}
+	for _, candidate in ipairs(candidates) do
+		candidateSet[candidate] = true
+	end
+	for _, profile in ipairs(GHOST_PROFILES) do
+		local name = profile.Name
+		if name ~= ghostName then
+			local frame = ghostTypes:FindFirstChild(name)
+			if not frame or not frame:IsA("Frame") then
+				return false
+			end
+			local expected = false
+			if candidateSet[name] then
+				expected = nil
+			end
+			if perkTrackerState.readJournalRowState(frame) ~= expected then
+				return false
+			end
+		end
+	end
+	return true
+end
+
 local function selectRoundJournalGhost(ghostName, generation)
 	if not ghostName or string.find(tostring(ghostName), "/", 1, true) then
 		return false
@@ -3215,43 +3289,24 @@ local function selectRoundJournalGhost(ghostName, generation)
 	if not doRoundOperationActive(generation) then
 		return false
 	end
-	-- The server queries GetSelectedGhost, whose answer comes from the Journal
-	-- controller's local row table. EvidenceMarkedInJournal alone does not update
-	-- that table, so keep using the real click path until the intended row is the
-	-- only selected row. Do not call the full synchronous journal reconciler here:
-	-- cycling every ghost row can outlive this deadline and delay lobby return.
-	local deadline = os.clock() + 1.5
+	-- Apply the complete final journal state before beginning the Base Camp return.
+	-- This includes every cross-out, the selected row, and the authoritative
+	-- EvidenceMarkedInJournal remote. A selected-row-only shortcut can leave the
+	-- game's GetSelectedGhost callback stale when RequestReturnToLobby is fired.
+	local deadline = os.clock() + 8
 	repeat
 		if not doRoundOperationActive(generation) then
 			return false
 		end
-		local ghostTypes = perkTrackerState.findJournalGhostTypes()
-		local frame = ghostTypes and ghostTypes:FindFirstChild(ghostName)
-		if perkTrackerState.journalMutationBusy ~= true
-			and frame and frame:IsA("Frame") then
-			if perkTrackerState.readJournalRowState(frame) ~= true then
-				pcall(perkTrackerState.applyJournalRowState, frame, true)
-			end
-			local conflictingSelection = false
-			for _, otherFrame in ipairs(ghostTypes:GetChildren()) do
-				if otherFrame ~= frame and otherFrame:IsA("Frame")
-					and perkTrackerState.readJournalRowState(otherFrame) == true then
-					conflictingSelection = true
-					pcall(
-						perkTrackerState.applyJournalRowState,
-						otherFrame,
-						nil
-					)
-					break
-				end
-			end
-			if not conflictingSelection
-				and perkTrackerState.readJournalRowState(frame) == true then
-				local sentCall, sent = pcall(
-					perkTrackerState.fireJournalGhostSelection,
-					ghostName
-				)
-				if sentCall and sent == true then
+		if perkTrackerState.journalMutationBusy ~= true then
+			local syncedCall, synced = pcall(
+				perkTrackerState.syncJournal,
+				ghostName
+			)
+			if syncedCall and synced == true
+				and journalSelectionMatchesFinalState(ghostName) then
+				doRoundWait(generation, ROUND_JOURNAL_SETTLE_SECONDS)
+				if journalSelectionMatchesFinalState(ghostName) then
 					return true
 				end
 			end
@@ -3275,7 +3330,7 @@ end
 			pcall(lock.Release, lock)
 		end
 		doRoundState.facingLocks = setmetatable({}, {__mode = "k"})
-		releasePlayerMovement()
+		releasePlayerMovement(true)
 	end
 
 local function waitForRoundHuntEnd(generation)
@@ -3340,7 +3395,6 @@ local function requestRoundReturnToLobby(generation, ghostName)
 	local completed, returned, returnReason = xpcall(function()
 		local queueWarningShown = false
 		local basePositionPrepared = false
-		local journalSelectionConfirmed = false
 		local roundStartedAt = doRoundState.exitOpenedAt
 			or doRoundState.startedAt
 			or os.clock()
@@ -3367,27 +3421,15 @@ local function requestRoundReturnToLobby(generation, ghostName)
 			else
 				setDoRoundStatus("Returning to lobby")
 			end
+			-- Completion prepares and verifies the journal before travelling to Base
+			-- Camp. Never repair it after a return request has already been sent.
+			if not journalSelectionMatchesFinalState(ghostName) then
+				return false, "the final Journal selection was lost before lobby return"
+			end
 			doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
 			-- Displacement during the safety delay invalidates this attempt. Hunt
 			-- state is deliberately irrelevant once identification is confident.
 			if not playerIsInsideRoundBaseCamp() then
-				continue
-			end
-			if not journalSelectionConfirmed then
-				setDoRoundStatus("Selecting ghost guess")
-				local selectedCall, selected = pcall(
-					selectRoundJournalGhost,
-					ghostName,
-					generation
-				)
-				journalSelectionConfirmed = selectedCall and selected == true
-			end
-			if not journalSelectionConfirmed then
-				-- The server reads the Journal controller's local selected row. Never
-				-- request a lobby return until that row is visibly authoritative; a
-				-- remote-only mark can otherwise return nil or the player's stale choice.
-				pcall(perkTrackerState.fireJournalGhostSelection, ghostName)
-				doRoundWait(generation, 0.1)
 				continue
 			end
 			if not playerIsInsideRoundBaseCamp() then
@@ -3539,6 +3581,15 @@ local function finishRoundWithGhost(
 	if not doRoundOperationActive(generation) then
 		return false, "Do-Round cancelled before lobby return"
 	end
+	setDoRoundStatus("Selecting ghost guess")
+	local selectedCall, selected = pcall(
+		selectRoundJournalGhost,
+		ghostName,
+		generation
+	)
+	if not selectedCall or selected ~= true then
+		return false, "the final Journal selection could not be verified"
+	end
 	setDoRoundStatus("Identified; returning to Base Camp")
 	if not returnRoundToBase(generation) then
 		return false, "Do-Round cancelled before the Base Camp return"
@@ -3627,10 +3678,6 @@ local function completeIdentifiedRound(generation, guess, score, certain)
 	cancelRoundTask("identificationThread")
 	cancelRoundTask("timeoutThread")
 	cancelDoRoundSetupWork()
-	setDoRoundStatus("Identified; returning to Base Camp")
-	if not returnRoundToBase(completionGeneration) then
-		return false
-	end
 	while doRoundOperationActive(completionGeneration) do
 		local completedCall, completed, completionFailure = xpcall(
 			function()

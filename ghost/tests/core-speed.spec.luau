@@ -55,7 +55,7 @@ local coordinator = Coordinator.new({
 })
 coordinator:Start({Clock = function() return now end, Schedule = schedule})
 
-local function visibilityWindow(speeds, mapFactor, initialInvisible)
+local function visibilityWindow(speeds, mapFactor, initialInvisible, validMultipliers)
 	initialInvisible = initialInvisible == true
 	coordinator:Emit({
 		Type = Events.Types.HuntStarted,
@@ -65,6 +65,7 @@ local function visibilityWindow(speeds, mapFactor, initialInvisible)
 			Transparency = initialInvisible and 1 or 0,
 			AverageSanity = 50,
 			MapFactor = mapFactor,
+			ValidMultipliers = validMultipliers,
 		},
 	})
 	local invisible = not initialInvisible
@@ -168,6 +169,15 @@ local mappedPhantom = findEvent(coordinator, Events.Types.PhantomPattern)
 expect(mappedPhantom and mappedPhantom.Multiplier == 1.5
 	and mappedPhantom.MapFactor == 1.05,
 	"both Phantom bases must fit one common multiplier after map normalization")
+
+coordinator:Reset()
+now = 0
+table.clear(jobs)
+visibilityWindow(mappedDifficultySpeeds, 1.05, false, {1.25})
+expect(findEvent(coordinator, Events.Types.PhantomPattern) == nil,
+	"base × map × 1.5 speeds must not match when the configured custom factor is 1.25")
+expect(coordinator:Resolve({"Phantom"}).Phantom.RuledOut == true,
+	"the exact configured custom factor must constrain Phantom speed math")
 
 coordinator:Reset()
 now = 0

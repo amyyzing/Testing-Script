@@ -55,6 +55,18 @@ return function(dependencies)
 	)
 	local view = assert(dependencies.View, "logic/logic.luau requires View")
 	local presenter = dependencies.Presenter
+	local ghostSpecification = type(GhostPackage.Specification) == "table"
+		and GhostPackage.Specification or {}
+	local speedPairSpecification = type(ghostSpecification.SpeedPairs) == "table"
+		and ghostSpecification.SpeedPairs or {}
+	local mapSizeSpecification = type(ghostSpecification.MapSize) == "table"
+		and ghostSpecification.MapSize or {}
+	local mapSizeFactors = type(mapSizeSpecification.Factors) == "table"
+		and mapSizeSpecification.Factors or {Small = 1, Medium = 1.05, Large = 1.1}
+	local jobSiteSizes = type(mapSizeSpecification.JobSites) == "table"
+		and mapSizeSpecification.JobSites or {}
+	local allowedHuntingSpeedMultipliers = type(speedPairSpecification.HuntingMultipliers) == "table"
+		and speedPairSpecification.HuntingMultipliers or {0.5, 0.75, 1, 1.25, 1.5, 2}
 
 	local COLORS = view.Colors
 	local COPY = view.Copy
@@ -2362,20 +2374,14 @@ local function sameRoomName(first, second)
 	end
 	return string.lower(tostring(first)) == string.lower(tostring(second))
 end
-local function getMapSizeSpeedFactor()
-	local map = workspace:FindFirstChild("Map")
-	local mapSize = map and map:GetAttribute("MapSize") or nil
-	local normalized = string.lower(tostring(mapSize or "Small"))
-	if normalized == "large" then
-		return 1.1
-	elseif normalized == "medium" then
-		return 1.05
-	end
-	return 1
-end
 local function getMapSizeName()
 	local map = workspace:FindFirstChild("Map")
-	local value = map and map:GetAttribute("MapSize") or "Small"
+	local value = map and map:GetAttribute("MapSize") or nil
+	if value == nil then
+		local remembered = type(environment.DemonologyLobbySettings) == "table"
+			and environment.DemonologyLobbySettings or {}
+		value = jobSiteSizes[tostring(remembered.JobSite or "")]
+	end
 	local normalized = string.lower(tostring(value))
 	if normalized == "large" then
 		return "Large"
@@ -2383,6 +2389,30 @@ local function getMapSizeName()
 		return "Medium"
 	end
 	return "Small"
+end
+local function getMapSizeSpeedFactor()
+	return tonumber(mapSizeFactors[getMapSizeName()]) or 1
+end
+local function getConfiguredGhostSpeedMultipliers()
+	local remembered = type(environment.DemonologyLobbySettings) == "table"
+		and environment.DemonologyLobbySettings or {}
+	local selectedIndex = tonumber(remembered.GhostWalkSpeedMultiplier)
+	if tostring(remembered.Difficulty or "") == "Custom"
+		and selectedIndex ~= nil
+		and selectedIndex == math.floor(selectedIndex) then
+		local configured = tonumber(allowedHuntingSpeedMultipliers[selectedIndex])
+		if configured and configured > 0 then
+			return {configured}
+		end
+	end
+	local possible = {}
+	for _, multiplier in ipairs(allowedHuntingSpeedMultipliers) do
+		multiplier = tonumber(multiplier)
+		if multiplier and multiplier > 0 then
+			table.insert(possible, multiplier)
+		end
+	end
+	return possible
 end
 local function getGhostWalkSpeed(ghost)
 	local humanoid = ghost and ghost:FindFirstChildOfClass("Humanoid")
@@ -2549,7 +2579,11 @@ local function startGhostCoordinator(ghost)
 			InitialHunting = ghost:GetAttribute("Hunting") == true,
 			MapFactor = getMapSizeSpeedFactor(),
 			MapSize = getMapSizeName(),
-			ValidMultipliers = {0.5, 0.75, 1, 1.25, 1.5, 2},
+			-- Every expected hunting speed is evaluated as:
+			-- base × map-size factor × the configured custom speed factor.
+			-- When no custom handoff exists, retain all legal factors as a safe
+			-- manual-execution fallback instead of inventing one.
+			ValidMultipliers = getConfiguredGhostSpeedMultipliers(),
 			ReadHunting = function()
 				return ghost:GetAttribute("Hunting") == true
 			end,
@@ -4086,7 +4120,11 @@ perkTrackerState.teleportToBaseCamp = function(options)
 	end
 	local function alreadyInsideBaseCamp()
 		local character = player.Character
-		return character ~= nil and instanceIsInsideRoom(character, room)
+		local root = character
+			and character:FindFirstChild("HumanoidRootPart")
+		return root ~= nil
+			and root:IsA("BasePart")
+			and instanceIsInsideRoom(root, room)
 	end
 	local function alreadyAtBaseCampDestination()
 		if not alreadyInsideBaseCamp() then
@@ -5416,12 +5454,13 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 end
 
 doRoundState.movementReleaseSequence = 0
-doRoundState.releasePlayerMovement = function()
+doRoundState.releasePlayerMovement = function(force)
 	doRoundState.movementReleaseSequence =
 		(doRoundState.movementReleaseSequence or 0) + 1
 	local releaseSequence = doRoundState.movementReleaseSequence
 	local function restoreCurrentCharacter()
-		if doRoundState.enabled or player:GetAttribute("Dead") == true then
+		if (doRoundState.enabled and force ~= true)
+			or player:GetAttribute("Dead") == true then
 			return false
 		end
 		local character = player.Character
@@ -5457,7 +5496,7 @@ doRoundState.releasePlayerMovement = function()
 		for _ = 1, 12 do
 			Services.RunService.Heartbeat:Wait()
 			if releaseSequence ~= doRoundState.movementReleaseSequence
-				or doRoundState.enabled
+				or (doRoundState.enabled and force ~= true)
 				or not runtimeIsActive() then
 				return
 			end

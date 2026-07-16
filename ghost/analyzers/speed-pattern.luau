@@ -5,11 +5,14 @@ return function(dependencies)
 		and dependencies.Specification or {}
 	local PairSpec = type(Specification.SpeedPairs) == "table"
 		and Specification.SpeedPairs or {}
+	local MapSizeSpec = type(Specification.MapSize) == "table"
+		and Specification.MapSize or {}
 
 	local SpeedPattern = {}
 	SpeedPattern.__index = SpeedPattern
 	local DEFAULT_MULTIPLIERS = {0.5, 0.75, 1, 1.25, 1.5, 2}
-	local MAP_FACTORS = {Small = 1, Medium = 1.05, Large = 1.1}
+	local MAP_FACTORS = type(MapSizeSpec.Factors) == "table"
+		and MapSizeSpec.Factors or {Small = 1, Medium = 1.05, Large = 1.1}
 
 	local function median(values)
 		local sorted = {}

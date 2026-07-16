@@ -2,6 +2,26 @@
 -- and profile observers read this table so timing and decision boundaries cannot
 -- silently drift apart.
 return {
+	MapSize = {
+		Factors = {
+			Small = 1,
+			Medium = 1.05,
+			Large = 1.1,
+		},
+		JobSites = {
+			["Lincoln St"] = "Small",
+			["Fenway Drive"] = "Small",
+			["Juniper Road"] = "Small",
+			Bodega = "Small",
+			["Lilim Lane"] = "Medium",
+			Cafe = "Medium",
+			["Bridgewood Drive"] = "Medium",
+			["Oakbridge Estates"] = "Medium",
+			Prison = "Large",
+			School = "Large",
+			Asylum = "Large",
+		},
+	},
 	SpeedPairs = {
 		RequiredPairs = 7,
 		RequiredSamples = 14,

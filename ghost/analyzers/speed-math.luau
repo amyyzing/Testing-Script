@@ -9,12 +9,15 @@ return function(dependencies)
 		and Specification.SpeedMath or {}
 	local WendigoSpec = type(Specification.Wendigo) == "table"
 		and Specification.Wendigo or {}
+	local MapSizeSpec = type(Specification.MapSize) == "table"
+		and Specification.MapSize or {}
 
 	local SpeedMath = {}
 	SpeedMath.__index = SpeedMath
 
 	local DEFAULT_MULTIPLIERS = {0.5, 0.75, 1, 1.25, 1.5, 2}
-	local MAP_FACTORS = {Small = 1, Medium = 1.05, Large = 1.1}
+	local MAP_FACTORS = type(MapSizeSpec.Factors) == "table"
+		and MapSizeSpec.Factors or {Small = 1, Medium = 1.05, Large = 1.1}
 
 	local function validMultipliers(input)
 		local result = {}
