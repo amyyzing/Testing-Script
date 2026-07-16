@@ -19,14 +19,26 @@ return function(dependencies)
 			Complete = type(pairs) == "table" and #pairs == 7,
 			Identical = false,
 			HasBothStates = false,
+			PhantomPattern = false,
 			MapMultiplier = mapMultiplier(),
 		}
 		if not result.Complete then return result end
 		local firstSpeed
+		local firstVisible, firstInvisible
 		local identical = true
+		local repeatedPair = true
 		local sawVisible, sawInvisible = false, false
 		local speeds = {}
 		for _, pair in ipairs(pairs) do
+			local visibleSpeed = tonumber(pair.v)
+			local invisibleSpeed = tonumber(pair.i)
+			if not visibleSpeed or not invisibleSpeed then return result end
+			firstVisible = firstVisible or visibleSpeed
+			firstInvisible = firstInvisible or invisibleSpeed
+			if math.abs(visibleSpeed - firstVisible) > epsilon
+				or math.abs(invisibleSpeed - firstInvisible) > epsilon then
+				repeatedPair = false
+			end
 			for _, point in ipairs({pair.a, pair.b}) do
 				local speed = type(point) == "table" and tonumber(point.s)
 				if not speed then return result end
@@ -39,6 +51,31 @@ return function(dependencies)
 		end
 		result.HasBothStates = sawVisible and sawInvisible
 		if not sawVisible or not sawInvisible then return result end
+		if repeatedPair then
+			local bestError = math.huge
+			for _, customMultiplier in ipairs(customMultipliers) do
+				local visibleExpected = 11 * result.MapMultiplier * customMultiplier
+				local invisibleExpected = 13.5 * result.MapMultiplier * customMultiplier
+				local errorAmount = math.max(
+					math.abs(firstVisible - visibleExpected),
+					math.abs(firstInvisible - invisibleExpected)
+				)
+				if errorAmount < bestError then
+					bestError = errorAmount
+					result.PhantomCustomMultiplier = customMultiplier
+					result.PhantomVisibleExpected = visibleExpected
+					result.PhantomInvisibleExpected = invisibleExpected
+				end
+			end
+			result.PhantomError = bestError
+			if bestError <= epsilon then
+				result.PhantomPattern = true
+			else
+				result.PhantomCustomMultiplier = nil
+				result.PhantomVisibleExpected = nil
+				result.PhantomInvisibleExpected = nil
+			end
+		end
 		if not identical then return result end
 		result.Identical = true
 		local bestError = math.huge
@@ -71,7 +108,7 @@ return function(dependencies)
 			or type(payload) ~= "table" then return end
 		local result = inspect(payload.Pairs)
 		result.Pairs = payload.Pairs
-		Traffic("SpeedFilterResult", result):SendTo("Oni")
+		Traffic("SpeedFilterResult", result):SendTo("Oni", "Phantom")
 	end)
 
 	function Filter:Destroy()
