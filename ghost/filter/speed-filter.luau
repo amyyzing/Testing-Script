@@ -18,10 +18,12 @@ return function(dependencies)
 		local result = {
 			Complete = type(pairs) == "table" and #pairs == 7,
 			Identical = false,
+			HasBothStates = false,
 			MapMultiplier = mapMultiplier(),
 		}
 		if not result.Complete then return result end
 		local firstSpeed
+		local identical = true
 		local sawVisible, sawInvisible = false, false
 		local speeds = {}
 		for _, pair in ipairs(pairs) do
@@ -29,13 +31,15 @@ return function(dependencies)
 				local speed = type(point) == "table" and tonumber(point.s)
 				if not speed then return result end
 				firstSpeed = firstSpeed or speed
-				if math.abs(speed - firstSpeed) > epsilon then return result end
+				if math.abs(speed - firstSpeed) > epsilon then identical = false end
 				sawVisible = sawVisible or point.v == true
 				sawInvisible = sawInvisible or point.v == false
 				table.insert(speeds, speed)
 			end
 		end
+		result.HasBothStates = sawVisible and sawInvisible
 		if not sawVisible or not sawInvisible then return result end
+		if not identical then return result end
 		result.Identical = true
 		local bestError = math.huge
 		for _, baseSpeed in ipairs(baseSpeeds) do

@@ -27,9 +27,10 @@ end
 local function run(rawSpeed, visibilityMode, mapSize)
 	local heartbeat = signal()
 	local Humanoid = {WalkSpeed = rawSpeed}
-	local Model = {Transparency = 0}
-	function Model:GetAttribute() return self.Transparency end
-	local Ghost = {}
+	local Ghost = {Transparency = 0}
+	function Ghost:GetAttribute(name)
+		return name == "Transparency" and self.Transparency or nil
+	end
 	function Ghost:FindFirstChild() return nil end
 	function Ghost:FindFirstChildOfClass() return Humanoid end
 	local Map = {MapSize = mapSize or "Medium"}
@@ -44,7 +45,6 @@ local function run(rawSpeed, visibilityMode, mapSize)
 	local sevenPair = createSevenPair({
 		Traffic = Traffic,
 		Ghost = Ghost,
-		GhostModel = Model,
 		Humanoid = Humanoid,
 		RunService = {Heartbeat = heartbeat},
 		Interval = 0.1,
@@ -56,7 +56,7 @@ local function run(rawSpeed, visibilityMode, mapSize)
 
 	local function sample(speed, visible)
 		Humanoid.WalkSpeed = speed
-		Model.Transparency = visible and 0 or 1
+		Ghost.Transparency = visible and 0 or 1
 		heartbeat:Fire(0.1)
 	end
 	Traffic("HuntingState", {Hunting = true}):SendTo("SevenPair")
@@ -93,8 +93,9 @@ expect(stateSnapshot.Selected[1] == 11 and stateFilter.Identical == true,
 	"individual pairs may repeat a state when both states occur across all seven pairs")
 
 local visibleSnapshot, visibleFilter = run(13.5 * 1.05, "all-visible")
-expect(table.find(visibleSnapshot["ruled-out"], 11) and visibleFilter.Identical == false,
-	"a seven-pair set that never observes invisibility should rule out Oni")
+expect(#visibleSnapshot.Selected == 0 and #visibleSnapshot["ruled-out"] == 0
+	and visibleFilter.Identical == false and visibleFilter.HasBothStates == false,
+	"a seven-pair set with only one visibility state should leave Oni unknown")
 
 local invalidSnapshot, invalidFilter = run(13.5 * 1.05 * 1.75)
 expect(table.find(invalidSnapshot["ruled-out"], 11) and invalidFilter.BaseSpeed == nil,

@@ -1,7 +1,6 @@
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "speed-tracker requires Traffic")
 	local Ghost = assert(dependencies.Ghost, "speed-tracker requires Ghost")
-	local Model = dependencies.GhostModel or Ghost
 	local clock = dependencies.Clock or os.clock
 	local killMatchWindow = tonumber(dependencies.KillMatchWindow) or 0.75
 	local Tracker = {
@@ -13,7 +12,7 @@ return function(dependencies)
 		local humanoid = Ghost:FindFirstChildOfClass("Humanoid")
 		local speed = humanoid and tonumber(humanoid.WalkSpeed)
 		if not speed then return end
-		local transparency = Model:GetAttribute("Transparency")
+		local transparency = Ghost:GetAttribute("Transparency")
 		local visible = type(transparency) == "boolean"
 			and not transparency
 			or type(transparency) == "number" and transparency < 0.5
@@ -134,7 +133,7 @@ return function(dependencies)
 		end
 	end)
 
-	Tracker.VisibilityConnection = Model:GetAttributeChangedSignal("Transparency"):Connect(function()
+	Tracker.VisibilityConnection = Ghost:GetAttributeChangedSignal("Transparency"):Connect(function()
 		if Tracker.hunting then
 			sample("visibility")
 			sendSalt(false)

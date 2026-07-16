@@ -22,18 +22,21 @@ local function signal()
 end
 
 local visibility = signal()
-local Model = {Transparency = 0}
-function Model:GetAttribute() return self.Transparency end
-function Model:GetAttributeChangedSignal() return visibility end
-
 local speedChanged = signal()
 local Humanoid = {WalkSpeed = 11}
 function Humanoid:GetPropertyChangedSignal(name)
 	expect(name == "WalkSpeed", "speed tracker should observe WalkSpeed changes")
 	return speedChanged
 end
-local Ghost = {Hunting = false}
-function Ghost:GetAttribute(name) return name == "Hunting" and self.Hunting or nil end
+local Ghost = {Hunting = false, Transparency = 0}
+function Ghost:GetAttribute(name)
+	if name == "Hunting" then return self.Hunting end
+	if name == "Transparency" then return self.Transparency end
+end
+function Ghost:GetAttributeChangedSignal(name)
+	expect(name == "Transparency", "speed tracker should observe Workspace.Ghost Transparency")
+	return visibility
+end
 function Ghost:FindFirstChildOfClass() return Humanoid end
 function Ghost:FindFirstChild() return nil end
 
@@ -53,7 +56,6 @@ end)
 local tracker = createSpeedTracker({
 	Traffic = Traffic,
 	Ghost = Ghost,
-	GhostModel = Model,
 	Clock = function() return now end,
 	KillMatchWindow = 0.75,
 })
@@ -85,10 +87,10 @@ now = 1
 speedChanged:Fire()
 Traffic("HuntSpeedSample", {Index = 4}):SendTo("SpeedTracker")
 now = 1.1
-Model.Transparency = 1
+Ghost.Transparency = 1
 visibility:Fire()
 now = 1.2
-Model.Transparency = 0
+Ghost.Transparency = 0
 visibility:Fire()
 now = 1.3
 Traffic("PlayerKilled", {userId = 1, Time = now}):SendTo("SpeedTracker")
@@ -96,10 +98,10 @@ expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
 	and huntLog[#huntLog].payload.Index == 4,
 	"a delayed PlayerKilled marker should align with the latest paced display sample")
 now = 1.4
-Model.Transparency = 1
+Ghost.Transparency = 1
 visibility:Fire()
 now = 1.5
-Model.Transparency = 0
+Ghost.Transparency = 0
 visibility:Fire()
 
 expect(#kills >= 1, "hunting deaths should produce kill speed updates")

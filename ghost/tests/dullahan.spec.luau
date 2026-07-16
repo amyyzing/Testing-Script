@@ -66,7 +66,7 @@ expect(heartbeat:Count() == 1, "hunting should start one paced sampler")
 Ghost.Transparency = nil
 heartbeat:Fire(0.1)
 expect(filter.SampleCount == 0,
-	"a missing root Transparency attribute must not become a false invisible sample")
+	"a missing Workspace.Ghost Transparency attribute must not become a false invisible sample")
 for _ = 1, 7 do sendPair(22, 27) end
 expect(lastResult and #lastResult.Pairs == 7 and lastResult.DistinctPairs == 1,
 	"the repeated Phantom-style pair should remain one distinct pair")

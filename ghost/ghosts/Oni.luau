@@ -7,6 +7,7 @@ function Oni.new(dependencies)
 	Processor.Disconnect = Traffic:Receive("Oni", function(signal, payload)
 		if Processor.Resolved or signal ~= "SpeedFilterResult"
 			or type(payload) ~= "table" or payload.Complete ~= true then return end
+		if payload.HasBothStates ~= true then return end
 		Processor.Resolved = true
 		local supported = payload.Identical == true and payload.BaseSpeed == 13.5
 		Traffic(supported and "Support" or "RuleOut", {
