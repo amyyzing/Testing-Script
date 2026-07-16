@@ -19,6 +19,7 @@ return function(dependencies)
 		Selected = {},
 		RuledOut = {},
 		Confidence = {},
+		NegativeConfidence = {},
 		Reasons = {},
 		JournalTouched = {},
 	}
@@ -74,16 +75,22 @@ return function(dependencies)
 		return table.find(Verdict.RuledOut, index) ~= nil
 	end
 
+	local function score(index)
+		return math.max(0,
+			(Verdict.Confidence[index] or 0) - (Verdict.NegativeConfidence[index] or 0))
+	end
+
 	local function selectBest(forceJournal)
 		local bestIndex
-		local bestConfidence = -math.huge
+		local bestScore = -math.huge
 		for index, name in ipairs(GHOSTS) do
 			local confidence = Verdict.Confidence[index]
+			local currentScore = score(index)
 			if not isRuledOut(index)
 				and confidence ~= nil
-				and confidence > bestConfidence then
+				and currentScore > bestScore then
 				bestIndex = index
-				bestConfidence = confidence
+				bestScore = currentScore
 			end
 		end
 		local previous = Verdict.Selected[1]
@@ -113,6 +120,16 @@ return function(dependencies)
 		return true
 	end
 
+	function Verdict:Negative(ghost, confidence, reason)
+		local index = indexes[ghost]
+		if not index or isRuledOut(index) then return false end
+		confidence = tonumber(confidence) or 0
+		self.NegativeConfidence[index] = math.max(self.NegativeConfidence[index] or 0, confidence)
+		self.Reasons[index] = reason
+		selectBest()
+		return true
+	end
+
 	function Verdict:RuleOut(ghost, confidence, reason)
 		local index = indexes[ghost]
 		if not index then return false end
@@ -133,6 +150,7 @@ return function(dependencies)
 		table.clear(self.RuledOut)
 		table.clear(self.Selected)
 		table.clear(self.Confidence)
+		table.clear(self.NegativeConfidence)
 		table.clear(self.Reasons)
 	end
 
@@ -142,6 +160,7 @@ return function(dependencies)
 			Selected = table.clone(self.Selected),
 			["ruled-out"] = table.clone(self.RuledOut),
 			Confidence = table.clone(self.Confidence),
+			NegativeConfidence = table.clone(self.NegativeConfidence),
 			Reasons = table.clone(self.Reasons),
 		}
 	end
@@ -150,6 +169,8 @@ return function(dependencies)
 		payload = type(payload) == "table" and payload or {}
 		if signal == "Support" then
 			Verdict:Support(payload.Ghost, payload.Confidence, payload.Reason)
+		elseif signal == "Negative" then
+			Verdict:Negative(payload.Ghost, payload.Confidence, payload.Reason)
 		elseif signal == "RuleOut" then
 			Verdict:RuleOut(payload.Ghost, payload.Confidence, payload.Reason)
 		end

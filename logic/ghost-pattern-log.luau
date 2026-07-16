@@ -31,17 +31,18 @@ return function(dependencies)
 	end
 
 	local function recordVerdict(signal, payload)
-		if signal ~= "Support" and signal ~= "RuleOut" then return end
+		if signal ~= "Support" and signal ~= "Negative" and signal ~= "RuleOut" then return end
 		payload = type(payload) == "table" and payload or {}
 		local ghost = tostring(payload.Ghost or "Unknown")
 		local reason = tostring(payload.Reason or "pattern observed")
+		local positive = signal == "Support"
 		add(string.format(
 			"%s  %s  [%s%%]\n%s",
-			signal == "Support" and "POSITIVE" or "NEGATIVE",
+			positive and "POSITIVE" or "NEGATIVE",
 			ghost,
 			tostring(tonumber(payload.Confidence) or 0),
 			reason
-		), signal == "Support" and positiveColor or negativeColor,
+		), positive and positiveColor or negativeColor,
 			table.concat({signal, ghost, reason}, "|"))
 	end
 

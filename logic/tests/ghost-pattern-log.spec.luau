@@ -51,12 +51,16 @@ expect(entries[1].TextColor3 == "green" and view.Empty.Visible == false,
 Traffic("RuleOut", payload):SendTo("Verdict")
 expect(controller.Count == 2 and entries[2].TextColor3 == "red",
 	"a negative result should be a distinct log")
+Traffic("Negative", {Ghost = "Entity", Confidence = 50, Reason = "no Smoke Holder"}):SendTo("Verdict")
+expect(controller.Count == 3 and entries[3].TextColor3 == "red"
+	and string.find(entries[3].Text, "NEGATIVE", 1, true),
+	"a soft negative should be logged without becoming a rule-out")
 Traffic("SaltHit", {ContactId = 7, Hunting = true}):SendTo("SpeedTracker")
-expect(controller.Count == 3 and entries[3].TextColor3 == "blue"
-	and string.find(entries[3].Text, "SALT HIT", 1, true),
+expect(controller.Count == 4 and entries[4].TextColor3 == "blue"
+	and string.find(entries[4].Text, "SALT HIT", 1, true),
 	"salt contacts should create tracker rows")
 Traffic("PlayerKilled", {userId = 42}):SendTo("SpeedTracker")
-expect(controller.Count == 4 and string.find(entries[4].Text, "PLAYER KILLED", 1, true),
+expect(controller.Count == 5 and string.find(entries[5].Text, "PLAYER KILLED", 1, true),
 	"unique player kills should create tracker rows")
 Traffic("KillSpeed", {
 	userId = 42,
@@ -64,10 +68,10 @@ Traffic("KillSpeed", {
 	beforeKill = {{s = 22, v = false}, {s = 24, v = false}, {s = 24, v = false}},
 	afterKill = {{s = 24, v = false}, {s = 24, v = false}},
 }):SendTo("Aswang")
-expect(controller.Count == 4 and string.find(entries[4].Text, "22.000 -> 24.000", 1, true),
+expect(controller.Count == 5 and string.find(entries[5].Text, "22.000 -> 24.000", 1, true),
 	"a pre-signal speed rise should update the player-kill row from its retained baseline")
 Traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
-expect(controller.Count == 4, "unrequested tracker events should not create rows")
+expect(controller.Count == 5, "unrequested tracker events should not create rows")
 
 controller:Destroy()
 for _, entry in ipairs(entries) do expect(entry.Destroyed, "destroy should remove every generated log") end

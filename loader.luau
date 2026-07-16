@@ -44,14 +44,17 @@ local markJournal = loadModule("remotes/EvidenceMarkedInJournal.luau")
 loading:SetStage("Loading ghost processors", 5, 10)
 local Aswang = loadModule("ghost/ghosts/Aswang.luau")
 local Demon = loadModule("ghost/ghosts/Demon.luau")
+local Entity = loadModule("ghost/ghosts/Entity.luau")
 loading:SetStage("Loading trackers", 6, 10)
 local createCrossBurn = loadModule("ghost/active-trackers/cross-burn.luau")
 local createHuntingState = loadModule("ghost/active-trackers/hunting-state.luau")
+local createItemTeleport = loadModule("ghost/active-trackers/item-teleport.luau")
 local createKillCount = loadModule("ghost/active-trackers/kill-count.luau")
 local createSaltHit = loadModule("ghost/active-trackers/salt-hit.luau")
 local createSpeedTracker = loadModule("ghost/active-trackers/speed-tracker.luau")
 local createCrossAnimation = loadModule("ghost/discardable-trackers/cross-animation.luau")
 local createSaltState = loadModule("ghost/discardable-trackers/salt-state-after-hit.luau")
+local createSmokeHolder = loadModule("ghost/discardable-trackers/smoke-holder.luau")
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
 local createBright = loadModule("logic/bright.luau")
 local createGhostESP = loadModule("logic/ghost-esp.luau")
@@ -153,6 +156,16 @@ local function startTrackers()
 		}))
 		remember(Aswang.new({Traffic = Traffic}))
 		remember(Demon.new({Traffic = Traffic}))
+		remember(Entity.new({Traffic = Traffic}))
+		remember(createSmokeHolder({
+			Traffic = Traffic,
+			Workspace = Services.Workspace,
+		}))
+		remember(createItemTeleport({
+			Traffic = Traffic,
+			Workspace = Services.Workspace,
+			RunService = Services.RunService,
+		}))
 		remember(createCrossAnimation({
 			Traffic = Traffic,
 			RunService = Services.RunService,
