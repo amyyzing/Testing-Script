@@ -21,20 +21,21 @@ return function(dependencies)
 			MapMultiplier = mapMultiplier(),
 		}
 		if not result.Complete then return result end
-		local first = pairs[1]
-		local firstVisible = first and tonumber(first.v)
-		local firstInvisible = first and tonumber(first.i)
-		if not firstVisible or not firstInvisible then return result end
+		local firstSpeed
+		local sawVisible, sawInvisible = false, false
 		local speeds = {}
 		for _, pair in ipairs(pairs) do
-			local visible = tonumber(pair.v)
-			local invisible = tonumber(pair.i)
-			if not visible or not invisible or pair.MixedVisibility ~= true
-				or math.abs(visible - firstVisible) > epsilon
-				or math.abs(invisible - firstInvisible) > epsilon then return result end
-			table.insert(speeds, visible)
-			table.insert(speeds, invisible)
+			for _, point in ipairs({pair.a, pair.b}) do
+				local speed = type(point) == "table" and tonumber(point.s)
+				if not speed then return result end
+				firstSpeed = firstSpeed or speed
+				if math.abs(speed - firstSpeed) > epsilon then return result end
+				sawVisible = sawVisible or point.v == true
+				sawInvisible = sawInvisible or point.v == false
+				table.insert(speeds, speed)
+			end
 		end
+		if not sawVisible or not sawInvisible then return result end
 		result.Identical = true
 		local bestError = math.huge
 		for _, baseSpeed in ipairs(baseSpeeds) do

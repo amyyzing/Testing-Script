@@ -66,19 +66,22 @@ return function(dependencies)
 			Tracker.Pending = point
 		else
 			local first = Tracker.Pending
+			local pair
 			if first.v ~= point.v then
-				local pair = first.v
+				pair = first.v
 					and {v = first.s, i = point.s}
 					or {v = point.s, i = first.s}
 				pair.MixedVisibility = true
-				table.insert(Tracker.Pairs, pair)
 			else
-				table.insert(Tracker.Pairs, {
+				pair = {
 					v = first.s,
 					i = point.s,
 					MixedVisibility = false,
-				})
+				}
 			end
+			pair.a = first
+			pair.b = point
+			table.insert(Tracker.Pairs, pair)
 			Tracker.Pending = nil
 			if #Tracker.Pairs == 7 then finish() end
 		end

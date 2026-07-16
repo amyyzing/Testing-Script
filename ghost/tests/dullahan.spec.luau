@@ -66,6 +66,8 @@ expect(lastResult and #lastResult.Pairs == 7 and lastResult.DistinctPairs == 1,
 	"the repeated Phantom-style pair should remain one distinct pair")
 expect(lastResult.Pairs[1].MixedVisibility == true,
 	"a visible/invisible pair should preserve its state structure for the speed filter")
+expect(lastResult.Pairs[1].a.v == true and lastResult.Pairs[1].b.v == false,
+	"each pair should retain both original speed and visibility samples")
 expect(lastResult.Samples == 14 and filter.SampleCount == 14,
 	"exactly fourteen paced samples should form the seven pairs")
 expect(Verdict:Snapshot()["ruled-out"][1] == 4,

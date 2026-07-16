@@ -24,7 +24,7 @@ local function signal()
 	}
 end
 
-local function run(rawSpeed, sameVisibilityPair)
+local function run(rawSpeed, visibilityMode, mapSize)
 	local heartbeat = signal()
 	local Humanoid = {WalkSpeed = rawSpeed}
 	local Model = {Transparency = 0}
@@ -32,7 +32,7 @@ local function run(rawSpeed, sameVisibilityPair)
 	local Ghost = {}
 	function Ghost:FindFirstChild() return nil end
 	function Ghost:FindFirstChildOfClass() return Humanoid end
-	local Map = {MapSize = "Medium"}
+	local Map = {MapSize = mapSize or "Medium"}
 	function Map:GetAttribute(name) return name == "MapSize" and self.MapSize or nil end
 	local World = {}
 	function World:FindFirstChild(name) return name == "Map" and Map or nil end
@@ -63,7 +63,7 @@ local function run(rawSpeed, sameVisibilityPair)
 	for index = 1, 7 do
 		local speed = type(rawSpeed) == "table" and rawSpeed[index] or rawSpeed
 		sample(speed, true)
-		sample(speed, index == sameVisibilityPair)
+		sample(speed, visibilityMode == "all-visible" or index == visibilityMode)
 	end
 
 	local snapshot = Verdict:Snapshot()
@@ -79,13 +79,22 @@ expect(oniSnapshot.Selected[1] == 11 and oniFilter.Identical
 	and oniFilter.MapMultiplier == 1.05,
 	"seven identical 13.5-base visible/invisible pairs should support Oni after scaling")
 
-local normalSnapshot, normalFilter = run(11 * 1.05 * 2)
+local smallSnapshot, smallFilter = run(27, nil, "Small")
+expect(smallSnapshot.Selected[1] == 11 and smallFilter.BaseSpeed == 13.5
+	and smallFilter.CustomMultiplier == 2 and smallFilter.MapMultiplier == 1,
+	"27 hunting WalkSpeed on a Small map should support the 200 percent Oni mode")
+
+local normalSnapshot, normalFilter = run(22, nil, "Small")
 expect(table.find(normalSnapshot["ruled-out"], 11) and normalFilter.BaseSpeed == 11,
 	"seven identical normal 11-base hunting pairs should rule out Oni")
 
 local stateSnapshot, stateFilter = run(13.5 * 1.05, 4)
-expect(table.find(stateSnapshot["ruled-out"], 11) and stateFilter.Identical == false,
-	"a pair without both visibility states should rule out Oni")
+expect(stateSnapshot.Selected[1] == 11 and stateFilter.Identical == true,
+	"individual pairs may repeat a state when both states occur across all seven pairs")
+
+local visibleSnapshot, visibleFilter = run(13.5 * 1.05, "all-visible")
+expect(table.find(visibleSnapshot["ruled-out"], 11) and visibleFilter.Identical == false,
+	"a seven-pair set that never observes invisibility should rule out Oni")
 
 local invalidSnapshot, invalidFilter = run(13.5 * 1.05 * 1.75)
 expect(table.find(invalidSnapshot["ruled-out"], 11) and invalidFilter.BaseSpeed == nil,
