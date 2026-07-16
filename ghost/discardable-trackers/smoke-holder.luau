@@ -3,7 +3,7 @@ return function(dependencies)
 	local World = dependencies.Workspace or workspace
 	local clock = dependencies.Clock or os.clock
 	local delay = dependencies.Delay or task.delay
-	local window = tonumber(dependencies.Window) or 1.8
+	local window = tonumber(dependencies.Window) or 3
 	local Tracker = {
 		Kind = "discardable",
 		Running = true,
@@ -47,7 +47,9 @@ return function(dependencies)
 			finish(id, true, smoke)
 		else
 			delay(window, function()
-				if Tracker.Running then finish(id, false) end
+				if not Tracker.Running or not Tracker.Active[id] then return end
+				local finalSmoke = existingSmoke()
+				finish(id, finalSmoke ~= nil, finalSmoke)
 			end)
 		end
 	end)

@@ -46,7 +46,7 @@ return function(dependencies)
 	function Tracker:Sample()
 		local now = clock()
 		local seen = setmetatable({}, {__mode = "k"})
-		for _, containerName in ipairs({"Items", "Interactable", "Interactables"}) do
+		for _, containerName in ipairs({"Items", "Interactables"}) do
 			local container = World:FindFirstChild(containerName)
 			if container then self:BindContainer(container) end
 			for _, object in ipairs(container and container:GetChildren() or {}) do

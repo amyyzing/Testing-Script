@@ -46,7 +46,9 @@ local smokeTracker = createSmokeHolder({
 	Traffic = Traffic,
 	Workspace = World,
 	Clock = function() return now end,
-	Delay = function(_, callback) table.insert(delayed, callback) end,
+	Delay = function(seconds, callback)
+		table.insert(delayed, {Seconds = seconds, Callback = callback})
+	end,
 })
 local teleports = {}
 Traffic:Receive("SmokeHolder", function(signalName, payload)
@@ -64,7 +66,9 @@ now = 0.4
 heartbeat:Fire(0.4)
 expect(#teleports == 1 and teleports[1].Distance == 40,
 	"a 40-stud single-sample jump should emit one item teleport")
-table.remove(delayed, 1)()
+local firstDelay = table.remove(delayed, 1)
+expect(firstDelay.Seconds == 3, "Entity should wait three seconds for its Smoke Holder")
+firstDelay.Callback()
 expect(Verdict.NegativeConfidence[6] == 50 and not table.find(Verdict.RuledOut, 6),
 	"a smoke-free teleport should be a 50% Entity negative, not a rule-out")
 expect(#Verdict.Selected == 0, "a soft negative alone must not select Entity")
@@ -78,7 +82,7 @@ World.Smoke = smoke
 descendantAdded:Fire(smoke)
 expect(Verdict.Confidence[6] == 99 and Verdict.Selected[1] == 6,
 	"a teleport followed by a Smoke Holder should support and select Entity")
-if delayed[1] then table.remove(delayed, 1)() end
+if delayed[1] then table.remove(delayed, 1).Callback() end
 expect(Verdict.Confidence[6] == 99,
 	"the expired no-smoke callback must not overwrite a completed smoke result")
 
@@ -89,6 +93,19 @@ now = 1.2
 heartbeat:Fire(0.4)
 expect(#teleports == 2,
 	"an item removed and re-added between samples should receive a new baseline")
+
+World.Smoke = nil
+now = 4.2
+heartbeat:Fire(0.4)
+Verdict:Reset()
+item.Current = {X = 160, Y = 0, Z = 0}
+now = 4.6
+heartbeat:Fire(0.4)
+expect(#teleports == 3 and delayed[1], "a later teleport should begin another smoke probe")
+World.Smoke = {Name = "SmokeHolder"}
+table.remove(delayed, 1).Callback()
+expect(Verdict.Confidence[6] == 99 and not Verdict.NegativeConfidence[6],
+	"the final recursive scan should find a Smoke Holder even without DescendantAdded")
 
 Verdict:Reset()
 Traffic("Support", {Ghost = "Entity", Confidence = 99}):SendTo("Verdict")
