@@ -51,6 +51,7 @@ local createSaltState = loadModule("ghost/discardable-trackers/salt-state-after-
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
 local createBright = loadModule("logic/bright.luau")
 local createGhostESP = loadModule("logic/ghost-esp.luau")
+local createGhostPatternLog = loadModule("logic/ghost-pattern-log.luau")
 local createTeleportBaseCamp = loadModule("logic/teleport-base-camp.luau")
 
 loading:SetStage("Building interface", 7, 10)
@@ -119,8 +120,6 @@ local function startTrackers()
 	local ghost = Services.Workspace:FindFirstChild("Ghost")
 	local humanoid = ghost and ghost:FindFirstChildOfClass("Humanoid")
 	if not coreStarted and (not ghost or not humanoid) then
-		view.Status.Text = not ghost and "Waiting for Workspace.Ghost"
-			or "Waiting for Ghost Humanoid"
 		return
 	end
 
@@ -130,6 +129,12 @@ local function startTrackers()
 		local Traffic = createTraffic()
 		local Verdict = createVerdict({Traffic = Traffic})
 		session.Traffic, session.Verdict, session.Ghost = Traffic, Verdict, ghost
+		remember(createGhostPatternLog({
+			Traffic = Traffic,
+			View = view.PatternDrawer,
+			PositiveColor = view.Colors.Positive,
+			NegativeColor = view.Colors.Danger,
+		}))
 		remember(Aswang.new({Traffic = Traffic}))
 		session.EscapeHunt = remember(createEscapeHunt({
 			Player = player,
@@ -159,8 +164,6 @@ local function startTrackers()
 		remember(createSaltHit({Traffic = session.Traffic, Ghost = session.Ghost, SaltFolder = saltPiles}))
 		disconnectWaiting()
 	end
-	view.Status.Text = saltStarted and "Aswang tracker running"
-		or "Aswang kill tracker running; waiting for salt"
 end
 
 loading:SetStage("Starting Aswang tracker", 8, 10)
