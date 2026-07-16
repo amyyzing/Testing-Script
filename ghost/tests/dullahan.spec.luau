@@ -26,9 +26,8 @@ end
 
 local heartbeat = signal()
 local Humanoid = {WalkSpeed = 22}
-local Model = {Transparency = 0}
-function Model:GetAttribute() return self.Transparency end
-local Ghost = {}
+local Ghost = {Transparency = false}
+function Ghost:GetAttribute() return self.Transparency end
 function Ghost:FindFirstChild() return nil end
 function Ghost:FindFirstChildOfClass() return Humanoid end
 
@@ -38,7 +37,6 @@ local dullahan = Dullahan.new({Traffic = Traffic})
 local filter = createSevenPair({
 	Traffic = Traffic,
 	Ghost = Ghost,
-	GhostModel = Model,
 	Humanoid = Humanoid,
 	RunService = {Heartbeat = heartbeat},
 	Interval = 0.1,
@@ -54,7 +52,7 @@ end)
 
 local function sample(speed, visible)
 	Humanoid.WalkSpeed = speed
-	Model.Transparency = visible and 0 or 1
+	Ghost.Transparency = not visible
 	heartbeat:Fire(0.1)
 end
 
@@ -65,6 +63,10 @@ end
 
 Traffic("HuntingState", {Hunting = true}):SendTo("SevenPair")
 expect(heartbeat:Count() == 1, "hunting should start one paced sampler")
+Ghost.Transparency = nil
+heartbeat:Fire(0.1)
+expect(filter.SampleCount == 0,
+	"a missing root Transparency attribute must not become a false invisible sample")
 for _ = 1, 7 do sendPair(22, 27) end
 expect(lastResult and #lastResult.Pairs == 7 and lastResult.DistinctPairs == 1,
 	"the repeated Phantom-style pair should remain one distinct pair")

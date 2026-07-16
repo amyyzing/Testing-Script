@@ -1,7 +1,7 @@
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "speed-tracker requires Traffic")
 	local Ghost = assert(dependencies.Ghost, "speed-tracker requires Ghost")
-	local Model = dependencies.GhostModel or Ghost:FindFirstChild("GhostModel", true) or Ghost
+	local Model = dependencies.GhostModel or Ghost
 	local clock = dependencies.Clock or os.clock
 	local killMatchWindow = tonumber(dependencies.KillMatchWindow) or 0.75
 	local Tracker = {
@@ -13,7 +13,11 @@ return function(dependencies)
 		local humanoid = Ghost:FindFirstChildOfClass("Humanoid")
 		local speed = humanoid and tonumber(humanoid.WalkSpeed)
 		if not speed then return end
-		local point = {s = speed, v = Model:GetAttribute("Transparency") == 0}
+		local transparency = Model:GetAttribute("Transparency")
+		local visible = type(transparency) == "boolean"
+			and not transparency
+			or type(transparency) == "number" and transparency < 0.5
+		local point = {s = speed, v = visible == true}
 		table.insert(Tracker.samples, point)
 		table.insert(Tracker.sampleMeta, {source = source, time = clock()})
 		if Tracker.afterSalt then table.insert(Tracker.afterSalt, point) end

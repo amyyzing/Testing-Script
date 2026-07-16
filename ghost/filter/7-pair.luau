@@ -2,7 +2,7 @@ return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "7-pair requires Traffic")
 	local Ghost = assert(dependencies.Ghost, "7-pair requires Ghost")
 	local RunService = assert(dependencies.RunService, "7-pair requires RunService")
-	local Model = dependencies.GhostModel or Ghost:FindFirstChild("GhostModel", true) or Ghost
+	local Model = dependencies.GhostModel or Ghost
 	local Humanoid = dependencies.Humanoid or Ghost:FindFirstChildOfClass("Humanoid")
 	local interval = tonumber(dependencies.Interval) or 0.1
 	local Tracker = {
@@ -60,8 +60,17 @@ return function(dependencies)
 	local function sample()
 		local speed = Humanoid and tonumber(Humanoid.WalkSpeed)
 		if not speed then return end
+		local transparency = Model:GetAttribute("Transparency")
+		local visible
+		if type(transparency) == "boolean" then
+			visible = not transparency
+		elseif type(transparency) == "number" then
+			visible = transparency < 0.5
+		else
+			return
+		end
 		Tracker.SampleCount += 1
-		local point = {s = speed, v = Model:GetAttribute("Transparency") == 0}
+		local point = {s = speed, v = visible}
 		Traffic("HuntSpeedSample", {
 			Index = Tracker.SampleCount,
 			Point = {s = point.s, v = point.v},
