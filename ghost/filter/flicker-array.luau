@@ -1,7 +1,7 @@
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "flicker-array requires Traffic")
-	local window = tonumber(dependencies.Window) or 2.5
-	local requiredSwitches = tonumber(dependencies.RequiredSwitches) or 10
+	local window = tonumber(dependencies.Window) or 1
+	local requiredSwitches = tonumber(dependencies.RequiredSwitches) or 2
 	local Tracker = {
 		Kind = "filter",
 		Running = true,
@@ -21,7 +21,7 @@ return function(dependencies)
 			switches = {}
 			Tracker.Arrays[payload.Item] = switches
 		end
-		while switches[1] and now - switches[1].t > window do table.remove(switches, 1) end
+		while switches[1] and now - switches[1].t >= window do table.remove(switches, 1) end
 		local last = switches[#switches]
 		if last and last.v == payload.Current then return end
 		table.insert(switches, {t = now, v = payload.Current})
@@ -43,6 +43,7 @@ return function(dependencies)
 			ItemName = payload.ItemName,
 			Switches = table.clone(switches),
 			Count = #switches,
+			RequiredSwitches = requiredSwitches,
 			Window = window,
 			Duration = duration,
 		}):SendTo("Leviathan")

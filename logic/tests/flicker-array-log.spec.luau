@@ -48,7 +48,7 @@ Traffic("FlickerArrayUpdate", {
 	Item = item,
 	ItemName = "Spirit Box",
 	Switches = {{t = 5, v = false}, {t = 5.2, v = true}},
-	RequiredSwitches = 10,
+	RequiredSwitches = 2,
 	Duration = 0.2,
 }):SendTo("FlickerArrayLog")
 expect(#controller.Entries == 3 and string.find(controller.Entries[1].Text, "Spirit Box", 1, true),
@@ -58,17 +58,16 @@ expect(string.find(controller.Entries[2].Text, "t = +0.000", 1, true)
 	"switch rows should use relative time and boolean state")
 local replacedRow = controller.Entries[1]
 
-local completed = {}
-for index = 1, 10 do table.insert(completed, {t = 10 + index * 0.2, v = index % 2 == 0}) end
+local completed = {{t = 10, v = false}, {t = 10.4, v = true}}
 Traffic("FlickerArrayUpdate", {
 	Item = item,
 	ItemName = "Spirit Box",
 	Switches = completed,
-	RequiredSwitches = 10,
-	Duration = 1.8,
+	RequiredSwitches = 2,
+	Duration = 0.4,
 	Completed = true,
 }):SendTo("FlickerArrayLog")
-expect(replacedRow.Destroyed and #controller.Entries == 11,
+expect(replacedRow.Destroyed and #controller.Entries == 3,
 	"an updated item should replace its old rows instead of duplicating them")
 expect(string.find(view.Title.Text, "LEVIATHAN MATCH", 1, true)
 	and controller.Entries[1].TextColor3 == "positive",

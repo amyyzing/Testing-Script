@@ -67,7 +67,7 @@ return function(dependencies)
 		if not controller.Arrays[payload.Item] then table.insert(controller.Order, payload.Item) end
 		controller.Arrays[payload.Item] = {
 			Switches = payload.Switches,
-			RequiredSwitches = tonumber(payload.RequiredSwitches) or 10,
+			RequiredSwitches = tonumber(payload.RequiredSwitches) or 2,
 			Duration = tonumber(payload.Duration) or 0,
 		}
 		controller.Names[payload.Item] = tostring(
