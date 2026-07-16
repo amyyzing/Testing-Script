@@ -43,7 +43,15 @@ return function(dependencies)
 	local function hunting(value)
 		if Tracker.hunting == value then return end
 		if Tracker.hunting then
-			sendSalt(true)
+			if Tracker.beforeSalt and not Tracker.saltState then
+				Tracker.pendingSalt = {
+					contact = Tracker.contact,
+					beforeSalt = Tracker.beforeSalt,
+					afterSalt = Tracker.afterSalt,
+				}
+			else
+				sendSalt(true)
+			end
 			sendKill(true)
 			Traffic("HuntSpeedEnded", {Count = #Tracker.samples}):SendTo("SpeedArrayLog")
 		end
@@ -68,9 +76,19 @@ return function(dependencies)
 				Index = #Tracker.samples,
 				Label = "SALT SPLIT",
 			}):SendTo("SpeedArrayLog")
-		elseif signal == "SaltStateAfterHit" and payload.ContactId == Tracker.contact then
-			Tracker.saltState = payload.State
-			sendSalt(false)
+		elseif signal == "SaltStateAfterHit" then
+			if payload.ContactId == Tracker.contact then
+				Tracker.saltState = payload.State
+				sendSalt(false)
+			elseif Tracker.pendingSalt and payload.ContactId == Tracker.pendingSalt.contact then
+				Traffic("SaltSpeed", {
+					saltState = payload.State,
+					beforeSalt = Tracker.pendingSalt.beforeSalt,
+					afterSalt = Tracker.pendingSalt.afterSalt,
+					completed = true,
+				}):SendTo("Aswang")
+				Tracker.pendingSalt = nil
+			end
 		elseif signal == "PlayerKilled" and Tracker.hunting then
 			local transition = sample()
 			if not transition then return end

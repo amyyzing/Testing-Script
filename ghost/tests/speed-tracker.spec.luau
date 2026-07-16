@@ -91,5 +91,18 @@ expect(kills[#kills].completed == true, "hunt end should finalize the active kil
 expect(huntLog[#huntLog].signal == "HuntSpeedEnded",
 	"hunt end should retain and mark the completed displayed array")
 
+Ghost.Hunting, Humanoid.WalkSpeed = true, 11
+Traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
+Traffic("SaltHit", {ContactId = 2}):SendTo("SpeedTracker")
+Humanoid.WalkSpeed = 8
+speedChanged:Fire()
+local saltCount = #salts
+Ghost.Hunting = false
+Traffic("HuntingState", {Hunting = false}):SendTo("SpeedTracker")
+Traffic("SaltStateAfterHit", {ContactId = 2, State = "disturbed"}):SendTo("SpeedTracker")
+expect(#salts == saltCount + 1 and salts[#salts].completed == true
+	and salts[#salts].afterSalt[#salts[#salts].afterSalt].s == 8,
+	"a disturbed result arriving after hunt end should retain the completed salt split")
+
 tracker:Destroy()
 print("speed-tracker.spec: kill splits, salt coexistence, and hunt finalization passed")

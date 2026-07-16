@@ -20,13 +20,26 @@ expect(Verdict:Snapshot().Selected == 1, "hunting salt slowdown and recovery sho
 Verdict:Reset()
 Traffic("SaltSpeed", {
 	saltState = "disturbed",
+	beforeSalt = {
+		{s = 22, v = true}, {s = 22, v = false},
+		{s = 16.5, v = true}, {s = 16.5, v = false},
+	},
+	afterSalt = {{s = 16.5, v = true}, {s = 16.5, v = false}},
+	completed = true,
+}):SendTo("Aswang")
+expect(Verdict:Snapshot().Selected == 1,
+	"a clear salt slowdown should select Aswang even when the hunt ends before recovery")
+
+Verdict:Reset()
+Traffic("SaltSpeed", {
+	saltState = "disturbed",
 	beforeSalt = {{s = 11, v = true}},
 	afterSalt = {{s = 11, v = true}, {s = 9, v = false}},
 	completed = true,
 }):SendTo("Aswang")
 local noRecovery = Verdict:Snapshot()
 expect(noRecovery.Selected == nil and #noRecovery["ruled-out"] == 0,
-	"a slowdown without observed recovery should remain unresolved")
+	"an unmatched visibility sample should not produce a salt verdict")
 
 Verdict:Reset()
 Traffic("KillSpeed", {
@@ -38,7 +51,7 @@ expect(Verdict:Snapshot().Selected == 1, "two stable higher kill samples should 
 Verdict:Reset()
 Traffic("SaltSpeed", {
 	saltState = "disturbed",
-	beforeSalt = {{s = 11, v = true}},
+	beforeSalt = {{s = 11, v = true}, {s = 11, v = false}},
 	afterSalt = {{s = 11, v = true}, {s = 11, v = false}},
 	completed = true,
 }):SendTo("Aswang")
