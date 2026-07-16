@@ -4,7 +4,7 @@ return function(dependencies)
 	local Humanoid = dependencies.Humanoid or Ghost:FindFirstChildOfClass("Humanoid")
 	local delay = dependencies.Delay or task and task.delay
 	assert(type(delay) == "function", "7-pair requires task.delay")
-	local startDelay = tonumber(dependencies.StartDelay) or 1
+	local startDelay = tonumber(dependencies.StartDelay) or 3
 	local Tracker = {
 		Kind = "filter",
 		Running = true,

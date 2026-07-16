@@ -44,7 +44,7 @@ local filter = createSevenPair({
 	Ghost = Ghost,
 	Humanoid = Humanoid,
 	Delay = function(seconds, callback)
-		expect(seconds == 1, "seven-pair should wait one second after hunt start")
+		expect(seconds == 3, "seven-pair should wait three seconds after hunt start")
 		delayedStart = callback
 	end,
 })
@@ -76,7 +76,7 @@ local function beginDelayedSampling()
 end
 
 Traffic("HuntingState", {Hunting = true}):SendTo("SevenPair")
-expect(visibility:Count() == 0, "seven-pair must not sample during its start delay")
+expect(visibility:Count() == 0, "seven-pair must not sample during its three-second start delay")
 beginDelayedSampling()
 expect(visibility:Count() == 1, "hunting should start one visibility sampler")
 expect(filter.SampleCount == 0,
@@ -132,7 +132,7 @@ local cancelledStart = delayedStart
 Traffic("HuntingState", {Hunting = false}):SendTo("SevenPair")
 cancelledStart()
 expect(visibility:Count() == 0,
-	"a hunt ending during the one-second delay must cancel seven-pair sampling")
+	"a hunt ending during the three-second delay must cancel seven-pair sampling")
 
 filter:Destroy()
 dullahan:Destroy()
