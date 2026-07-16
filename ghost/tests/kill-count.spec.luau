@@ -23,7 +23,17 @@ end
 
 local function player(id, dead)
 	local changed = signal()
-	local object = {UserId = id, Dead = dead, Changed = changed}
+	local humanoid = {Died = signal()}
+	local character = {ChildAdded = signal()}
+	function character:FindFirstChildOfClass() return humanoid end
+	local object = {
+		UserId = id,
+		Dead = dead,
+		Changed = changed,
+		Character = character,
+		CharacterAdded = signal(),
+		Humanoid = humanoid,
+	}
 	function object:GetAttribute(name) return name == "Dead" and self.Dead or nil end
 	function object:GetAttributeChangedSignal() return self.Changed end
 	function object:SetDead(value)
@@ -49,10 +59,10 @@ expect(#tracker.Alive == 1 and tracker.Alive[1] == 1, "alive players should init
 expect(#tracker.Dead == 1 and tracker.Dead[1] == 2, "initial dead players should be remembered")
 expect(#deaths == 0, "initial dead players must not emit a kill")
 
-alive:SetDead(true)
+alive.Humanoid.Died:Fire()
 alive:SetDead(true)
 expect(#deaths == 1 and deaths[1].userId == 1 and type(deaths[1].Time) == "number",
-	"a unique death should emit exactly once with its observation time")
+	"Humanoid.Died should emit immediately and the later Dead attribute should not duplicate it")
 alive:SetDead(false)
 alive:SetDead(true)
 expect(#deaths == 1, "a revived player's later death must not emit again")

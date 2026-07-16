@@ -19,11 +19,11 @@ return function(dependencies)
 		view.Empty.Text = "Hunt started; waiting for speed samples."
 	end
 
-	local function add(text, color)
+	local function add(text, color, layoutOrder)
 		controller.RowCount += 1
 		local entry = view.Template:Clone()
 		entry.Name = "SpeedRow" .. controller.RowCount
-		entry.LayoutOrder = controller.RowCount
+		entry.LayoutOrder = layoutOrder or controller.RowCount * 2
 		entry.Text = text
 		entry.TextColor3 = color
 		entry.Visible = true
@@ -41,18 +41,20 @@ return function(dependencies)
 			updateCanvas()
 		elseif signal == "HuntSpeedSample" then
 			local point = type(payload.Point) == "table" and payload.Point or {}
+			local index = tonumber(payload.Index) or 0
 			add(string.format(
 				"P%02d   {s = %.3f, v = %s}",
-				tonumber(payload.Index) or 0,
+				index,
 				tonumber(point.s) or 0,
 				tostring(point.v == true)
-			), textColor)
+			), textColor, index * 2)
 		elseif signal == "HuntSpeedMarker" then
+			local index = tonumber(payload.Index) or 0
 			add(string.format(
 				"--- %s @ P%02d ---",
 				tostring(payload.Label or "MARKER"),
-				tonumber(payload.Index) or 0
-			), accentColor)
+				index
+			), accentColor, index * 2 + 1)
 		elseif signal == "HuntSpeedEnded" then
 			view.Title.Text = string.format(
 				"  HUNT SPEED ARRAY (ENDED — %d)",
