@@ -86,23 +86,10 @@ return function(dependencies)
 		return proxy
 	end
 
-	local function proxyIsNeeded()
-		local transparency = ghost:GetAttribute("Transparency")
-		if transparency == true or typeof(transparency) == "number" and transparency >= 0.5 then
-			return true
-		end
-		if transparency ~= nil then return false end
-		for source in pairs(controller.ProxyParts) do
-			if source:IsDescendantOf(ghost) and source.Transparency < 0.95 then return false end
-		end
-		return true
-	end
-
 	local function updateProxy()
 		if not controller.ProxyModel then return false end
-		local needed = proxyIsNeeded()
-		controller.ProxyModel.Parent = needed and (world.CurrentCamera or world) or nil
-		controller.ProxyHighlight.Enabled = needed and controller.Enabled
+		controller.ProxyModel.Parent = world.CurrentCamera or world
+		controller.ProxyHighlight.Enabled = controller.Enabled
 		for source, proxy in pairs(controller.ProxyParts) do
 			if not source:IsDescendantOf(ghost) or not proxy.Parent then
 				controller.ProxyDirty = true
