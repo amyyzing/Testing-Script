@@ -34,32 +34,38 @@ end
 switch(itemA, "Spirit Box", 0, false)
 switch(itemA, "Spirit Box", 0.3, true)
 switch(itemA, "Spirit Box", 0.6, false)
+switch(itemA, "Spirit Box", 0.9, true)
 switch(itemB, "Blacklight", 0.1, true)
 switch(itemB, "Blacklight", 0.4, false)
+switch(itemB, "Blacklight", 0.7, true)
 expect(#results == 0, "switches from different items must not be combined")
-expect(#logUpdates == 5 and logUpdates[3].Count == 3 and logUpdates[5].Count == 2,
+expect(#logUpdates == 7 and logUpdates[4].Count == 4 and logUpdates[7].Count == 3,
 	"each accepted switch should publish its own per-item rolling array")
 
 switch(itemC, "Laser Projector", 10, false)
-switch(itemC, "Laser Projector", 10.4, true)
-switch(itemC, "Laser Projector", 10.8, false)
-switch(itemC, "Laser Projector", 11.2, true)
+switch(itemC, "Laser Projector", 10.3, true)
+switch(itemC, "Laser Projector", 10.6, false)
+switch(itemC, "Laser Projector", 10.9, true)
+switch(itemC, "Laser Projector", 11.2, false)
+switch(itemC, "Laser Projector", 11.5, true)
 switch(itemC, "Laser Projector", 12, false)
-expect(#results == 0, "five switches spanning exactly two seconds must not qualify")
+expect(#results == 0, "seven switches spanning exactly two seconds must not qualify")
 
 switch(itemA, "Spirit Box", 20, false)
-switch(itemA, "Spirit Box", 20.4, true)
-switch(itemA, "Spirit Box", 20.8, false)
-switch(itemA, "Spirit Box", 21.2, true)
-switch(itemA, "Spirit Box", 21.6, false)
-expect(#results == 1 and results[1].Count == 5
-	and math.abs(results[1].Duration - 1.6) < 0.0001,
-	"five switches in less than two seconds should resolve the flicker array")
-expect(logUpdates[#logUpdates].Completed == true and logUpdates[#logUpdates].Count == 5,
-	"the visible five-switch array should mark the qualifying update complete")
+switch(itemA, "Spirit Box", 20.3, true)
+switch(itemA, "Spirit Box", 20.6, false)
+switch(itemA, "Spirit Box", 20.9, true)
+switch(itemA, "Spirit Box", 21.2, false)
+switch(itemA, "Spirit Box", 21.5, true)
+switch(itemA, "Spirit Box", 21.8, false)
+expect(#results == 1 and results[1].Count == 7
+	and math.abs(results[1].Duration - 1.8) < 0.0001,
+	"seven switches in less than two seconds should resolve the flicker array")
+expect(logUpdates[#logUpdates].Completed == true and logUpdates[#logUpdates].Count == 7,
+	"the visible seven-switch array should mark the qualifying update complete")
 expect(Verdict.Confidence[9] == 99 and Verdict.Selected[1] == 9,
 	"a completed flicker array should support and select Leviathan")
 
 flicker:Destroy()
 leviathan:Destroy()
-print("leviathan.spec: per-item five-switch sequence passed")
+print("leviathan.spec: per-item seven-switch sequence passed")
