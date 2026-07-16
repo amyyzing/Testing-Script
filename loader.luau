@@ -47,6 +47,7 @@ local Demon = loadModule("ghost/ghosts/Demon.luau")
 local Dullahan = loadModule("ghost/ghosts/Dullahan.luau")
 local Entity = loadModule("ghost/ghosts/Entity.luau")
 local Ghoul = loadModule("ghost/ghosts/Ghoul.luau")
+local Keres = loadModule("ghost/ghosts/Keres.luau")
 loading:SetStage("Loading trackers", 6, 10)
 local createCrossBurn = loadModule("ghost/active-trackers/cross-burn.luau")
 local createHuntingState = loadModule("ghost/active-trackers/hunting-state.luau")
@@ -163,6 +164,7 @@ local function startTrackers()
 		remember(Dullahan.new({Traffic = Traffic}))
 		remember(Entity.new({Traffic = Traffic}))
 		remember(Ghoul.new({Traffic = Traffic}))
+		remember(Keres.new({Traffic = Traffic}))
 		remember(createSevenPair({
 			Traffic = Traffic,
 			Ghost = ghost,

@@ -45,7 +45,7 @@ return function(dependencies)
 			beforeKill = Tracker.beforeKill,
 			afterKill = Tracker.afterKill,
 			completed = completed == true,
-		}):SendTo("Aswang")
+		}):SendTo("Aswang", "Keres")
 	end
 
 	local function hunting(value)

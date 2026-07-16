@@ -39,10 +39,13 @@ function Ghost:FindFirstChild() return nil end
 
 local Traffic = createTraffic()
 local now = 0
-local kills, salts, huntLog = {}, {}, {}
+local kills, keresKills, salts, huntLog = {}, {}, {}, {}
 Traffic:Receive("Aswang", function(signalName, payload)
 	if signalName == "KillSpeed" then table.insert(kills, payload) end
 	if signalName == "SaltSpeed" then table.insert(salts, payload) end
+end)
+Traffic:Receive("Keres", function(signalName, payload)
+	if signalName == "KillSpeed" then table.insert(keresKills, payload) end
 end)
 Traffic:Receive("SpeedArrayLog", function(signalName, payload)
 	table.insert(huntLog, {signal = signalName, payload = payload})
@@ -100,6 +103,8 @@ Model.Transparency = 0
 visibility:Fire()
 
 expect(#kills >= 1, "hunting deaths should produce kill speed updates")
+expect(#keresKills == #kills and keresKills[#keresKills] == kills[#kills],
+	"Keres should receive the same unique-kill speed section as Aswang")
 local kill = kills[#kills]
 expect(kill.userId == 1, "kill speed sections should retain the unique player id")
 expect(kill.baselineKill.s == 11,
