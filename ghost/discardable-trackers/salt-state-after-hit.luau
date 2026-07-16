@@ -1,6 +1,5 @@
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "salt-state-after-hit requires Traffic")
-	local SaltFolder = assert(dependencies.SaltFolder, "salt-state-after-hit requires SaltFolder")
 	local delaySeconds = tonumber(dependencies.Delay) or 1.25
 	local Tracker = {Kind = "discardable", Active = {}}
 
@@ -10,8 +9,10 @@ return function(dependencies)
 		return string.find(name, "disturbedsalt", 1, true) ~= nil
 	end
 
-	local function disturbedExists()
-		for _, object in ipairs(SaltFolder:GetDescendants()) do
+	local function isSaltDisturbed(salt)
+		if not salt then return false end
+		if isDisturbed(salt) then return true end
+		for _, object in ipairs(salt:GetDescendants()) do
 			if isDisturbed(object) then return true end
 		end
 		return false
@@ -22,11 +23,11 @@ return function(dependencies)
 		local probe = {Destroyed = false}
 		Tracker.Active[id] = probe
 		task.spawn(function()
-			local disturbed = disturbedExists()
+			local disturbed = isSaltDisturbed(payload.Salt)
 			local deadline = os.clock() + delaySeconds
 			while not probe.Destroyed and not disturbed and os.clock() < deadline do
 				task.wait(0.05)
-				disturbed = disturbedExists()
+				disturbed = isSaltDisturbed(payload.Salt)
 			end
 			if probe.Destroyed then return end
 			Traffic("SaltStateAfterHit", {
