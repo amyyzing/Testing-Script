@@ -54,7 +54,7 @@ return function(dependencies)
 			Pairs = table.clone(Tracker.Pairs),
 			DistinctPairs = distinctPairCount(Tracker.Pairs),
 			Samples = Tracker.SampleCount,
-		}):SendTo("Dullahan")
+		}):SendTo("Dullahan", "SpeedFilter")
 	end
 
 	local function sample()
@@ -67,11 +67,17 @@ return function(dependencies)
 		else
 			local first = Tracker.Pending
 			if first.v ~= point.v then
-				table.insert(Tracker.Pairs, first.v
+				local pair = first.v
 					and {v = first.s, i = point.s}
-					or {v = point.s, i = first.s})
+					or {v = point.s, i = first.s}
+				pair.MixedVisibility = true
+				table.insert(Tracker.Pairs, pair)
 			else
-				table.insert(Tracker.Pairs, {v = first.s, i = point.s})
+				table.insert(Tracker.Pairs, {
+					v = first.s,
+					i = point.s,
+					MixedVisibility = false,
+				})
 			end
 			Tracker.Pending = nil
 			if #Tracker.Pairs == 7 then finish() end
