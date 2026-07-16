@@ -70,7 +70,11 @@ expect(#salts == 2 and salts[2].afterSalt[#salts[2].afterSalt].s == 11,
 	"the same split should capture recovery to the pre-salt speed")
 Humanoid.WalkSpeed = 12
 speedChanged:Fire()
+local preSignalSpeedIndex = #tracker.samples
 Traffic("PlayerKilled", {userId = 1}):SendTo("SpeedTracker")
+expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
+	and huntLog[#huntLog].payload.Index == preSignalSpeedIndex,
+	"a delayed PlayerKilled signal should mark the earlier speed-transition sample")
 Model.Transparency = 1
 visibility:Fire()
 Humanoid.WalkSpeed, Model.Transparency = 12, 0

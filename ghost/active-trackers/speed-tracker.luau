@@ -98,17 +98,21 @@ return function(dependencies)
 			sendKill(true)
 			Tracker.killUserId = payload.userId
 			Tracker.killBaseline = transition
+			local splitIndex = #Tracker.samples
 			for index = #Tracker.samples - 1, math.max(1, #Tracker.samples - 3), -1 do
 				local point = Tracker.samples[index]
-				if point.v == transition.v and math.abs(point.s - transition.s) > 0.001 then
+				if math.abs(point.s - transition.s) <= 0.001 then
+					splitIndex = index
+				elseif point.v == transition.v then
 					Tracker.killBaseline = point
 					break
 				end
 			end
-			Tracker.beforeKill = table.clone(Tracker.samples)
-			Tracker.afterKill = {transition}
+			Tracker.beforeKill, Tracker.afterKill = {}, {}
+			for index = 1, splitIndex do table.insert(Tracker.beforeKill, Tracker.samples[index]) end
+			for index = splitIndex, #Tracker.samples do table.insert(Tracker.afterKill, Tracker.samples[index]) end
 			Traffic("HuntSpeedMarker", {
-				Index = #Tracker.samples,
+				Index = splitIndex,
 				Label = "KILL SPLIT #" .. tostring(payload.userId or "?"),
 			}):SendTo("SpeedArrayLog")
 		end
