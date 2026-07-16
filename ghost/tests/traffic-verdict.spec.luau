@@ -15,7 +15,7 @@ Traffic("SaltSpeed", {
 	beforeSalt = {{s = 11, v = true}, {s = 11, v = false}},
 	afterSalt = {{s = 11, v = false}, {s = 9, v = true}, {s = 11, v = false}},
 }):SendTo("Aswang")
-expect(Verdict:Snapshot().Selected == 1, "hunting salt slowdown and recovery should select Aswang")
+expect(Verdict:Snapshot().Selected[1] == 1, "hunting salt slowdown and recovery should select Aswang")
 
 Verdict:Reset()
 Traffic("SaltSpeed", {
@@ -27,7 +27,7 @@ Traffic("SaltSpeed", {
 	afterSalt = {{s = 16.5, v = true}, {s = 16.5, v = false}},
 	completed = true,
 }):SendTo("Aswang")
-expect(Verdict:Snapshot().Selected == 1,
+expect(Verdict:Snapshot().Selected[1] == 1,
 	"a clear salt slowdown should select Aswang even when the hunt ends before recovery")
 
 Verdict:Reset()
@@ -38,7 +38,7 @@ Traffic("SaltSpeed", {
 	completed = true,
 }):SendTo("Aswang")
 local noRecovery = Verdict:Snapshot()
-expect(noRecovery.Selected == nil and #noRecovery["ruled-out"] == 0,
+expect(#noRecovery.Selected == 0 and #noRecovery["ruled-out"] == 0,
 	"an unmatched visibility sample should not produce a salt verdict")
 
 Verdict:Reset()
@@ -46,7 +46,7 @@ Traffic("KillSpeed", {
 	beforeKill = {{s = 11, v = true}, {s = 11, v = false}},
 	afterKill = {{s = 11, v = false}, {s = 12, v = true}, {s = 12, v = false}},
 }):SendTo("Aswang")
-expect(Verdict:Snapshot().Selected == 1, "two stable higher kill samples should select Aswang")
+expect(Verdict:Snapshot().Selected[1] == 1, "two stable higher kill samples should select Aswang")
 
 Verdict:Reset()
 Traffic("KillSpeed", {
@@ -54,7 +54,7 @@ Traffic("KillSpeed", {
 	beforeKill = {{s = 22, v = false}, {s = 24, v = false}, {s = 24, v = false}},
 	afterKill = {{s = 24, v = false}, {s = 24, v = false}, {s = 24, v = false}},
 }):SendTo("Aswang")
-expect(Verdict:Snapshot().Selected == 1,
+expect(Verdict:Snapshot().Selected[1] == 1,
 	"a pre-signal speed rise should compare against the retained kill baseline")
 
 Verdict:Reset()
@@ -83,7 +83,7 @@ Traffic("KillSpeed", {
 	completed = true,
 }):SendTo("Aswang")
 local insufficient = Verdict:Snapshot()
-expect(insufficient.Selected == nil and #insufficient["ruled-out"] == 0,
+expect(#insufficient.Selected == 0 and #insufficient["ruled-out"] == 0,
 	"insufficient post-kill samples should not produce a verdict")
 
 aswang:Destroy()

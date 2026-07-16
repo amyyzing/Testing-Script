@@ -105,7 +105,7 @@ expect(received[2].name == "SaltStateAfterHit" and received[2].payload.State == 
 	"disturbed salt should immediately confirm the split state")
 expect(received[1].payload.ContactId == received[2].payload.ContactId,
 	"the contact and disturbed state must use the same id")
-expect(Verdict:Snapshot().Selected == 1,
+expect(Verdict:Snapshot().Selected[1] == 1,
 	"a raw 22 to 16.5 drop followed by disturbed salt should reach Aswang's verdict")
 
 salt:Rename("DisturbedSaltLine")

@@ -40,6 +40,7 @@ loading:SetStage("Loading traffic", 3, 10)
 local createTraffic = loadModule("ghost/traffic.luau")
 loading:SetStage("Loading verdict", 4, 10)
 local createVerdict = loadModule("ghost/verdict.luau")
+local markJournal = loadModule("remotes/EvidenceMarkedInJournal.luau")
 loading:SetStage("Loading ghost processors", 5, 10)
 local Aswang = loadModule("ghost/ghosts/Aswang.luau")
 local Demon = loadModule("ghost/ghosts/Demon.luau")
@@ -131,7 +132,11 @@ local function startTrackers()
 		coreStarted = true
 		if descendantConnection then descendantConnection:Disconnect() end
 		local Traffic = createTraffic()
-		local Verdict = createVerdict({Traffic = Traffic})
+		local Verdict = createVerdict({
+			Traffic = Traffic,
+			Player = player,
+			MarkJournal = markJournal,
+		})
 		session.Traffic, session.Verdict, session.Ghost = Traffic, Verdict, ghost
 		remember(createGhostPatternLog({
 			Traffic = Traffic,

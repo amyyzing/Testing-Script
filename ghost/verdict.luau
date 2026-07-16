@@ -8,34 +8,104 @@ local GHOSTS = {
 
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "verdict requires Traffic")
+	local Player = dependencies.Player
+	local markJournal = dependencies.MarkJournal
+	local customFindRow = dependencies.FindJournalRow
+	local customApply = dependencies.ApplyJournalState
+	local fireSignal = dependencies.FireSignal or firesignal
+	local wait = dependencies.Wait or task and task.wait or function() end
 	local Verdict = {
 		Lists = table.clone(GHOSTS),
-		Selected = nil,
+		Selected = {},
 		RuledOut = {},
 		Confidence = {},
 		Reasons = {},
+		JournalTouched = {},
 	}
 	local indexes = {}
 	for index, name in ipairs(GHOSTS) do indexes[name] = index end
 
-	local function selectBest()
+	local function findJournalRow(name)
+		if customFindRow then return customFindRow(name) end
+		local node = Player and Player:FindFirstChildOfClass("PlayerGui")
+		for _, childName in ipairs({
+			"Journal", "Holder", "Pages", "Page4", "Right", "Page", "GhostTypes", name,
+		}) do
+			node = node and node:FindFirstChild(childName)
+		end
+		return node
+	end
+
+	local function applyJournal(index, state)
+		if customApply then
+			local applied, controllerUpdated = customApply(GHOSTS[index], state)
+			if applied ~= false then Verdict.JournalTouched[index] = true end
+			return applied ~= false, controllerUpdated == true
+		end
+		local row = findJournalRow(GHOSTS[index])
+		if not row then return false end
+		local highlight = row:FindFirstChild("Highlight")
+		local strikethrough = row:FindFirstChild("Strikethrough")
+		local function current()
+			if highlight and highlight.Visible then return true end
+			if strikethrough and strikethrough.Visible then return false end
+			return nil
+		end
+		if current() == state then return true, true end
+		local detection = row:FindFirstChild("Detection")
+		if detection and type(fireSignal) == "function" then
+			for _ = 1, 2 do
+				local fired = pcall(fireSignal, detection.MouseButton1Click)
+				if not fired then break end
+				wait(0.03)
+				if current() == state then
+					Verdict.JournalTouched[index] = true
+					return true, true
+				end
+			end
+		end
+		if highlight then highlight.Visible = state == true end
+		if strikethrough then strikethrough.Visible = state == false end
+		Verdict.JournalTouched[index] = true
+		return true, false
+	end
+
+	local function isRuledOut(index)
+		return table.find(Verdict.RuledOut, index) ~= nil
+	end
+
+	local function selectBest(forceJournal)
 		local bestIndex
 		local bestConfidence = -math.huge
 		for index, name in ipairs(GHOSTS) do
 			local confidence = Verdict.Confidence[index]
-			if not Verdict.RuledOut[index]
+			if not isRuledOut(index)
 				and confidence ~= nil
 				and confidence > bestConfidence then
 				bestIndex = index
 				bestConfidence = confidence
 			end
 		end
-		Verdict.Selected = bestIndex
+		local previous = Verdict.Selected[1]
+		if previous == bestIndex and not forceJournal then return end
+		if previous and previous ~= bestIndex then
+			if isRuledOut(previous) then
+				applyJournal(previous, false)
+			else
+				applyJournal(previous, nil)
+			end
+		end
+		if previous ~= bestIndex then table.clear(Verdict.Selected) end
+		if bestIndex then
+			Verdict.Selected[1] = bestIndex
+			local _, controllerUpdated = applyJournal(bestIndex, true)
+			if not controllerUpdated and markJournal then pcall(markJournal, GHOSTS[bestIndex]) end
+		end
 	end
 
 	function Verdict:Support(ghost, confidence, reason)
 		local index = indexes[ghost]
-		if not index or self.RuledOut[index] then return false end
+		if not index or isRuledOut(index) then return false end
 		confidence = tonumber(confidence) or 0
 		self.Confidence[index] = math.max(self.Confidence[index] or 0, confidence)
 		self.Reasons[index] = reason
@@ -46,28 +116,31 @@ return function(dependencies)
 	function Verdict:RuleOut(ghost, confidence, reason)
 		local index = indexes[ghost]
 		if not index then return false end
-		self.RuledOut[index] = true
+		if not isRuledOut(index) then
+			table.insert(self.RuledOut, index)
+			table.sort(self.RuledOut)
+		end
 		self.Confidence[index] = nil
 		self.Reasons[index] = reason
-		selectBest()
+		applyJournal(index, false)
+		selectBest(true)
 		return true
 	end
 
 	function Verdict:Reset()
+		for index in pairs(self.JournalTouched) do applyJournal(index, nil) end
+		table.clear(self.JournalTouched)
 		table.clear(self.RuledOut)
+		table.clear(self.Selected)
 		table.clear(self.Confidence)
 		table.clear(self.Reasons)
-		self.Selected = nil
 	end
 
 	function Verdict:Snapshot()
-		local ruledOut = {}
-		for index in pairs(self.RuledOut) do table.insert(ruledOut, index) end
-		table.sort(ruledOut)
 		return {
 			Lists = table.clone(self.Lists),
-			Selected = self.Selected,
-			["ruled-out"] = ruledOut,
+			Selected = table.clone(self.Selected),
+			["ruled-out"] = table.clone(self.RuledOut),
 			Confidence = table.clone(self.Confidence),
 			Reasons = table.clone(self.Reasons),
 		}

@@ -75,7 +75,7 @@ local function run(animated)
 
 	now = 4
 	heartbeat:Fire()
-	expect(Verdict.Confidence[3] == nil and not Verdict.RuledOut[3],
+	expect(Verdict.Confidence[3] == nil and not table.find(Verdict.RuledOut, 3),
 		"an idle Cross must not create a Demon verdict")
 	cross:SetDisabled(true)
 	if animated then
@@ -94,10 +94,10 @@ local function run(animated)
 end
 
 local positive = run(true)
-expect(positive.Confidence[3] == 99 and not positive.RuledOut[3],
+expect(positive.Confidence[3] == 99 and not table.find(positive.RuledOut, 3),
 	"a burning Cross that floats and rotates should support Demon")
 local negative = run(false)
-expect(negative.RuledOut[3] == true,
+expect(table.find(negative.RuledOut, 3) ~= nil,
 	"a burning Cross without the animation should rule out Demon")
 
 print("cross-demon.spec: EquipDisabled burn and Cross animation verdicts passed")
