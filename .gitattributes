@@ -1,4 +1,0 @@
-*.luau text eol=lf
-*.md text eol=lf
-.gitattributes text eol=lf
-.luaurc text eol=lf
