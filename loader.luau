@@ -40,13 +40,16 @@ loading:SetStage("Loading traffic", 3, 10)
 local createTraffic = loadModule("ghost/traffic.luau")
 loading:SetStage("Loading verdict", 4, 10)
 local createVerdict = loadModule("ghost/verdict.luau")
-loading:SetStage("Loading Aswang", 5, 10)
+loading:SetStage("Loading ghost processors", 5, 10)
 local Aswang = loadModule("ghost/ghosts/Aswang.luau")
+local Demon = loadModule("ghost/ghosts/Demon.luau")
 loading:SetStage("Loading trackers", 6, 10)
+local createCrossBurn = loadModule("ghost/active-trackers/cross-burn.luau")
 local createHuntingState = loadModule("ghost/active-trackers/hunting-state.luau")
 local createKillCount = loadModule("ghost/active-trackers/kill-count.luau")
 local createSaltHit = loadModule("ghost/active-trackers/salt-hit.luau")
 local createSpeedTracker = loadModule("ghost/active-trackers/speed-tracker.luau")
+local createCrossAnimation = loadModule("ghost/discardable-trackers/cross-animation.luau")
 local createSaltState = loadModule("ghost/discardable-trackers/salt-state-after-hit.luau")
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
 local createBright = loadModule("logic/bright.luau")
@@ -144,6 +147,15 @@ local function startTrackers()
 			AccentColor = view.Colors.Accent,
 		}))
 		remember(Aswang.new({Traffic = Traffic}))
+		remember(Demon.new({Traffic = Traffic}))
+		remember(createCrossAnimation({
+			Traffic = Traffic,
+			RunService = Services.RunService,
+		}))
+		remember(createCrossBurn({
+			Traffic = Traffic,
+			Workspace = Services.Workspace,
+		}))
 		session.EscapeHunt = remember(createEscapeHunt({
 			Player = player,
 			Ghost = ghost,
@@ -180,7 +192,7 @@ local function startTrackers()
 	end
 end
 
-loading:SetStage("Starting Aswang tracker", 8, 10)
+loading:SetStage("Starting ghost trackers", 8, 10)
 table.insert(session.Connections, Services.Workspace.ChildAdded:Connect(startTrackers))
 descendantConnection = Services.Workspace.DescendantAdded:Connect(startTrackers)
 table.insert(session.Connections, descendantConnection)
