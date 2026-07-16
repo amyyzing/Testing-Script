@@ -19,8 +19,7 @@ return function(dependencies)
 			Traffic("HuntSpeedSample", {
 				Index = #Tracker.samples,
 				Point = {s = point.s, v = point.v},
-				Source = source,
-			}):SendTo("SpeedArrayLog", "SevenPair")
+			}):SendTo("SpeedArrayLog")
 		end
 		return point
 	end

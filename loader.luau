@@ -160,7 +160,11 @@ local function startTrackers()
 		remember(Demon.new({Traffic = Traffic}))
 		remember(Dullahan.new({Traffic = Traffic}))
 		remember(Entity.new({Traffic = Traffic}))
-		remember(createSevenPair({Traffic = Traffic}))
+		remember(createSevenPair({
+			Traffic = Traffic,
+			Ghost = ghost,
+			RunService = Services.RunService,
+		}))
 		remember(createSmokeHolder({
 			Traffic = Traffic,
 			Workspace = Services.Workspace,
