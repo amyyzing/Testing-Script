@@ -46,10 +46,12 @@ local Aswang = loadModule("ghost/ghosts/Aswang.luau")
 local Demon = loadModule("ghost/ghosts/Demon.luau")
 local Dullahan = loadModule("ghost/ghosts/Dullahan.luau")
 local Entity = loadModule("ghost/ghosts/Entity.luau")
+local Ghoul = loadModule("ghost/ghosts/Ghoul.luau")
 loading:SetStage("Loading trackers", 6, 10)
 local createCrossBurn = loadModule("ghost/active-trackers/cross-burn.luau")
 local createHuntingState = loadModule("ghost/active-trackers/hunting-state.luau")
 local createItemTeleport = loadModule("ghost/active-trackers/item-teleport.luau")
+local createItemState = loadModule("ghost/active-trackers/item-state.luau")
 local createKillCount = loadModule("ghost/active-trackers/kill-count.luau")
 local createSaltHit = loadModule("ghost/active-trackers/salt-hit.luau")
 local createSpeedTracker = loadModule("ghost/active-trackers/speed-tracker.luau")
@@ -160,6 +162,7 @@ local function startTrackers()
 		remember(Demon.new({Traffic = Traffic}))
 		remember(Dullahan.new({Traffic = Traffic}))
 		remember(Entity.new({Traffic = Traffic}))
+		remember(Ghoul.new({Traffic = Traffic}))
 		remember(createSevenPair({
 			Traffic = Traffic,
 			Ghost = ghost,
@@ -173,6 +176,11 @@ local function startTrackers()
 			Traffic = Traffic,
 			Workspace = Services.Workspace,
 			RunService = Services.RunService,
+		}))
+		remember(createItemState({
+			Traffic = Traffic,
+			Workspace = Services.Workspace,
+			Players = Services.Players,
 		}))
 		remember(createCrossAnimation({
 			Traffic = Traffic,
