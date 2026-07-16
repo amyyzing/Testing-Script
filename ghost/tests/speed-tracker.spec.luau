@@ -114,7 +114,7 @@ Traffic("PlayerKilled", {userId = 2, Time = now}):SendTo("SpeedTracker")
 expect(kills[#kills].completed == true,
 	"a second unique kill should finalize the previous kill section")
 expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
-	and huntLog[#huntLog].payload.Label == "KILL SPLIT #2",
+	and huntLog[#huntLog].payload.Label == "KILL",
 	"player deaths should mark their exact split in the displayed speed array")
 
 Ghost.Hunting = false

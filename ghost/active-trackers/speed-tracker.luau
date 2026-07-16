@@ -125,7 +125,7 @@ return function(dependencies)
 			for index = splitIndex, #Tracker.samples do table.insert(Tracker.afterKill, Tracker.samples[index]) end
 			Traffic("HuntSpeedMarker", {
 				Index = splitIndex,
-				Label = "KILL SPLIT #" .. tostring(payload.userId or "?"),
+				Label = "KILL",
 			}):SendTo("SpeedArrayLog")
 		end
 	end)
