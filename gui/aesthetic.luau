@@ -136,107 +136,133 @@ function Aesthetic.Create(dependencies)
 		TextSize = 12,
 	}, content)
 
-	local drawerClip = create("Frame", {
-		Name = "PatternDrawerClip",
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-		Position = UDim2.fromOffset(0, 0),
-		Size = UDim2.fromOffset(0, 360),
-	}, gui)
+	local function makeDrawer(name, titleText, emptyText, handleText, handleOffset)
+		local clip = create("Frame", {
+			Name = name .. "Clip",
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ClipsDescendants = true,
+			Position = UDim2.fromOffset(0, 0),
+			Size = UDim2.fromOffset(0, 360),
+		}, gui)
+		local panel = create("Frame", {
+			Name = name,
+			BackgroundColor3 = COLORS.Background,
+			BorderSizePixel = 0,
+			Position = UDim2.fromOffset(0, 0),
+			Size = UDim2.fromOffset(300, 360),
+		}, clip)
+		local title = create("TextLabel", {
+			Name = "Title",
+			BackgroundColor3 = COLORS.Title,
+			BorderSizePixel = 0,
+			Font = Enum.Font.GothamMedium,
+			Size = UDim2.new(1, 0, 0, 34),
+			Text = "  " .. titleText,
+			TextColor3 = COLORS.Text,
+			TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		}, panel)
+		local list = create("ScrollingFrame", {
+			Name = "Rows",
+			Active = true,
+			AutomaticCanvasSize = Enum.AutomaticSize.None,
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			CanvasSize = UDim2.fromOffset(0, 0),
+			Position = UDim2.fromOffset(8, 42),
+			ScrollBarImageColor3 = COLORS.Accent,
+			ScrollBarThickness = 3,
+			Size = UDim2.new(1, -16, 1, -50),
+		}, panel)
+		create("UIPadding", {
+			PaddingBottom = UDim.new(0, 8),
+			PaddingLeft = UDim.new(0, 4),
+			PaddingRight = UDim.new(0, 4),
+			PaddingTop = UDim.new(0, 4),
+		}, list)
+		local layout = create("UIListLayout", {
+			Padding = UDim.new(0, 6),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}, list)
+		local empty = create("TextLabel", {
+			Name = "Empty",
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundColor3 = COLORS.Control,
+			BorderSizePixel = 0,
+			Font = Enum.Font.Gotham,
+			LayoutOrder = 0,
+			Size = UDim2.new(1, 0, 0, 34),
+			Text = emptyText,
+			TextColor3 = COLORS.Muted,
+			TextSize = 12,
+			TextWrapped = true,
+		}, list)
+		local template = create("TextLabel", {
+			Name = "Template",
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundColor3 = COLORS.Control,
+			BorderSizePixel = 0,
+			Font = Enum.Font.Gotham,
+			Size = UDim2.new(1, 0, 0, 36),
+			Text = "",
+			TextColor3 = COLORS.Text,
+			TextSize = 12,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			Visible = false,
+		}, list)
+		create("UIPadding", {
+			PaddingBottom = UDim.new(0, 7),
+			PaddingLeft = UDim.new(0, 8),
+			PaddingRight = UDim.new(0, 8),
+			PaddingTop = UDim.new(0, 7),
+		}, template)
+		local handle = create("TextButton", {
+			Name = name .. "Handle",
+			Active = true,
+			AutoButtonColor = false,
+			BackgroundColor3 = COLORS.Accent,
+			BorderSizePixel = 0,
+			Font = Enum.Font.GothamBold,
+			Position = UDim2.fromOffset(0, 0),
+			Size = UDim2.fromOffset(24, 96),
+			Text = handleText .. "\n>",
+			TextColor3 = COLORS.Text,
+			TextSize = 10,
+			ZIndex = 5,
+		}, gui)
+		return {
+			Clip = clip,
+			Panel = panel,
+			Title = title,
+			Handle = handle,
+			List = list,
+			Layout = layout,
+			Empty = empty,
+			Template = template,
+			Width = 300,
+			HandleOffset = handleOffset,
+			ClosedText = handleText .. "\n>",
+			OpenText = handleText .. "\n<",
+		}
+	end
 
-	local drawer = create("Frame", {
-		Name = "PatternDrawer",
-		BackgroundColor3 = COLORS.Background,
-		BorderSizePixel = 0,
-		Position = UDim2.fromOffset(0, 0),
-		Size = UDim2.fromOffset(300, 360),
-	}, drawerClip)
-
-	local drawerTitle = create("TextLabel", {
-		Name = "Title",
-		BackgroundColor3 = COLORS.Title,
-		BorderSizePixel = 0,
-		Font = Enum.Font.GothamMedium,
-		Size = UDim2.new(1, 0, 0, 34),
-		Text = "  UNIQUE GHOST PATTERNS",
-		TextColor3 = COLORS.Text,
-		TextSize = 13,
-		TextXAlignment = Enum.TextXAlignment.Left,
-	}, drawer)
-
-	local logList = create("ScrollingFrame", {
-		Name = "Logs",
-		Active = true,
-		AutomaticCanvasSize = Enum.AutomaticSize.None,
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		CanvasSize = UDim2.fromOffset(0, 0),
-		Position = UDim2.fromOffset(8, 42),
-		ScrollBarImageColor3 = COLORS.Accent,
-		ScrollBarThickness = 3,
-		Size = UDim2.new(1, -16, 1, -50),
-	}, drawer)
-
-	create("UIPadding", {
-		PaddingBottom = UDim.new(0, 8),
-		PaddingLeft = UDim.new(0, 4),
-		PaddingRight = UDim.new(0, 4),
-		PaddingTop = UDim.new(0, 4),
-	}, logList)
-	local logLayout = create("UIListLayout", {
-		Padding = UDim.new(0, 6),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-	}, logList)
-	local emptyLog = create("TextLabel", {
-		Name = "Empty",
-		AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundColor3 = COLORS.Control,
-		BorderSizePixel = 0,
-		Font = Enum.Font.Gotham,
-		LayoutOrder = 0,
-		Size = UDim2.new(1, 0, 0, 34),
-		Text = "No unique patterns observed.",
-		TextColor3 = COLORS.Muted,
-		TextSize = 12,
-		TextWrapped = true,
-	}, logList)
-	local logTemplate = create("TextLabel", {
-		Name = "Template",
-		AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundColor3 = COLORS.Control,
-		BorderSizePixel = 0,
-		Font = Enum.Font.Gotham,
-		Size = UDim2.new(1, 0, 0, 44),
-		Text = "",
-		TextColor3 = COLORS.Text,
-		TextSize = 12,
-		TextWrapped = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextYAlignment = Enum.TextYAlignment.Top,
-		Visible = false,
-	}, logList)
-	create("UIPadding", {
-		PaddingBottom = UDim.new(0, 7),
-		PaddingLeft = UDim.new(0, 8),
-		PaddingRight = UDim.new(0, 8),
-		PaddingTop = UDim.new(0, 7),
-	}, logTemplate)
-
-	local drawerHandle = create("TextButton", {
-		Name = "PatternDrawerHandle",
-		Active = true,
-		AutoButtonColor = false,
-		BackgroundColor3 = COLORS.Accent,
-		BorderSizePixel = 0,
-		Font = Enum.Font.GothamBold,
-		Position = UDim2.fromOffset(0, 0),
-		Size = UDim2.fromOffset(24, 84),
-		Text = "L\nO\nG\nS\n›",
-		TextColor3 = COLORS.Text,
-		TextSize = 10,
-		ZIndex = 5,
-	}, gui)
+	local patternDrawer = makeDrawer(
+		"PatternDrawer",
+		"UNIQUE GHOST PATTERNS",
+		"No unique patterns observed.",
+		"L\nO\nG\nS",
+		-54
+	)
+	local speedDrawer = makeDrawer(
+		"SpeedDrawer",
+		"HUNT SPEED ARRAY",
+		"Waiting for hunt samples.",
+		"S\nP\nE\nE\nD",
+		54
+	)
 
 	local resizeHandle = create("TextButton", {
 		Name = "ResizeHandle",
@@ -275,16 +301,8 @@ function Aesthetic.Create(dependencies)
 		MinimizeButton = minimizeButton,
 		OpenButton = openButton,
 		ResizeHandle = resizeHandle,
-		PatternDrawer = {
-			Clip = drawerClip,
-			Panel = drawer,
-			Handle = drawerHandle,
-			List = logList,
-			Layout = logLayout,
-			Empty = emptyLog,
-			Template = logTemplate,
-			Width = 300,
-		},
+		PatternDrawer = patternDrawer,
+		SpeedDrawer = speedDrawer,
 		Buttons = {
 			HuntEscape = huntEscapeButton,
 			Bright = brightButton,

@@ -12,6 +12,12 @@ return function(dependencies)
 		table.insert(Tracker.samples, point)
 		if Tracker.afterSalt then table.insert(Tracker.afterSalt, point) end
 		if Tracker.afterKill then table.insert(Tracker.afterKill, point) end
+		if Tracker.hunting then
+			Traffic("HuntSpeedSample", {
+				Index = #Tracker.samples,
+				Point = {s = point.s, v = point.v},
+			}):SendTo("SpeedArrayLog")
+		end
 		return point
 	end
 
@@ -39,10 +45,12 @@ return function(dependencies)
 		if Tracker.hunting then
 			sendSalt(true)
 			sendKill(true)
+			Traffic("HuntSpeedEnded", {Count = #Tracker.samples}):SendTo("SpeedArrayLog")
 		end
 		Tracker.hunting, Tracker.samples = value, {}
 		Tracker.beforeSalt, Tracker.afterSalt, Tracker.contact, Tracker.saltState = nil, nil, nil, nil
 		Tracker.beforeKill, Tracker.afterKill = nil, nil
+		if value then Traffic("HuntSpeedReset", {}):SendTo("SpeedArrayLog") end
 		sample() -- once while non-hunting; hunt samples continue on visibility changes
 	end
 
@@ -56,6 +64,10 @@ return function(dependencies)
 			Tracker.contact = payload.ContactId
 			Tracker.beforeSalt = table.clone(Tracker.samples)
 			Tracker.afterSalt = {transition}
+			Traffic("HuntSpeedMarker", {
+				Index = #Tracker.samples,
+				Label = "SALT SPLIT",
+			}):SendTo("SpeedArrayLog")
 		elseif signal == "SaltStateAfterHit" and payload.ContactId == Tracker.contact then
 			Tracker.saltState = payload.State
 			sendSalt(false)

@@ -38,10 +38,13 @@ function Ghost:FindFirstChildOfClass() return Humanoid end
 function Ghost:FindFirstChild() return nil end
 
 local Traffic = createTraffic()
-local kills, salts = {}, {}
+local kills, salts, huntLog = {}, {}, {}
 Traffic:Receive("Aswang", function(signalName, payload)
 	if signalName == "KillSpeed" then table.insert(kills, payload) end
 	if signalName == "SaltSpeed" then table.insert(salts, payload) end
+end)
+Traffic:Receive("SpeedArrayLog", function(signalName, payload)
+	table.insert(huntLog, {signal = signalName, payload = payload})
 end)
 local tracker = createSpeedTracker({Traffic = Traffic, Ghost = Ghost, GhostModel = Model})
 
@@ -50,7 +53,12 @@ expect(#kills == 0, "non-hunting deaths must not start kill sections")
 
 Ghost.Hunting = true
 Traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
+expect(huntLog[1].signal == "HuntSpeedReset" and huntLog[2].signal == "HuntSpeedSample",
+	"hunt start should reset the displayed array and publish its first sample")
 Traffic("SaltHit", {ContactId = 1}):SendTo("SpeedTracker")
+expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
+	and huntLog[#huntLog].payload.Label == "SALT SPLIT",
+	"salt contact should mark the exact split in the displayed array")
 Humanoid.WalkSpeed = 9
 speedChanged:Fire()
 Traffic("SaltStateAfterHit", {ContactId = 1, State = "disturbed"}):SendTo("SpeedTracker")
@@ -80,6 +88,8 @@ expect(kills[#kills].completed == true,
 Ghost.Hunting = false
 Traffic("HuntingState", {Hunting = false}):SendTo("SpeedTracker")
 expect(kills[#kills].completed == true, "hunt end should finalize the active kill section")
+expect(huntLog[#huntLog].signal == "HuntSpeedEnded",
+	"hunt end should retain and mark the completed displayed array")
 
 tracker:Destroy()
 print("speed-tracker.spec: kill splits, salt coexistence, and hunt finalization passed")
