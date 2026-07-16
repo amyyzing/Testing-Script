@@ -75,6 +75,16 @@ return function(dependencies)
 			sendKill(false)
 		end
 	end)
+	local humanoid = Ghost:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		Tracker.SpeedConnection = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+			if Tracker.hunting and (Tracker.afterSalt or Tracker.afterKill) then
+				sample()
+				sendSalt(false)
+				sendKill(false)
+			end
+		end)
+	end
 	hunting(Ghost:GetAttribute("Hunting") == true)
 
 	function Tracker:Destroy()
@@ -82,6 +92,7 @@ return function(dependencies)
 		self.Running = false
 		self.Disconnect()
 		self.VisibilityConnection:Disconnect()
+		if self.SpeedConnection then self.SpeedConnection:Disconnect() end
 	end
 
 	return Tracker

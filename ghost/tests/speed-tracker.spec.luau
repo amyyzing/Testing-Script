@@ -26,7 +26,12 @@ local Model = {Transparency = 0}
 function Model:GetAttribute() return self.Transparency end
 function Model:GetAttributeChangedSignal() return visibility end
 
+local speedChanged = signal()
 local Humanoid = {WalkSpeed = 11}
+function Humanoid:GetPropertyChangedSignal(name)
+	expect(name == "WalkSpeed", "speed tracker should observe WalkSpeed changes")
+	return speedChanged
+end
 local Ghost = {Hunting = false}
 function Ghost:GetAttribute(name) return name == "Hunting" and self.Hunting or nil end
 function Ghost:FindFirstChildOfClass() return Humanoid end
@@ -46,18 +51,22 @@ expect(#kills == 0, "non-hunting deaths must not start kill sections")
 Ghost.Hunting = true
 Traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
 Traffic("SaltHit", {ContactId = 1}):SendTo("SpeedTracker")
+Humanoid.WalkSpeed = 9
+speedChanged:Fire()
+Traffic("SaltStateAfterHit", {ContactId = 1, State = "disturbed"}):SendTo("SpeedTracker")
+expect(#salts == 1 and salts[1].afterSalt[#salts[1].afterSalt].s == 9,
+	"a post-contact WalkSpeed change should be captured without waiting for a blink")
 Traffic("PlayerKilled", {userId = 1}):SendTo("SpeedTracker")
 Humanoid.WalkSpeed, Model.Transparency = 12, 1
 visibility:Fire()
 Humanoid.WalkSpeed, Model.Transparency = 12, 0
 visibility:Fire()
-Traffic("SaltStateAfterHit", {ContactId = 1, State = "disturbed"}):SendTo("SpeedTracker")
 
 expect(#kills >= 1, "hunting deaths should produce kill speed updates")
 local kill = kills[#kills]
 expect(kill.beforeKill[#kill.beforeKill] == kill.afterKill[1],
 	"kill arrays should share their transition sample")
-expect(#salts == 1 and #salts[1].afterSalt >= 3,
+expect(#salts >= 3 and #salts[#salts].afterSalt >= 4,
 	"salt and kill sections should collect the same visibility samples")
 
 Traffic("PlayerKilled", {userId = 2}):SendTo("SpeedTracker")
