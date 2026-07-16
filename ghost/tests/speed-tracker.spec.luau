@@ -76,6 +76,7 @@ visibility:Fire()
 
 expect(#kills >= 1, "hunting deaths should produce kill speed updates")
 local kill = kills[#kills]
+expect(kill.userId == 1, "kill speed sections should retain the unique player id")
 expect(kill.beforeKill[#kill.beforeKill] == kill.afterKill[1],
 	"kill arrays should share their transition sample")
 expect(#salts >= 4 and #salts[#salts].afterSalt >= 5,
@@ -84,6 +85,9 @@ expect(#salts >= 4 and #salts[#salts].afterSalt >= 5,
 Traffic("PlayerKilled", {userId = 2}):SendTo("SpeedTracker")
 expect(kills[#kills].completed == true,
 	"a second unique kill should finalize the previous kill section")
+expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
+	and huntLog[#huntLog].payload.Label == "KILL SPLIT #2",
+	"player deaths should mark their exact split in the displayed speed array")
 
 Ghost.Hunting = false
 Traffic("HuntingState", {Hunting = false}):SendTo("SpeedTracker")

@@ -58,6 +58,13 @@ expect(controller.Count == 3 and entries[3].TextColor3 == "blue"
 Traffic("PlayerKilled", {userId = 42}):SendTo("SpeedTracker")
 expect(controller.Count == 4 and string.find(entries[4].Text, "PLAYER KILLED", 1, true),
 	"unique player kills should create tracker rows")
+Traffic("KillSpeed", {
+	userId = 42,
+	beforeKill = {{s = 22, v = true}, {s = 22, v = false}},
+	afterKill = {{s = 22, v = false}, {s = 16.5, v = true}},
+}):SendTo("Aswang")
+expect(controller.Count == 4 and string.find(entries[4].Text, "22.000 -> 16.500", 1, true),
+	"kill speed updates should update the existing player-kill row")
 Traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
 expect(controller.Count == 4, "unrequested tracker events should not create rows")
 

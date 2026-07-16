@@ -6,7 +6,7 @@ return function(dependencies)
 	local eventColor = dependencies.EventColor or positiveColor
 	local canvasSize = dependencies.CanvasSize or UDim2.fromOffset
 	local defer = dependencies.Defer or task.defer
-	local controller = {Seen = {}, Entries = {}, Count = 0, Disconnects = {}}
+	local controller = {Seen = {}, Entries = {}, Count = 0, Disconnects = {}, KillRows = {}}
 
 	local function updateCanvas()
 		view.List.CanvasSize = canvasSize(0, view.Layout.AbsoluteContentSize.Y + 8)
@@ -27,6 +27,7 @@ return function(dependencies)
 		view.Empty.Visible = false
 		table.insert(controller.Entries, entry)
 		defer(updateCanvas)
+		return entry
 	end
 
 	local function recordVerdict(signal, payload)
@@ -50,12 +51,48 @@ return function(dependencies)
 			add(string.format("TRACK  SALT HIT  #%s\nhunting: %s",
 				tostring(payload.ContactId or "?"), tostring(payload.Hunting == true)), eventColor)
 		elseif signal == "PlayerKilled" then
-			add("TRACK  PLAYER KILLED\nuserId: " .. tostring(payload.userId or "?"), eventColor)
+			local id = tostring(payload.userId or "?")
+			controller.KillRows[id] = add(
+				"TRACK  PLAYER KILLED\nuserId: " .. id .. " | waiting for speed",
+				eventColor
+			)
 		end
+	end
+
+	local function maximumSpeed(points)
+		local result
+		for _, point in ipairs(type(points) == "table" and points or {}) do
+			local speed = tonumber(point.s)
+			if speed and (not result or speed > result) then result = speed end
+		end
+		return result
+	end
+
+	local function recordKillSpeed(signal, payload)
+		if signal ~= "KillSpeed" then return end
+		payload = type(payload) == "table" and payload or {}
+		local id = tostring(payload.userId or "?")
+		local after = type(payload.afterKill) == "table" and payload.afterKill or {}
+		local current = after[#after] and tonumber(after[#after].s)
+		local before = maximumSpeed(payload.beforeKill)
+		local entry = controller.KillRows[id]
+		if not entry then
+			entry = add("", eventColor)
+			controller.KillRows[id] = entry
+		end
+		entry.Text = string.format(
+			"TRACK  PLAYER KILLED\nuserId: %s | speed: %s -> %s%s",
+			id,
+			before and string.format("%.3f", before) or "?",
+			current and string.format("%.3f", current) or "?",
+			payload.completed and " (completed)" or ""
+		)
+		defer(updateCanvas)
 	end
 
 	table.insert(controller.Disconnects, Traffic:Receive("Verdict", recordVerdict))
 	table.insert(controller.Disconnects, Traffic:Receive("SpeedTracker", recordTracker))
+	table.insert(controller.Disconnects, Traffic:Receive("Aswang", recordKillSpeed))
 	controller.LayoutConnection = view.Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateCanvas)
 	updateCanvas()
 

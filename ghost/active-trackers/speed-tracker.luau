@@ -34,6 +34,7 @@ return function(dependencies)
 	local function sendKill(completed)
 		if not Tracker.beforeKill then return end
 		Traffic("KillSpeed", {
+			userId = Tracker.killUserId,
 			beforeKill = Tracker.beforeKill,
 			afterKill = Tracker.afterKill,
 			completed = completed == true,
@@ -57,7 +58,7 @@ return function(dependencies)
 		end
 		Tracker.hunting, Tracker.samples = value, {}
 		Tracker.beforeSalt, Tracker.afterSalt, Tracker.contact, Tracker.saltState = nil, nil, nil, nil
-		Tracker.beforeKill, Tracker.afterKill = nil, nil
+		Tracker.beforeKill, Tracker.afterKill, Tracker.killUserId = nil, nil, nil
 		if value then Traffic("HuntSpeedReset", {}):SendTo("SpeedArrayLog") end
 		sample() -- once while non-hunting; hunt samples continue on visibility changes
 	end
@@ -93,8 +94,13 @@ return function(dependencies)
 			local transition = sample()
 			if not transition then return end
 			sendKill(true)
+			Tracker.killUserId = payload.userId
 			Tracker.beforeKill = table.clone(Tracker.samples)
 			Tracker.afterKill = {transition}
+			Traffic("HuntSpeedMarker", {
+				Index = #Tracker.samples,
+				Label = "KILL SPLIT #" .. tostring(payload.userId or "?"),
+			}):SendTo("SpeedArrayLog")
 		end
 	end)
 
