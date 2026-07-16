@@ -134,6 +134,19 @@ function Aesthetic.Create(dependencies)
 		TextSize = 12,
 	}, content)
 
+	local ghostEspButton = create("TextButton", {
+		Name = "GhostESP",
+		AutoButtonColor = false,
+		BackgroundColor3 = COLORS.Control,
+		BorderSizePixel = 0,
+		Font = Enum.Font.GothamMedium,
+		Position = UDim2.fromOffset(16, 138),
+		Size = UDim2.new(1, -32, 0, 34),
+		Text = "GHOST ESP: OFF",
+		TextColor3 = COLORS.Text,
+		TextSize = 12,
+	}, content)
+
 	local resizeHandle = create("TextButton", {
 		Name = "ResizeHandle",
 		Active = true,
@@ -175,6 +188,7 @@ function Aesthetic.Create(dependencies)
 		Buttons = {
 			HuntEscape = huntEscapeButton,
 			Bright = brightButton,
+			GhostESP = ghostEspButton,
 		},
 		Colors = COLORS,
 	}

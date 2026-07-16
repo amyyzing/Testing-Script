@@ -49,6 +49,7 @@ local createSpeedTracker = loadModule("ghost/active-trackers/speed-tracker.luau"
 local createSaltState = loadModule("ghost/discardable-trackers/salt-state-after-hit.luau")
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
 local createBright = loadModule("logic/bright.luau")
+local createGhostESP = loadModule("logic/ghost-esp.luau")
 local createTeleportBaseCamp = loadModule("logic/teleport-base-camp.luau")
 
 loading:SetStage("Building interface", 7, 10)
@@ -134,6 +135,11 @@ local function startTrackers()
 			Ghost = ghost,
 			TeleportToSafety = teleportToBaseCamp,
 			Button = view.Buttons.HuntEscape,
+			EnabledColor = view.Colors.Accent,
+		}))
+		session.GhostESP = remember(createGhostESP({
+			Ghost = ghost,
+			Button = view.Buttons.GhostESP,
 			EnabledColor = view.Colors.Accent,
 		}))
 		remember(createSpeedTracker({Traffic = Traffic, Ghost = ghost}))
