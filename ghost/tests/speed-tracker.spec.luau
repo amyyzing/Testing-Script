@@ -38,6 +38,7 @@ function Ghost:FindFirstChildOfClass() return Humanoid end
 function Ghost:FindFirstChild() return nil end
 
 local Traffic = createTraffic()
+local now = 0
 local kills, salts, huntLog = {}, {}, {}
 Traffic:Receive("Aswang", function(signalName, payload)
 	if signalName == "KillSpeed" then table.insert(kills, payload) end
@@ -46,7 +47,13 @@ end)
 Traffic:Receive("SpeedArrayLog", function(signalName, payload)
 	table.insert(huntLog, {signal = signalName, payload = payload})
 end)
-local tracker = createSpeedTracker({Traffic = Traffic, Ghost = Ghost, GhostModel = Model})
+local tracker = createSpeedTracker({
+	Traffic = Traffic,
+	Ghost = Ghost,
+	GhostModel = Model,
+	Clock = function() return now end,
+	KillMatchWindow = 0.75,
+})
 
 Traffic("PlayerKilled", {userId = 1}):SendTo("SpeedTracker")
 expect(#kills == 0, "non-hunting deaths must not start kill sections")
@@ -60,24 +67,36 @@ expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
 	and huntLog[#huntLog].payload.Label == "SALT SPLIT",
 	"salt contact should mark the exact split in the displayed array")
 Humanoid.WalkSpeed = 9
+now = 0.1
 speedChanged:Fire()
 Traffic("SaltStateAfterHit", {ContactId = 1, State = "disturbed"}):SendTo("SpeedTracker")
 expect(#salts == 1 and salts[1].afterSalt[#salts[1].afterSalt].s == 9,
 	"a post-contact WalkSpeed change should be captured without waiting for a blink")
 Humanoid.WalkSpeed = 11
+now = 0.2
 speedChanged:Fire()
 expect(#salts == 2 and salts[2].afterSalt[#salts[2].afterSalt].s == 11,
 	"the same split should capture recovery to the pre-salt speed")
 Humanoid.WalkSpeed = 12
+now = 1
 speedChanged:Fire()
 local preSignalSpeedIndex = #tracker.samples
-Traffic("PlayerKilled", {userId = 1}):SendTo("SpeedTracker")
-expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
-	and huntLog[#huntLog].payload.Index == preSignalSpeedIndex,
-	"a delayed PlayerKilled signal should mark the earlier speed-transition sample")
+now = 1.1
 Model.Transparency = 1
 visibility:Fire()
-Humanoid.WalkSpeed, Model.Transparency = 12, 0
+now = 1.2
+Model.Transparency = 0
+visibility:Fire()
+now = 1.3
+Traffic("PlayerKilled", {userId = 1, Time = now}):SendTo("SpeedTracker")
+expect(huntLog[#huntLog].signal == "HuntSpeedMarker"
+	and huntLog[#huntLog].payload.Index == preSignalSpeedIndex,
+	"timing should correlate a delayed PlayerKilled signal past intervening visibility samples")
+now = 1.4
+Model.Transparency = 1
+visibility:Fire()
+now = 1.5
+Model.Transparency = 0
 visibility:Fire()
 
 expect(#kills >= 1, "hunting deaths should produce kill speed updates")
@@ -90,7 +109,8 @@ expect(kill.beforeKill[#kill.beforeKill] == kill.afterKill[1],
 expect(#salts >= 4 and #salts[#salts].afterSalt >= 5,
 	"salt and kill sections should collect the same visibility samples")
 
-Traffic("PlayerKilled", {userId = 2}):SendTo("SpeedTracker")
+now = 3
+Traffic("PlayerKilled", {userId = 2, Time = now}):SendTo("SpeedTracker")
 expect(kills[#kills].completed == true,
 	"a second unique kill should finalize the previous kill section")
 expect(huntLog[#huntLog].signal == "HuntSpeedMarker"

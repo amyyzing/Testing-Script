@@ -2,14 +2,17 @@ return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "speed-tracker requires Traffic")
 	local Ghost = assert(dependencies.Ghost, "speed-tracker requires Ghost")
 	local Model = dependencies.GhostModel or Ghost:FindFirstChild("GhostModel", true) or Ghost
-	local Tracker = {Kind = "active", Running = true, hunting = nil, samples = {}}
+	local clock = dependencies.Clock or os.clock
+	local killMatchWindow = tonumber(dependencies.KillMatchWindow) or 0.75
+	local Tracker = {Kind = "active", Running = true, hunting = nil, samples = {}, sampleMeta = {}}
 
-	local function sample()
+	local function sample(source)
 		local humanoid = Ghost:FindFirstChildOfClass("Humanoid")
 		local speed = humanoid and tonumber(humanoid.WalkSpeed)
 		if not speed then return end
 		local point = {s = speed, v = Model:GetAttribute("Transparency") == 0}
 		table.insert(Tracker.samples, point)
+		table.insert(Tracker.sampleMeta, {source = source, time = clock()})
 		if Tracker.afterSalt then table.insert(Tracker.afterSalt, point) end
 		if Tracker.afterKill then table.insert(Tracker.afterKill, point) end
 		if Tracker.hunting then
@@ -57,12 +60,12 @@ return function(dependencies)
 			sendKill(true)
 			Traffic("HuntSpeedEnded", {Count = #Tracker.samples}):SendTo("SpeedArrayLog")
 		end
-		Tracker.hunting, Tracker.samples = value, {}
+		Tracker.hunting, Tracker.samples, Tracker.sampleMeta = value, {}, {}
 		Tracker.beforeSalt, Tracker.afterSalt, Tracker.contact, Tracker.saltState = nil, nil, nil, nil
 		Tracker.beforeKill, Tracker.afterKill = nil, nil
 		Tracker.killUserId, Tracker.killBaseline = nil, nil
 		if value then Traffic("HuntSpeedReset", {}):SendTo("SpeedArrayLog") end
-		sample() -- once while non-hunting; hunt samples continue on visibility changes
+		sample("state") -- once while non-hunting; hunt samples continue on visibility changes
 	end
 
 	Tracker.Disconnect = Traffic:Receive("SpeedTracker", function(signal, payload)
@@ -70,7 +73,7 @@ return function(dependencies)
 		if signal == "HuntingState" then
 			hunting(payload.Hunting == true)
 		elseif signal == "SaltHit" and Tracker.hunting then
-			local transition = sample()
+			local transition = sample("salt")
 			if not transition then return end
 			Tracker.contact = payload.ContactId
 			Tracker.beforeSalt = table.clone(Tracker.samples)
@@ -93,17 +96,26 @@ return function(dependencies)
 				Tracker.pendingSalt = nil
 			end
 		elseif signal == "PlayerKilled" and Tracker.hunting then
-			local transition = sample()
+			local transition = sample("kill")
 			if not transition then return end
 			sendKill(true)
 			Tracker.killUserId = payload.userId
-			Tracker.killBaseline = transition
 			local splitIndex = #Tracker.samples
-			for index = #Tracker.samples - 1, math.max(1, #Tracker.samples - 3), -1 do
-				local point = Tracker.samples[index]
-				if math.abs(point.s - transition.s) <= 0.001 then
+			local killTime = tonumber(payload.Time) or clock()
+			for index = #Tracker.sampleMeta - 1, 1, -1 do
+				local meta = Tracker.sampleMeta[index]
+				local age = killTime - meta.time
+				if age > killMatchWindow then break end
+				if age >= 0 and meta.source == "speed" then
 					splitIndex = index
-				elseif point.v == transition.v then
+					break
+				end
+			end
+			local splitPoint = Tracker.samples[splitIndex]
+			Tracker.killBaseline = splitPoint
+			for index = splitIndex - 1, 1, -1 do
+				local point = Tracker.samples[index]
+				if point.v == splitPoint.v then
 					Tracker.killBaseline = point
 					break
 				end
@@ -120,7 +132,7 @@ return function(dependencies)
 
 	Tracker.VisibilityConnection = Model:GetAttributeChangedSignal("Transparency"):Connect(function()
 		if Tracker.hunting then
-			sample()
+			sample("visibility")
 			sendSalt(false)
 			sendKill(false)
 		end
@@ -129,7 +141,7 @@ return function(dependencies)
 	if humanoid then
 		Tracker.SpeedConnection = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
 			if Tracker.hunting then
-				sample()
+				sample("speed")
 				sendSalt(false)
 				sendKill(false)
 			end

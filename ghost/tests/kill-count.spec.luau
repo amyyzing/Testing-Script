@@ -41,7 +41,7 @@ function Players:GetPlayers() return self.List end
 local Traffic = createTraffic()
 local deaths = {}
 Traffic:Receive("SpeedTracker", function(signalName, payload)
-	if signalName == "PlayerKilled" then table.insert(deaths, payload.userId) end
+	if signalName == "PlayerKilled" then table.insert(deaths, payload) end
 end)
 local tracker = createKillCount({Traffic = Traffic, Players = Players})
 
@@ -51,7 +51,8 @@ expect(#deaths == 0, "initial dead players must not emit a kill")
 
 alive:SetDead(true)
 alive:SetDead(true)
-expect(#deaths == 1 and deaths[1] == 1, "a unique death should emit exactly once")
+expect(#deaths == 1 and deaths[1].userId == 1 and type(deaths[1].Time) == "number",
+	"a unique death should emit exactly once with its observation time")
 alive:SetDead(false)
 alive:SetDead(true)
 expect(#deaths == 1, "a revived player's later death must not emit again")

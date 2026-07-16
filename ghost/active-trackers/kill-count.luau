@@ -14,7 +14,9 @@ return function(dependencies)
 			remove(Tracker.Alive, id)
 			if not table.find(Tracker.Dead, id) then
 				table.insert(Tracker.Dead, id)
-				if emit then Traffic("PlayerKilled", {userId = id}):SendTo("SpeedTracker") end
+				if emit then
+					Traffic("PlayerKilled", {userId = id, Time = os.clock()}):SendTo("SpeedTracker")
+				end
 			end
 		elseif not table.find(Tracker.Alive, id) then
 			table.insert(Tracker.Alive, id)
