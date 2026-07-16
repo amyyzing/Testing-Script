@@ -7,6 +7,7 @@ local Services = {
 	Players = game:GetService("Players"),
 	UserInputService = game:GetService("UserInputService"),
 	TweenService = game:GetService("TweenService"),
+	RunService = game:GetService("RunService"),
 	Lighting = game:GetService("Lighting"),
 	CoreGui = game:GetService("CoreGui"),
 	Workspace = game:GetService("Workspace"),
@@ -139,8 +140,12 @@ local function startTrackers()
 		}))
 		session.GhostESP = remember(createGhostESP({
 			Ghost = ghost,
+			RunService = Services.RunService,
+			Workspace = Services.Workspace,
+			GuiParent = view.Gui.Parent,
 			Button = view.Buttons.GhostESP,
 			EnabledColor = view.Colors.Accent,
+			Red = view.Colors.Danger,
 		}))
 		remember(createSpeedTracker({Traffic = Traffic, Ghost = ghost}))
 		remember(createKillCount({Traffic = Traffic, Players = Services.Players}))
