@@ -66,7 +66,7 @@ local createEscapeHunt = loadModule("logic/escape-hunt.luau")
 local createBright = loadModule("logic/bright.luau")
 local createGhostESP = loadModule("logic/ghost-esp.luau")
 local createGhostPatternLog = loadModule("logic/ghost-pattern-log.luau")
-local createHuntSpeedArray = loadModule("logic/hunt-speed-array.luau")
+local createFlickerArrayLog = loadModule("logic/flicker-array-log.luau")
 local createTeleportBaseCamp = loadModule("logic/teleport-base-camp.luau")
 
 loading:SetStage("Building interface", 7, 10)
@@ -155,11 +155,12 @@ local function startTrackers()
 			NegativeColor = view.Colors.Danger,
 			EventColor = view.Colors.Muted,
 		}))
-		remember(createHuntSpeedArray({
+		remember(createFlickerArrayLog({
 			Traffic = Traffic,
-			View = view.SpeedDrawer,
+			View = view.FlickerDrawer,
 			TextColor = view.Colors.Text,
 			AccentColor = view.Colors.Accent,
+			PositiveColor = view.Colors.Positive,
 		}))
 		remember(Aswang.new({Traffic = Traffic}))
 		remember(Demon.new({Traffic = Traffic}))

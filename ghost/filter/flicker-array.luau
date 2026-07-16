@@ -21,10 +21,21 @@ return function(dependencies)
 			switches = {}
 			Tracker.Arrays[payload.Item] = switches
 		end
+		while switches[1] and now - switches[1].t > window do table.remove(switches, 1) end
 		local last = switches[#switches]
 		if last and last.v == payload.Current then return end
 		table.insert(switches, {t = now, v = payload.Current})
-		while switches[1] and now - switches[1].t > window do table.remove(switches, 1) end
+		local duration = switches[#switches].t - switches[1].t
+		Traffic("FlickerArrayUpdate", {
+			Item = payload.Item,
+			ItemName = payload.ItemName,
+			Switches = table.clone(switches),
+			Count = #switches,
+			RequiredSwitches = requiredSwitches,
+			Window = window,
+			Duration = duration,
+			Completed = #switches >= requiredSwitches,
+		}):SendTo("FlickerArrayLog")
 		if #switches < requiredSwitches then return end
 		Tracker.Resolved = true
 		Traffic("FlickerArrayResult", {
@@ -33,7 +44,7 @@ return function(dependencies)
 			Switches = table.clone(switches),
 			Count = #switches,
 			Window = window,
-			Duration = switches[#switches].t - switches[1].t,
+			Duration = duration,
 		}):SendTo("Leviathan")
 	end)
 

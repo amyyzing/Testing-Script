@@ -6,7 +6,7 @@ return function(dependencies)
 	local killMatchWindow = tonumber(dependencies.KillMatchWindow) or 0.75
 	local Tracker = {
 		Kind = "active", Running = true,
-		hunting = nil, samples = {}, sampleMeta = {}, logComplete = false,
+		hunting = nil, samples = {}, sampleMeta = {},
 	}
 
 	local function sample(source)
@@ -18,12 +18,6 @@ return function(dependencies)
 		table.insert(Tracker.sampleMeta, {source = source, time = clock()})
 		if Tracker.afterSalt then table.insert(Tracker.afterSalt, point) end
 		if Tracker.afterKill then table.insert(Tracker.afterKill, point) end
-		if Tracker.hunting and not Tracker.logComplete then
-			Traffic("HuntSpeedSample", {
-				Index = #Tracker.samples,
-				Point = {s = point.s, v = point.v},
-			}):SendTo("SpeedArrayLog")
-		end
 		return point
 	end
 
@@ -61,14 +55,11 @@ return function(dependencies)
 				sendSalt(true)
 			end
 			sendKill(true)
-			Traffic("HuntSpeedEnded", {Count = #Tracker.samples}):SendTo("SpeedArrayLog")
 		end
 		Tracker.hunting, Tracker.samples, Tracker.sampleMeta = value, {}, {}
-		Tracker.logComplete = false
 		Tracker.beforeSalt, Tracker.afterSalt, Tracker.contact, Tracker.saltState = nil, nil, nil, nil
 		Tracker.beforeKill, Tracker.afterKill = nil, nil
 		Tracker.killUserId, Tracker.killBaseline = nil, nil
-		if value then Traffic("HuntSpeedReset", {}):SendTo("SpeedArrayLog") end
 		sample("state") -- once while non-hunting; hunt samples continue on visibility changes
 	end
 
@@ -76,18 +67,12 @@ return function(dependencies)
 		payload = type(payload) == "table" and payload or {}
 		if signal == "HuntingState" then
 			hunting(payload.Hunting == true)
-		elseif signal == "SevenPairResult" then
-			Tracker.logComplete = true
 		elseif signal == "SaltHit" and Tracker.hunting then
 			local transition = sample("salt")
 			if not transition then return end
 			Tracker.contact = payload.ContactId
 			Tracker.beforeSalt = table.clone(Tracker.samples)
 			Tracker.afterSalt = {transition}
-			Traffic("HuntSpeedMarker", {
-				Index = #Tracker.samples,
-				Label = "SALT SPLIT",
-			}):SendTo("SpeedArrayLog")
 		elseif signal == "SaltStateAfterHit" then
 			if payload.ContactId == Tracker.contact then
 				Tracker.saltState = payload.State
@@ -129,10 +114,6 @@ return function(dependencies)
 			Tracker.beforeKill, Tracker.afterKill = {}, {}
 			for index = 1, splitIndex do table.insert(Tracker.beforeKill, Tracker.samples[index]) end
 			for index = splitIndex, #Tracker.samples do table.insert(Tracker.afterKill, Tracker.samples[index]) end
-			Traffic("HuntSpeedMarker", {
-				Index = splitIndex,
-				Label = "KILL",
-			}):SendTo("SpeedArrayLog")
 		end
 	end)
 

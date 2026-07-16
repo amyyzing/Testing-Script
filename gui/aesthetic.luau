@@ -256,11 +256,11 @@ function Aesthetic.Create(dependencies)
 		"L\nO\nG\nS",
 		-54
 	)
-	local speedDrawer = makeDrawer(
-		"SpeedDrawer",
-		"HUNT SPEED ARRAY",
-		"Waiting for hunt samples.",
-		"S\nP\nE\nE\nD",
+	local flickerDrawer = makeDrawer(
+		"FlickerDrawer",
+		"FLICKER ARRAYS",
+		"Waiting for item switches.",
+		"F\nL\nI\nC\nK\nE\nR",
 		54
 	)
 
@@ -302,7 +302,7 @@ function Aesthetic.Create(dependencies)
 		OpenButton = openButton,
 		ResizeHandle = resizeHandle,
 		PatternDrawer = patternDrawer,
-		SpeedDrawer = speedDrawer,
+		FlickerDrawer = flickerDrawer,
 		Buttons = {
 			HuntEscape = huntEscapeButton,
 			Bright = brightButton,

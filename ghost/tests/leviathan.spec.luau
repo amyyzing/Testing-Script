@@ -12,8 +12,12 @@ local Verdict = createVerdict({Traffic = Traffic})
 local leviathan = Leviathan.new({Traffic = Traffic})
 local flicker = createFlickerArray({Traffic = Traffic})
 local results = {}
+local logUpdates = {}
 Traffic:Receive("Leviathan", function(signal, payload)
 	if signal == "FlickerArrayResult" then table.insert(results, payload) end
+end)
+Traffic:Receive("FlickerArrayLog", function(signal, payload)
+	if signal == "FlickerArrayUpdate" then table.insert(logUpdates, payload) end
 end)
 
 local itemA, itemB = {}, {}
@@ -33,6 +37,8 @@ for index = 1, 5 do
 	switch(itemB, "Blacklight", index * 0.1, state)
 end
 expect(#results == 0, "switches from different items must not be combined")
+expect(#logUpdates == 10 and logUpdates[5].Count == 3 and logUpdates[10].Count == 5,
+	"each accepted switch should publish its own per-item rolling array")
 
 for index = 1, 10 do
 	switch(itemA, "Spirit Box", 10 + (index - 1) * 0.3, index % 2 == 0)
@@ -46,6 +52,8 @@ expect(#results == 0, "nine fast switches must not qualify")
 switch(itemA, "Spirit Box", 22.25, true)
 expect(#results == 1 and results[1].Count == 10 and results[1].Duration == 2.25,
 	"the tenth switch inside 2.5 seconds should resolve the flicker array")
+expect(logUpdates[#logUpdates].Completed == true and logUpdates[#logUpdates].Count == 10,
+	"the visible flicker array should mark the qualifying update complete")
 expect(Verdict.Confidence[9] == 99 and Verdict.Selected[1] == 9,
 	"a completed flicker array should support and select Leviathan")
 
