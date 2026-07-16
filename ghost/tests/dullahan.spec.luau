@@ -38,10 +38,15 @@ function Ghost:FindFirstChildOfClass() return Humanoid end
 local Traffic = createTraffic()
 local Verdict = createVerdict({Traffic = Traffic})
 local dullahan = Dullahan.new({Traffic = Traffic})
+local delayedStart
 local filter = createSevenPair({
 	Traffic = Traffic,
 	Ghost = Ghost,
 	Humanoid = Humanoid,
+	Delay = function(seconds, callback)
+		expect(seconds == 1, "seven-pair should wait one second after hunt start")
+		delayedStart = callback
+	end,
 })
 local lastResult
 local displayedSamples = {}
@@ -63,7 +68,16 @@ local function sendPair(visible, invisible)
 	sample(invisible, false)
 end
 
+local function beginDelayedSampling()
+	local callback = delayedStart
+	delayedStart = nil
+	expect(type(callback) == "function", "hunt start should schedule seven-pair sampling")
+	callback()
+end
+
 Traffic("HuntingState", {Hunting = true}):SendTo("SevenPair")
+expect(visibility:Count() == 0, "seven-pair must not sample during its start delay")
+beginDelayedSampling()
 expect(visibility:Count() == 1, "hunting should start one visibility sampler")
 expect(filter.SampleCount == 0,
 	"a missing Workspace.Ghost Transparency attribute must not become a false invisible sample")
@@ -88,6 +102,7 @@ expect(filter.SampleCount == 14, "no samples should be taken after the seventh p
 Traffic("HuntingState", {Hunting = false}):SendTo("SevenPair")
 Ghost.Transparency = nil
 Traffic("HuntingState", {Hunting = true}):SendTo("SevenPair")
+beginDelayedSampling()
 Verdict:Reset()
 lastResult = nil
 sendPair(22, 22.3)
@@ -102,6 +117,7 @@ expect(Verdict:Snapshot().Selected[1] == 4,
 Traffic("HuntingState", {Hunting = false}):SendTo("SevenPair")
 Ghost.Transparency = nil
 Traffic("HuntingState", {Hunting = true}):SendTo("SevenPair")
+beginDelayedSampling()
 Verdict:Reset()
 lastResult = nil
 for _ = 1, 6 do sendPair(22, 22.3) end
@@ -110,6 +126,13 @@ expect(lastResult == nil and #Verdict:Snapshot().Selected == 0
 	and #Verdict:Snapshot()["ruled-out"] == 0,
 	"an incomplete set of seven pairs should not produce a verdict")
 expect(visibility:Count() == 0, "hunt end should stop an incomplete sampler")
+
+Traffic("HuntingState", {Hunting = true}):SendTo("SevenPair")
+local cancelledStart = delayedStart
+Traffic("HuntingState", {Hunting = false}):SendTo("SevenPair")
+cancelledStart()
+expect(visibility:Count() == 0,
+	"a hunt ending during the one-second delay must cancel seven-pair sampling")
 
 filter:Destroy()
 dullahan:Destroy()

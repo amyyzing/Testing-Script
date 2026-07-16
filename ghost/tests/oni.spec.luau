@@ -50,6 +50,7 @@ local function run(rawSpeed, visibilityMode, mapSize)
 		Traffic = Traffic,
 		Ghost = Ghost,
 		Humanoid = Humanoid,
+		Delay = function(_, callback) callback() end,
 	})
 	local filtered
 	Traffic:Receive("Oni", function(signalName, payload)

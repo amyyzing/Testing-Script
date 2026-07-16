@@ -2,6 +2,9 @@ return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "7-pair requires Traffic")
 	local Ghost = assert(dependencies.Ghost, "7-pair requires Ghost")
 	local Humanoid = dependencies.Humanoid or Ghost:FindFirstChildOfClass("Humanoid")
+	local delay = dependencies.Delay or task and task.delay
+	assert(type(delay) == "function", "7-pair requires task.delay")
+	local startDelay = tonumber(dependencies.StartDelay) or 1
 	local Tracker = {
 		Kind = "filter",
 		Running = true,
@@ -11,6 +14,7 @@ return function(dependencies)
 		Pending = nil,
 		LastVisibility = nil,
 		SampleCount = 0,
+		Generation = 0,
 	}
 
 	local function stopSampling()
@@ -21,6 +25,7 @@ return function(dependencies)
 
 	local function reset(active)
 		stopSampling()
+		Tracker.Generation += 1
 		Tracker.Active = active == true
 		Tracker.Resolved = false
 		Tracker.Pairs = {}
@@ -114,7 +119,13 @@ return function(dependencies)
 		if hunting then
 			if not Tracker.Active then
 				reset(true)
-				startSampling()
+				local generation = Tracker.Generation
+				delay(startDelay, function()
+					if Tracker.Running and Tracker.Active
+						and Tracker.Generation == generation then
+						startSampling()
+					end
+				end)
 			end
 		else
 			reset(false)
