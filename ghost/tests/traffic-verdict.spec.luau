@@ -49,6 +49,15 @@ Traffic("KillSpeed", {
 expect(Verdict:Snapshot().Selected == 1, "two stable higher kill samples should select Aswang")
 
 Verdict:Reset()
+Traffic("KillSpeed", {
+	baselineKill = {s = 22, v = false},
+	beforeKill = {{s = 22, v = false}, {s = 24, v = false}, {s = 24, v = false}},
+	afterKill = {{s = 24, v = false}, {s = 24, v = false}, {s = 24, v = false}},
+}):SendTo("Aswang")
+expect(Verdict:Snapshot().Selected == 1,
+	"a pre-signal speed rise should compare against the retained kill baseline")
+
+Verdict:Reset()
 Traffic("SaltSpeed", {
 	saltState = "disturbed",
 	beforeSalt = {{s = 11, v = true}, {s = 11, v = false}},

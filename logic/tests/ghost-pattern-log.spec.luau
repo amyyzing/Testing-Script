@@ -60,11 +60,12 @@ expect(controller.Count == 4 and string.find(entries[4].Text, "PLAYER KILLED", 1
 	"unique player kills should create tracker rows")
 Traffic("KillSpeed", {
 	userId = 42,
-	beforeKill = {{s = 22, v = true}, {s = 22, v = false}},
-	afterKill = {{s = 22, v = false}, {s = 16.5, v = true}},
+	baselineKill = {s = 22, v = false},
+	beforeKill = {{s = 22, v = false}, {s = 24, v = false}, {s = 24, v = false}},
+	afterKill = {{s = 24, v = false}, {s = 24, v = false}},
 }):SendTo("Aswang")
-expect(controller.Count == 4 and string.find(entries[4].Text, "22.000 -> 16.500", 1, true),
-	"kill speed updates should update the existing player-kill row")
+expect(controller.Count == 4 and string.find(entries[4].Text, "22.000 -> 24.000", 1, true),
+	"a pre-signal speed rise should update the player-kill row from its retained baseline")
 Traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
 expect(controller.Count == 4, "unrequested tracker events should not create rows")
 

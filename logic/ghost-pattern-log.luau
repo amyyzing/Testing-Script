@@ -74,7 +74,8 @@ return function(dependencies)
 		local id = tostring(payload.userId or "?")
 		local after = type(payload.afterKill) == "table" and payload.afterKill or {}
 		local current = after[#after] and tonumber(after[#after].s)
-		local before = maximumSpeed(payload.beforeKill)
+		local before = payload.baselineKill and tonumber(payload.baselineKill.s)
+			or maximumSpeed(payload.beforeKill)
 		local entry = controller.KillRows[id]
 		if not entry then
 			entry = add("", eventColor)

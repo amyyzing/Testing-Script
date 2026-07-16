@@ -33,7 +33,7 @@ function Aswang.new(dependencies)
 				}):SendTo("Verdict")
 			end
 		elseif signal == "KillSpeed" then
-			local before = data.beforeKill and data.beforeKill[#data.beforeKill]
+			local before = data.baselineKill or data.beforeKill and data.beforeKill[#data.beforeKill]
 			local after = data.afterKill or {}
 			if not before or #after < 3 then return end
 			local a, b = after[#after - 1], after[#after]

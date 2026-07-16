@@ -68,8 +68,10 @@ Humanoid.WalkSpeed = 11
 speedChanged:Fire()
 expect(#salts == 2 and salts[2].afterSalt[#salts[2].afterSalt].s == 11,
 	"the same split should capture recovery to the pre-salt speed")
+Humanoid.WalkSpeed = 12
+speedChanged:Fire()
 Traffic("PlayerKilled", {userId = 1}):SendTo("SpeedTracker")
-Humanoid.WalkSpeed, Model.Transparency = 12, 1
+Model.Transparency = 1
 visibility:Fire()
 Humanoid.WalkSpeed, Model.Transparency = 12, 0
 visibility:Fire()
@@ -77,6 +79,8 @@ visibility:Fire()
 expect(#kills >= 1, "hunting deaths should produce kill speed updates")
 local kill = kills[#kills]
 expect(kill.userId == 1, "kill speed sections should retain the unique player id")
+expect(kill.baselineKill.s == 11,
+	"a speed change just before PlayerKilled should not replace the earlier stable baseline")
 expect(kill.beforeKill[#kill.beforeKill] == kill.afterKill[1],
 	"kill arrays should share their transition sample")
 expect(#salts >= 4 and #salts[#salts].afterSalt >= 5,
