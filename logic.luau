@@ -1,6 +1,6 @@
 if not game:IsLoaded() then game.Loaded:Wait() end
 
-local url = "https://raw.githubusercontent.com/amyyzing/Testing-Script/main/loader.luau?v="
+local url = "https://raw.githubusercontent.com/amyyzing/Testing-Script/refs/heads/main/loader.luau?v="
 	.. tostring(os.time())
 local source = game:HttpGet(url)
 local compiler = loadstring or load

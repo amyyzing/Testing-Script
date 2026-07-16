@@ -1,6 +1,6 @@
 if not game:IsLoaded() then game.Loaded:Wait() end
 
-local BASE_URL = "https://raw.githubusercontent.com/amyyzing/Testing-Script/main/"
+local BASE_URL = "https://raw.githubusercontent.com/amyyzing/Testing-Script/refs/heads/main/"
 local VERSION = tostring(os.time())
 local environment = (getgenv and getgenv()) or _G
 local Services = {

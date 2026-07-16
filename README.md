@@ -5,7 +5,7 @@ Minimal modular Demonology assistant currently focused on Aswang tracking.
 ## Loadstring
 
 ```luau
-loadstring(game:HttpGet("https://raw.githubusercontent.com/amyyzing/Testing-Script/main/logic.luau"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/amyyzing/Testing-Script/refs/heads/main/logic.luau"))()
 ```
 
 The root bootstrap loads `loader.luau`, the flat GUI modules, the internal traffic/verdict modules, and the active Aswang trackers. The tracker starts when `Workspace.Ghost`, its `Humanoid`, and `Workspace.SaltPiles` are available.
