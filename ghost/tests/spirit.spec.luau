@@ -108,10 +108,16 @@ local function harness(first, last)
 	World:Add(folder)
 	local Ghost = node("Ghost", "Model")
 	Ghost.Attributes.Hunting = false
+	local delayed = {}
 	local Traffic = createTraffic()
 	local Verdict = createVerdict({Traffic = Traffic})
 	local processor = Spirit.new({Traffic = Traffic})
-	local tracker = createHolyOilColour({Traffic = Traffic, Workspace = World, Ghost = Ghost})
+	local tracker = createHolyOilColour({
+		Traffic = Traffic,
+		Workspace = World,
+		Ghost = Ghost,
+		DelayTask = function(_, callback) table.insert(delayed, callback) end,
+	})
 	return {
 		Ghost = Ghost,
 		Oil = oil,
@@ -119,6 +125,11 @@ local function harness(first, last)
 		Secondary = secondary,
 		Verdict = Verdict,
 		Tracker = tracker,
+		RunDelayed = function()
+			local pending = delayed
+			delayed = {}
+			for _, callback in ipairs(pending) do callback() end
+		end,
 		Destroy = function()
 			tracker:Destroy()
 			processor:Destroy()
@@ -130,6 +141,9 @@ local blue = harness(colour(0.384314, 0.541216, 1), colour(0, 0.263333, 1))
 blue.Oil:SetAttribute("Burning", true)
 expect(blue.Verdict.Confidence[19] == nil, "burning oil outside a hunt must be ignored")
 blue.Ghost:SetAttribute("Hunting", true)
+expect(blue.Verdict.Confidence[19] == nil,
+	"the initial gradient must not resolve before the stability window")
+blue.RunDelayed()
 expect(blue.Verdict.Confidence[19] == 99 and blue.Tracker.Result == "Spirit",
 	"both blue emitter sequences should support Spirit at 99 percent")
 blue.Destroy()
@@ -137,6 +151,7 @@ blue.Destroy()
 local orange = harness(colour(1, 0.694118, 0.384314), colour(1, 0.333333, 0))
 orange.Ghost:SetAttribute("Hunting", true)
 orange.Oil:SetAttribute("Burning", true)
+orange.RunDelayed()
 expect(table.find(orange.Verdict.RuledOut, 19) and orange.Tracker.Result == "Normal",
 	"both orange emitter sequences should rule Spirit out at 99 percent")
 orange.Destroy()
@@ -152,8 +167,23 @@ unknown.Primary.Signals["P:Color"]:Fire()
 expect(unknown.Tracker.Running, "one matching emitter must not resolve the gradient")
 unknown.Secondary.Color = sequence(colour(0.384314, 0.541216, 1), colour(0, 0.263333, 1))
 unknown.Secondary.Signals["P:Color"]:Fire()
+unknown.RunDelayed()
 expect(unknown.Tracker.Result == "Spirit",
 	"the tracker should resolve once both gradients settle on the Spirit sequence")
 unknown.Destroy()
+
+local transition = harness(colour(1, 0.694118, 0.384314), colour(1, 0.333333, 0))
+transition.Ghost:SetAttribute("Hunting", true)
+transition.Oil:SetAttribute("Burning", true)
+transition.Primary.Color = sequence(colour(0.384314, 0.541216, 1), colour(0, 0.263333, 1))
+transition.Secondary.Color = sequence(colour(0.384314, 0.541216, 1), colour(0, 0.263333, 1))
+transition.RunDelayed()
+expect(transition.Tracker.Running,
+	"a missed colour-change signal should restart rather than accept stale orange")
+transition.RunDelayed()
+expect(transition.Tracker.Result == "Spirit"
+	and not table.find(transition.Verdict.RuledOut, 19),
+	"an orange starting gradient that settles blue must resolve as Spirit")
+transition.Destroy()
 
 print("spirit.spec: qualified blue and normal Holy Oil sequences passed")

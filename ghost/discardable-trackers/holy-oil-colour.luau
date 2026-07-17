@@ -7,6 +7,9 @@ return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "holy-oil-colour requires Traffic")
 	local World = dependencies.Workspace or workspace
 	local Ghost = assert(dependencies.Ghost, "holy-oil-colour requires Ghost")
+	local delay = dependencies.DelayTask or (task and task.delay)
+	assert(type(delay) == "function", "holy-oil-colour requires task.delay")
+	local stableSeconds = tonumber(dependencies.StableSeconds) or 0.5
 	local Tracker = {
 		Kind = "discardable",
 		Running = true,
@@ -53,19 +56,50 @@ return function(dependencies)
 		}):SendTo("Spirit")
 	end
 
-	local function evaluate(oil)
-		if not Tracker.Running or Ghost:GetAttribute("Hunting") ~= true
-			or oil:GetAttribute("Burning") ~= true then return end
+	local function classify(oil)
 		local container = oil:FindFirstChild("ParticleContainer", true)
 		local primary = container and container:FindFirstChild("Primary", true)
 		local secondary = container and container:FindFirstChild("Secondary", true)
 		if matches(primary, SPIRIT_FIRST, SPIRIT_LAST)
 			and matches(secondary, SPIRIT_FIRST, SPIRIT_LAST) then
-			finish("Spirit", oil)
+			return "Spirit"
 		elseif matches(primary, NORMAL_FIRST, NORMAL_LAST)
 			and matches(secondary, NORMAL_FIRST, NORMAL_LAST) then
-			finish("Normal", oil)
+			return "Normal"
 		end
+	end
+
+	local function clearCandidate(oil)
+		if oil and Tracker.CandidateOil ~= oil then return end
+		Tracker.CandidateSerial = (Tracker.CandidateSerial or 0) + 1
+		Tracker.CandidateOil, Tracker.CandidateKind = nil, nil
+	end
+
+	local function evaluate(oil)
+		if not Tracker.Running or not oil.Parent
+			or Ghost:GetAttribute("Hunting") ~= true
+			or oil:GetAttribute("Burning") ~= true then
+			clearCandidate(oil)
+			return
+		end
+		local kind = classify(oil)
+		if not kind then
+			clearCandidate(oil)
+			return
+		end
+		if Tracker.CandidateOil == oil and Tracker.CandidateKind == kind then return end
+		clearCandidate()
+		Tracker.CandidateOil, Tracker.CandidateKind = oil, kind
+		local serial = Tracker.CandidateSerial
+		delay(stableSeconds, function()
+			if not Tracker.Running or Tracker.CandidateSerial ~= serial
+				or Tracker.CandidateOil ~= oil or Tracker.CandidateKind ~= kind then return end
+			if not oil.Parent or Ghost:GetAttribute("Hunting") ~= true
+				or oil:GetAttribute("Burning") ~= true then clearCandidate(oil) return end
+			if classify(oil) == kind then finish(kind, oil) return end
+			clearCandidate(oil)
+			evaluate(oil)
+		end)
 	end
 
 	local function isHolyOil(object)
