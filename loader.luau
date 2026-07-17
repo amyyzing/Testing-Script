@@ -51,6 +51,7 @@ local Keres = loadModule("ghost/ghosts/Keres.luau")
 local Leviathan = loadModule("ghost/ghosts/Leviathan.luau")
 local Oni = loadModule("ghost/ghosts/Oni.luau")
 local Phantom = loadModule("ghost/ghosts/Phantom.luau")
+local Ravager = loadModule("ghost/ghosts/Ravager.luau")
 loading:SetStage("Loading trackers", 6, 10)
 local createCrossBurn = loadModule("ghost/active-trackers/cross-burn.luau")
 local createHuntingState = loadModule("ghost/active-trackers/hunting-state.luau")
@@ -65,6 +66,7 @@ local createSpeedFilter = loadModule("ghost/filter/speed-filter.luau")
 local createCrossAnimation = loadModule("ghost/discardable-trackers/cross-animation.luau")
 local createSaltState = loadModule("ghost/discardable-trackers/salt-state-after-hit.luau")
 local createSmokeHolder = loadModule("ghost/discardable-trackers/smoke-holder.luau")
+local createItemOrbit = loadModule("ghost/dormant-trackers/item-orbit.luau")
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
 local createBright = loadModule("logic/bright.luau")
 local createGhostESP = loadModule("logic/ghost-esp.luau")
@@ -173,6 +175,7 @@ local function startTrackers()
 		remember(Leviathan.new({Traffic = Traffic}))
 		remember(Oni.new({Traffic = Traffic}))
 		remember(Phantom.new({Traffic = Traffic}))
+		remember(Ravager.new({Traffic = Traffic}))
 		remember(createFlickerArray({Traffic = Traffic}))
 		remember(createSpeedFilter({
 			Traffic = Traffic,
@@ -196,6 +199,12 @@ local function startTrackers()
 			Traffic = Traffic,
 			Workspace = Services.Workspace,
 			Players = Services.Players,
+		}))
+		remember(createItemOrbit({
+			Traffic = Traffic,
+			Workspace = Services.Workspace,
+			Ghost = ghost,
+			RunService = Services.RunService,
 		}))
 		remember(createCrossAnimation({
 			Traffic = Traffic,
