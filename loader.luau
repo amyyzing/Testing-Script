@@ -56,11 +56,13 @@ local Ravager = loadModule("ghost/ghosts/Ravager.luau")
 local Revenant = loadModule("ghost/ghosts/Revenant.luau")
 local Shadow = loadModule("ghost/ghosts/Shadow.luau")
 local Siren = loadModule("ghost/ghosts/Siren.luau")
+local Skinwalker = loadModule("ghost/ghosts/Skinwalker.luau")
 local Specter = loadModule("ghost/ghosts/Specter.luau")
 local Spirit = loadModule("ghost/ghosts/Spirit.luau")
 local Umbra = loadModule("ghost/ghosts/Umbra.luau")
 local Vex = loadModule("ghost/ghosts/Vex.luau")
 local Wendigo = loadModule("ghost/ghosts/Wendigo.luau")
+local Wisp = loadModule("ghost/ghosts/Wisp.luau")
 loading:SetStage("Loading trackers", 6, 10)
 local createCrossBurn = loadModule("ghost/active-trackers/cross-burn.luau")
 local createGhostRoom = loadModule("ghost/active-trackers/ghost-room.luau")
@@ -75,7 +77,10 @@ local createSevenPair = loadModule("ghost/filter/7-pair.luau")
 local createFlickerArray = loadModule("ghost/filter/flicker-array.luau")
 local createSpeedFilter = loadModule("ghost/filter/speed-filter.luau")
 local createCrossAnimation = loadModule("ghost/discardable-trackers/cross-animation.luau")
+local createCatchFire = loadModule("ghost/discardable-trackers/catch-fire.luau")
 local createHolyOilColour = loadModule("ghost/discardable-trackers/holy-oil-colour.luau")
+local createHolyOilCollidable = loadModule("ghost/discardable-trackers/holy-oil-collidable.luau")
+local createHolyOilPass = loadModule("ghost/discardable-trackers/holy-oil-pass.luau")
 local createFootstepSound = loadModule("ghost/discardable-trackers/footstep-sound.luau")
 local createLidar = loadModule("ghost/discardable-trackers/lidar.luau")
 local createModelGender = loadModule("ghost/discardable-trackers/model-gender.luau")
@@ -84,6 +89,8 @@ local createSaltState = loadModule("ghost/discardable-trackers/salt-state-after-
 local createSmokeHolder = loadModule("ghost/discardable-trackers/smoke-holder.luau")
 local createItemOrbit = loadModule("ghost/dormant-trackers/item-orbit.luau")
 local createHumming = loadModule("ghost/dormant-trackers/humming.luau")
+local createFavouriteHuntRoom = loadModule("ghost/dormant-trackers/favourite-hunt-room.luau")
+local createHolyOilActivate = loadModule("ghost/dormant-trackers/holy-oil-activate.luau")
 local createLOSSight = loadModule("ghost/dormant-trackers/los-sight.luau")
 local createLOSSpeed = loadModule("ghost/dormant-trackers/los-speed.luau")
 local createRoomTemperature = loadModule("ghost/dormant-trackers/room-temperature.luau")
@@ -210,11 +217,13 @@ local function startTrackers()
 		remember(Revenant.new({Traffic = Traffic}))
 		remember(Shadow.new({Traffic = Traffic}))
 		remember(Siren.new({Traffic = Traffic}))
+		remember(Skinwalker.new({Traffic = Traffic}))
 		remember(Specter.new({Traffic = Traffic}))
 		remember(Spirit.new({Traffic = Traffic}))
 		remember(Umbra.new({Traffic = Traffic}))
 		remember(Vex.new({Traffic = Traffic}))
 		remember(Wendigo.new({Traffic = Traffic}))
+		remember(Wisp.new({Traffic = Traffic}))
 		remember(createFlickerArray({Traffic = Traffic}))
 		remember(createSpeedFilter({
 			Traffic = Traffic,
@@ -271,6 +280,13 @@ local function startTrackers()
 			Workspace = Services.Workspace,
 			Ghost = ghost,
 		}))
+		remember(createCatchFire({Traffic = Traffic, Ghost = ghost}))
+		remember(createHolyOilPass({Traffic = Traffic, Ghost = ghost}))
+		remember(createHolyOilCollidable({Traffic = Traffic}))
+		remember(createHolyOilActivate({
+			Traffic = Traffic,
+			Workspace = Services.Workspace,
+		}))
 		remember(createCrossAnimation({
 			Traffic = Traffic,
 			RunService = Services.RunService,
@@ -302,6 +318,14 @@ local function startTrackers()
 			Workspace = Services.Workspace,
 			Ghost = ghost,
 			RunService = Services.RunService,
+		}))
+		remember(createFavouriteHuntRoom({
+			Traffic = Traffic,
+			Ghost = ghost,
+			ReadCurrentRoom = function(refresh)
+				if refresh then ghostRoom:Sample() end
+				return ghostRoom.Room
+			end,
 		}))
 		remember(createSpecterTrial({
 			Traffic = Traffic,
