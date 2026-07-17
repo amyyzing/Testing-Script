@@ -53,8 +53,10 @@ local Oni = loadModule("ghost/ghosts/Oni.luau")
 local Phantom = loadModule("ghost/ghosts/Phantom.luau")
 local Ravager = loadModule("ghost/ghosts/Ravager.luau")
 local Revenant = loadModule("ghost/ghosts/Revenant.luau")
+local Shadow = loadModule("ghost/ghosts/Shadow.luau")
 loading:SetStage("Loading trackers", 6, 10)
 local createCrossBurn = loadModule("ghost/active-trackers/cross-burn.luau")
+local createGhostRoom = loadModule("ghost/active-trackers/ghost-room.luau")
 local createHuntingState = loadModule("ghost/active-trackers/hunting-state.luau")
 local createItemTeleport = loadModule("ghost/active-trackers/item-teleport.luau")
 local createItemState = loadModule("ghost/active-trackers/item-state.luau")
@@ -68,6 +70,7 @@ local createCrossAnimation = loadModule("ghost/discardable-trackers/cross-animat
 local createSaltState = loadModule("ghost/discardable-trackers/salt-state-after-hit.luau")
 local createSmokeHolder = loadModule("ghost/discardable-trackers/smoke-holder.luau")
 local createItemOrbit = loadModule("ghost/dormant-trackers/item-orbit.luau")
+local createRoomTemperature = loadModule("ghost/dormant-trackers/room-temperature.luau")
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
 local createBright = loadModule("logic/bright.luau")
 local createGhostESP = loadModule("logic/ghost-esp.luau")
@@ -178,6 +181,7 @@ local function startTrackers()
 		remember(Phantom.new({Traffic = Traffic}))
 		remember(Ravager.new({Traffic = Traffic}))
 		remember(Revenant.new({Traffic = Traffic}))
+		remember(Shadow.new({Traffic = Traffic}))
 		remember(createFlickerArray({Traffic = Traffic}))
 		remember(createSpeedFilter({
 			Traffic = Traffic,
@@ -208,6 +212,7 @@ local function startTrackers()
 			Ghost = ghost,
 			RunService = Services.RunService,
 		}))
+		remember(createRoomTemperature({Traffic = Traffic}))
 		remember(createCrossAnimation({
 			Traffic = Traffic,
 			RunService = Services.RunService,
@@ -235,6 +240,12 @@ local function startTrackers()
 		remember(createSpeedTracker({Traffic = Traffic, Ghost = ghost}))
 		remember(createKillCount({Traffic = Traffic, Players = Services.Players}))
 		remember(createHuntingState({Traffic = Traffic, Ghost = ghost}))
+		remember(createGhostRoom({
+			Traffic = Traffic,
+			Workspace = Services.Workspace,
+			Ghost = ghost,
+			RunService = Services.RunService,
+		}))
 	end
 
 	local saltPiles = Services.Workspace:FindFirstChild("SaltPiles")
