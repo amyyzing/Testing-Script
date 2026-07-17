@@ -28,6 +28,17 @@ local function model(name)
 	local object = {Name = name, Current = {X = 0, Y = 0, Z = 0}}
 	function object:IsA(class) return class == "Model" end
 	function object:GetPivot() return {Position = self.Current} end
+	local part = {
+		Parent = object,
+		Position = object.Current,
+		Anchored = false,
+		Transparency = 0,
+	}
+	function part:IsA(class) return class == "BasePart" end
+	part.AssemblyRootPart = part
+	object.PrimaryPart = part
+	object.Part = part
+	function object:GetDescendants() return {part} end
 	return object
 end
 
@@ -68,7 +79,7 @@ local function orbit(degrees)
 	Ghost.Current = {X = degrees / 10, Y = 0, Z = -degrees / 20}
 	for index, object in ipairs(objects) do
 		local angle = math.rad(degrees + phases[index])
-		object.Current = {
+		object.Part.Position = {
 			X = Ghost.Current.X + math.cos(angle) * 10,
 			Y = index,
 			Z = Ghost.Current.Z + math.sin(angle) * 10,
@@ -83,7 +94,7 @@ local function radial(step)
 	for index, object in ipairs(objects) do
 		local angle = math.rad(phases[index])
 		local radius = 8 + index + step
-		object.Current = {
+		object.Part.Position = {
 			X = math.cos(angle) * radius,
 			Y = index,
 			Z = math.sin(angle) * radius,
@@ -108,6 +119,7 @@ Traffic("HuntingState", {Hunting = true}):SendTo("ItemOrbit")
 for degrees = 0, 84, 12 do orbit(degrees) end
 expect(orbitEvent and orbitEvent.Count == 3,
 	"three distinct models maintaining an orbit should emit one Ravager event")
+expect(orbitEvent.Mode == "Legacy", "a fast sustained vortex should use the legacy classifier")
 expect(orbitEvent.Duration >= 0.5 and orbitEvent.Intervals >= 5
 	and orbitEvent.GoodShare >= 0.7 and orbitEvent.AccumulatedAngle >= 45,
 	"the restored legacy duration, interval, geometry, and angle gates must all pass")
@@ -124,6 +136,13 @@ expect(orbitEvent and orbitEvent.Count == 3,
 	"clockwise and counter-clockwise model orbits should both qualify")
 Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
 
+orbitEvent = nil
+Traffic("HuntingState", {Hunting = true}):SendTo("ItemOrbit")
+for degrees = 0, 50, 2 do orbit(degrees) end
+expect(orbitEvent and orbitEvent.Mode == "NearPerfect" and orbitEvent.Count == 3,
+	"a slower near-perfect vortex should use the geometry-only fallback")
+Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
+
 tracker:Destroy()
 ravager:Destroy()
-print("ravager.spec: hunting-only legacy vortex detection passed")
+print("ravager.spec: legacy and near-perfect hunting-only vortex detection passed")

@@ -14,6 +14,11 @@ return function(dependencies)
 	local minimumAngle = tonumber(dependencies.MinimumAngularTotal) or 45
 	local minimumDirectionShare = tonumber(dependencies.MinimumDirectionShare) or 0.65
 	local requiredObjects = tonumber(dependencies.RequiredObjects) or 3
+	local nearRadiusTolerance = tonumber(dependencies.NearRadiusTolerance) or 0.3
+	local nearMinimumRotation = tonumber(dependencies.NearMinimumRotation) or math.rad(45)
+	local nearMinimumStep = tonumber(dependencies.NearMinimumAngleStep) or math.rad(0.25)
+	local nearActiveWindow = tonumber(dependencies.NearActiveWindow) or 0.5
+	local nearMinimumDuration = tonumber(dependencies.NearMinimumDuration) or 0.5
 	local Tracker = {
 		Kind = "dormant",
 		Running = true,
@@ -22,6 +27,8 @@ return function(dependencies)
 		Accumulator = 0,
 		Objects = setmetatable({}, {__mode = "k"}),
 		States = setmetatable({}, {__mode = "k"}),
+		NearStates = setmetatable({}, {__mode = "k"}),
+		Representatives = setmetatable({}, {__mode = "k"}),
 		Containers = setmetatable({}, {__mode = "k"}),
 		Connections = {},
 	}
@@ -29,6 +36,42 @@ return function(dependencies)
 	local function position(object)
 		if object:IsA("BasePart") then return object.Position end
 		if object:IsA("Model") then return object:GetPivot().Position end
+	end
+
+	local function usablePart(part)
+		return part and part:IsA("BasePart") and part.Anchored ~= true
+			and (tonumber(part.Transparency) or 0) < 1
+	end
+
+	local function resolveObject(object)
+		local representative = Tracker.Representatives[object]
+		local outsideModel = representative and representative ~= object
+			and type(representative.IsDescendantOf) == "function"
+			and not representative:IsDescendantOf(object)
+		if representative and (representative.Parent == nil
+			or not usablePart(representative) or outsideModel) then
+			representative = nil
+			Tracker.Representatives[object] = nil
+		end
+		if not representative then
+			if usablePart(object) then
+				representative = object
+			elseif object:IsA("Model") then
+				if usablePart(object.PrimaryPart) then
+					representative = object.PrimaryPart
+				else
+					for _, descendant in ipairs(object:GetDescendants()) do
+						if usablePart(descendant) then
+							representative = descendant
+							break
+						end
+					end
+				end
+			end
+			if representative then Tracker.Representatives[object] = representative end
+		end
+		if not representative then return nil, nil end
+		return representative.Position, representative.AssemblyRootPart or representative
 	end
 
 	local function distance(first, second)
@@ -72,12 +115,7 @@ return function(dependencies)
 		}
 	end
 
-	local function observe(object, ghostPosition, now)
-		local current = position(object)
-		if not current or distance(current, ghostPosition) > scanRadius then
-			Tracker.States[object] = nil
-			return nil
-		end
+	local function observe(object, current, assembly, ghostPosition, now)
 		local relativeX = current.X - ghostPosition.X
 		local relativeZ = current.Z - ghostPosition.Z
 		local state = Tracker.States[object]
@@ -156,10 +194,59 @@ return function(dependencies)
 				resetCandidate(state)
 			else
 				state.CandidateStartedAt = state.Window[1].StartAt
-				return qualify(state, now)
+				local result = qualify(state, now)
+				if result then result.Assembly = assembly end
+				return result
 			end
 		end
 		return nil
+	end
+
+	local function observeNear(object, current, assembly, ghostPosition, now)
+		local x, z = current.X - ghostPosition.X, current.Z - ghostPosition.Z
+		local radius = math.sqrt(x * x + z * z)
+		if radius < 1 then
+			Tracker.NearStates[object] = nil
+			return nil
+		end
+		local angle = math.atan2(z, x)
+		local state = Tracker.NearStates[object]
+		if not state then
+			Tracker.NearStates[object] = {
+				Radius = radius,
+				Angle = angle,
+				Direction = 0,
+				Rotation = 0,
+				Steps = 0,
+				Assembly = assembly,
+			}
+			return nil
+		end
+		if math.abs(radius - state.Radius) > math.max(0.75, state.Radius * nearRadiusTolerance) then
+			Tracker.NearStates[object] = nil
+			return nil
+		end
+		local delta = math.atan2(math.sin(angle - state.Angle), math.cos(angle - state.Angle))
+		if math.abs(delta) < nearMinimumStep then return nil end
+		local direction = delta > 0 and 1 or -1
+		if state.Direction ~= 0 and state.Direction ~= direction then
+			state.Direction = direction
+			state.Rotation = math.abs(delta)
+			state.Steps = 1
+			state.StartedAt = now
+		else
+			state.Direction = direction
+			state.Rotation += math.abs(delta)
+			state.Steps += 1
+			state.StartedAt = state.StartedAt or now
+		end
+		state.Angle = angle
+		state.Radius = (state.Radius * 3 + radius) / 4
+		state.Assembly = assembly
+		state.LastProgress = now
+		state.Qualified = state.Steps >= 3
+			and state.Rotation + 0.000001 >= nearMinimumRotation
+			and now - state.StartedAt >= nearMinimumDuration
 	end
 
 	function Tracker:Track(object)
@@ -178,6 +265,8 @@ return function(dependencies)
 		table.insert(self.Connections, container.ChildRemoved:Connect(function(object)
 			self.Objects[object] = nil
 			self.States[object] = nil
+			self.NearStates[object] = nil
+			self.Representatives[object] = nil
 		end))
 	end
 
@@ -190,29 +279,64 @@ return function(dependencies)
 			and now - self.LastGhostSampleAt <= 0.2
 			and distance(ghostPosition, self.LastGhostPosition) > 8 then
 			table.clear(self.States)
+			table.clear(self.NearStates)
 			self.LastGhostPosition, self.LastGhostSampleAt = ghostPosition, now
 			return
 		end
 		self.LastGhostPosition, self.LastGhostSampleAt = ghostPosition, now
 
-		local clockwise, counterClockwise = {}, {}
+		local legacy = {[1] = {}, [-1] = {}}
+		local legacyAssemblies = {[1] = {}, [-1] = {}}
 		for object in pairs(self.Objects) do
-			local result = observe(object, ghostPosition, now)
-			if result then
-				result.Object = object
-				table.insert(result.Direction > 0 and counterClockwise or clockwise, result)
+			local current, assembly = resolveObject(object)
+			if not current or not assembly or distance(current, ghostPosition) > scanRadius then
+				self.States[object] = nil
+				self.NearStates[object] = nil
+			else
+				local result = observe(object, current, assembly, ghostPosition, now)
+				observeNear(object, current, assembly, ghostPosition, now)
+				if result and not legacyAssemblies[result.Direction][result.Assembly] then
+					result.Object = object
+					legacyAssemblies[result.Direction][result.Assembly] = true
+					table.insert(legacy[result.Direction], result)
+				end
 			end
 		end
-		local matching = #clockwise >= requiredObjects and clockwise
-			or #counterClockwise >= requiredObjects and counterClockwise
+
+		local near = {[1] = {}, [-1] = {}}
+		local nearAssemblies = {[1] = {}, [-1] = {}}
+		for object, state in pairs(self.NearStates) do
+			if state.Qualified and state.LastProgress
+				and now - state.LastProgress <= nearActiveWindow
+				and not nearAssemblies[state.Direction][state.Assembly] then
+				nearAssemblies[state.Direction][state.Assembly] = true
+				table.insert(near[state.Direction], {
+					Object = object,
+					Direction = state.Direction,
+				})
+			end
+		end
+		local matching = #legacy[1] >= requiredObjects and legacy[1]
+			or #legacy[-1] >= requiredObjects and legacy[-1]
+		local mode = "Legacy"
+		if not matching then
+			matching = #near[1] >= requiredObjects and near[1]
+				or #near[-1] >= requiredObjects and near[-1]
+			mode = "NearPerfect"
+		end
 		if not matching then return end
-		local duration, intervals, goodShare, angle = math.huge, math.huge, math.huge, math.huge
+		local duration, intervals, goodShare, angle
+		if mode == "Legacy" then
+			duration, intervals, goodShare, angle = math.huge, math.huge, math.huge, math.huge
+		end
 		local objects = {}
 		for _, result in ipairs(matching) do
-			duration = math.min(duration, result.Duration)
-			intervals = math.min(intervals, result.Intervals)
-			goodShare = math.min(goodShare, result.GoodShare)
-			angle = math.min(angle, result.AccumulatedAngle)
+			if mode == "Legacy" then
+				duration = math.min(duration, result.Duration)
+				intervals = math.min(intervals, result.Intervals)
+				goodShare = math.min(goodShare, result.GoodShare)
+				angle = math.min(angle, result.AccumulatedAngle)
+			end
 			table.insert(objects, result.Object)
 		end
 		self.Reported = true
@@ -224,6 +348,7 @@ return function(dependencies)
 			GoodShare = goodShare,
 			AccumulatedAngle = angle,
 			Direction = matching[1].Direction,
+			Mode = mode,
 			Time = now,
 		}):SendTo("Ravager")
 	end
@@ -242,6 +367,7 @@ return function(dependencies)
 		Tracker.LastGhostPosition = nil
 		Tracker.LastGhostSampleAt = nil
 		table.clear(Tracker.States)
+		table.clear(Tracker.NearStates)
 		if not Tracker.Active then return end
 		Tracker.SampleConnection = RunService.Heartbeat:Connect(function(deltaTime)
 			if not Tracker.Running then return end
@@ -285,6 +411,8 @@ return function(dependencies)
 		table.clear(self.Connections)
 		table.clear(self.Objects)
 		table.clear(self.States)
+		table.clear(self.NearStates)
+		table.clear(self.Representatives)
 	end
 
 	return Tracker
