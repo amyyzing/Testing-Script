@@ -57,6 +57,7 @@ local Revenant = loadModule("ghost/ghosts/Revenant.luau")
 local Shadow = loadModule("ghost/ghosts/Shadow.luau")
 local Siren = loadModule("ghost/ghosts/Siren.luau")
 local Specter = loadModule("ghost/ghosts/Specter.luau")
+local Spirit = loadModule("ghost/ghosts/Spirit.luau")
 loading:SetStage("Loading trackers", 6, 10)
 local createCrossBurn = loadModule("ghost/active-trackers/cross-burn.luau")
 local createGhostRoom = loadModule("ghost/active-trackers/ghost-room.luau")
@@ -71,6 +72,7 @@ local createSevenPair = loadModule("ghost/filter/7-pair.luau")
 local createFlickerArray = loadModule("ghost/filter/flicker-array.luau")
 local createSpeedFilter = loadModule("ghost/filter/speed-filter.luau")
 local createCrossAnimation = loadModule("ghost/discardable-trackers/cross-animation.luau")
+local createHolyOilColour = loadModule("ghost/discardable-trackers/holy-oil-colour.luau")
 local createModelGender = loadModule("ghost/discardable-trackers/model-gender.luau")
 local createRoundStarted = loadModule("ghost/discardable-trackers/round-started.luau")
 local createSaltState = loadModule("ghost/discardable-trackers/salt-state-after-hit.luau")
@@ -203,6 +205,7 @@ local function startTrackers()
 		remember(Shadow.new({Traffic = Traffic}))
 		remember(Siren.new({Traffic = Traffic}))
 		remember(Specter.new({Traffic = Traffic}))
+		remember(Spirit.new({Traffic = Traffic}))
 		remember(createFlickerArray({Traffic = Traffic}))
 		remember(createSpeedFilter({
 			Traffic = Traffic,
@@ -252,6 +255,11 @@ local function startTrackers()
 		}))
 		remember(createRoomTemperature({Traffic = Traffic}))
 		remember(createModelGender({Traffic = Traffic, Ghost = ghost}))
+		remember(createHolyOilColour({
+			Traffic = Traffic,
+			Workspace = Services.Workspace,
+			Ghost = ghost,
+		}))
 		remember(createCrossAnimation({
 			Traffic = Traffic,
 			RunService = Services.RunService,
