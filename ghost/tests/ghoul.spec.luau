@@ -46,8 +46,9 @@ end
 
 local laser = item("Laser Projector", true, {X = 0, Y = 0, Z = 0})
 local spirit = item("Spirit Box", false, {X = 30, Y = 0, Z = 0})
+local activeSpirit = item("Spirit Box", true, {X = 30, Y = 0, Z = 0})
 local emf = item("EMF Reader", true, {X = 30, Y = 0, Z = 0})
-local Items = {Name = "Items", ChildAdded = signal(), Children = {laser, spirit, emf}}
+local Items = {Name = "Items", ChildAdded = signal(), Children = {laser, spirit, activeSpirit, emf}}
 function Items:GetChildren() return self.Children end
 for _, value in ipairs(Items.Children) do value.Parent = Items end
 
@@ -66,11 +67,15 @@ local Verdict = createVerdict({Traffic = Traffic})
 local ghoul = Ghoul.new({Traffic = Traffic})
 local ruleOutSignals = 0
 local itemStateChanges = {}
+local spiritStates = {}
 Traffic:Receive("Verdict", function(signalName, payload)
 	if signalName == "RuleOut" and payload.Ghost == "Ghoul" then ruleOutSignals += 1 end
 end)
 Traffic:Receive("FlickerArray", function(signalName, payload)
 	if signalName == "ItemStateChanged" then table.insert(itemStateChanges, payload) end
+end)
+Traffic:Receive("Humming", function(signalName, payload)
+	if signalName == "SpiritBoxState" then table.insert(spiritStates, payload) end
 end)
 local tracker = createItemState({
 	Traffic = Traffic,
@@ -80,12 +85,18 @@ local tracker = createItemState({
 })
 
 expect(ruleOutSignals == 0, "an item that starts disabled must only be baselined")
+expect(#spiritStates == 2 and spiritStates[1].Enabled == false
+	and spiritStates[2].Enabled == true,
+	"item-state should publish the initial off and on states of Spirit Boxes")
+spirit:SetEnabled(true)
+expect(#spiritStates == 3 and spiritStates[3].Enabled == true,
+	"item-state should publish when a Spirit Box is turned on")
 emf:SetEnabled(false)
 expect(ruleOutSignals == 0, "non-target electronics must be ignored")
 laser:SetEnabled(false)
 expect(ruleOutSignals == 0, "a player exactly 15 studs away should prevent the rule-out")
-expect(#itemStateChanges == 1 and itemStateChanges[1].Previous == true
-	and itemStateChanges[1].Current == false,
+expect(#itemStateChanges == 2 and itemStateChanges[2].Previous == true
+	and itemStateChanges[2].Current == false,
 	"an eligible boolean state switch should be sent to the flicker array")
 laser:SetEnabled(true)
 root.Position = {X = 15.01, Y = 0, Z = 0}
@@ -95,7 +106,7 @@ expect(ruleOutSignals == 1 and Verdict:Snapshot()["ruled-out"][1] == 7,
 laser:SetEnabled(true)
 laser:SetEnabled(false)
 expect(ruleOutSignals == 1, "Ghoul should only be resolved once")
-expect(#itemStateChanges == 5,
+expect(#itemStateChanges == 6,
 	"Ghoul resolving must not stop later item switches from reaching the flicker array")
 
 tracker:Destroy()

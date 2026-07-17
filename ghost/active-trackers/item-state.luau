@@ -18,6 +18,7 @@ return function(dependencies)
 		Connections = {},
 		BoundItems = setmetatable({}, {__mode = "k"}),
 		BoundStates = setmetatable({}, {__mode = "k"}),
+		ItemStates = setmetatable({}, {__mode = "k"}),
 		States = setmetatable({}, {__mode = "k"}),
 	}
 
@@ -46,16 +47,31 @@ return function(dependencies)
 		return false
 	end
 
+	local function publishSpiritBox(item, state, enabled)
+		if item:GetAttribute("ItemName") ~= "Spirit Box"
+			or type(enabled) ~= "boolean" then return end
+		Traffic("SpiritBoxState", {
+			Item = item,
+			State = state,
+			Enabled = enabled,
+			Time = clock(),
+		}):SendTo("Humming")
+	end
+
 	function Tracker:BindState(item, state, allowMissing)
 		if self.BoundStates[state]
 			or (not allowMissing and state:GetAttribute("Enabled") == nil) then return end
 		self.BoundStates[state] = true
 		self.States[state] = state:GetAttribute("Enabled")
+		self.ItemStates[item] = self.ItemStates[item] or {}
+		table.insert(self.ItemStates[item], state)
+		publishSpiritBox(item, state, self.States[state])
 		remember(state:GetAttributeChangedSignal("Enabled"):Connect(function()
 			local previous = self.States[state]
 			local current = state:GetAttribute("Enabled")
 			self.States[state] = current
 			if not self.Running or item.Parent ~= self.Items then return end
+			publishSpiritBox(item, state, current)
 			if type(previous) == "boolean" and type(current) == "boolean"
 				and previous ~= current then
 				Traffic("ItemStateChanged", {
@@ -107,6 +123,14 @@ return function(dependencies)
 				if self.Running and item.Parent == items then self:BindItem(item) end
 			end)
 		end))
+		if items.ChildRemoved then
+			remember(items.ChildRemoved:Connect(function(item)
+				for _, state in ipairs(self.ItemStates[item] or {}) do
+					publishSpiritBox(item, state, false)
+				end
+				self.ItemStates[item] = nil
+			end))
+		end
 	end
 
 	local items = World:FindFirstChild("Items")
@@ -121,6 +145,7 @@ return function(dependencies)
 		for _, connection in ipairs(self.Connections) do connection:Disconnect() end
 		table.clear(self.Connections)
 		table.clear(self.States)
+		table.clear(self.ItemStates)
 	end
 
 	return Tracker

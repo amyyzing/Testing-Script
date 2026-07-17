@@ -1,5 +1,6 @@
 local createTraffic = require("../traffic")
 local createVerdict = require("../verdict")
+local createModelGender = require("../discardable-trackers/model-gender")
 local Keres = require("../ghosts/Keres")
 
 local function expect(condition, message)
@@ -54,6 +55,20 @@ Traffic("KillSpeed", {
 }):SendTo("Keres")
 expect(Verdict:Snapshot()["ruled-out"][1] == 8,
 	"a completed kill section without a speed drop should rule out Keres")
+
+Verdict:Reset()
+local femaleGhost = {VisualModel = "Watcher"}
+function femaleGhost:GetAttribute(name) return self[name] end
+createModelGender({Traffic = Traffic, Ghost = femaleGhost})
+expect(Verdict.Confidence[8] == 25 and Verdict.Selected[1] == 8,
+	"a female VisualModel should weakly support Keres")
+
+Verdict:Reset()
+local maleGhost = {VisualModel = "FutureModel"}
+function maleGhost:GetAttribute(name) return self[name] end
+createModelGender({Traffic = Traffic, Ghost = maleGhost})
+expect(table.find(Verdict.RuledOut, 8),
+	"a male VisualModel should rule out Keres")
 
 keres:Destroy()
 print("keres.spec: permanent post-kill speed decrease passed")

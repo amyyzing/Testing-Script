@@ -5,6 +5,7 @@ local VERSION = tostring(os.time())
 local environment = (getgenv and getgenv()) or _G
 local Services = {
 	Players = game:GetService("Players"),
+	ReplicatedStorage = game:GetService("ReplicatedStorage"),
 	UserInputService = game:GetService("UserInputService"),
 	TweenService = game:GetService("TweenService"),
 	RunService = game:GetService("RunService"),
@@ -54,6 +55,7 @@ local Phantom = loadModule("ghost/ghosts/Phantom.luau")
 local Ravager = loadModule("ghost/ghosts/Ravager.luau")
 local Revenant = loadModule("ghost/ghosts/Revenant.luau")
 local Shadow = loadModule("ghost/ghosts/Shadow.luau")
+local Siren = loadModule("ghost/ghosts/Siren.luau")
 loading:SetStage("Loading trackers", 6, 10)
 local createCrossBurn = loadModule("ghost/active-trackers/cross-burn.luau")
 local createGhostRoom = loadModule("ghost/active-trackers/ghost-room.luau")
@@ -61,15 +63,20 @@ local createHuntingState = loadModule("ghost/active-trackers/hunting-state.luau"
 local createItemTeleport = loadModule("ghost/active-trackers/item-teleport.luau")
 local createItemState = loadModule("ghost/active-trackers/item-state.luau")
 local createKillCount = loadModule("ghost/active-trackers/kill-count.luau")
+local createPlayerSpeed = loadModule("ghost/active-trackers/player-speed.luau")
 local createSaltHit = loadModule("ghost/active-trackers/salt-hit.luau")
 local createSpeedTracker = loadModule("ghost/active-trackers/speed-tracker.luau")
 local createSevenPair = loadModule("ghost/filter/7-pair.luau")
 local createFlickerArray = loadModule("ghost/filter/flicker-array.luau")
 local createSpeedFilter = loadModule("ghost/filter/speed-filter.luau")
 local createCrossAnimation = loadModule("ghost/discardable-trackers/cross-animation.luau")
+local createModelGender = loadModule("ghost/discardable-trackers/model-gender.luau")
 local createSaltState = loadModule("ghost/discardable-trackers/salt-state-after-hit.luau")
 local createSmokeHolder = loadModule("ghost/discardable-trackers/smoke-holder.luau")
 local createItemOrbit = loadModule("ghost/dormant-trackers/item-orbit.luau")
+local createHumming = loadModule("ghost/dormant-trackers/humming.luau")
+local createLOSSight = loadModule("ghost/dormant-trackers/los-sight.luau")
+local createLOSSpeed = loadModule("ghost/dormant-trackers/los-speed.luau")
 local createRoomTemperature = loadModule("ghost/dormant-trackers/room-temperature.luau")
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
 local createBright = loadModule("logic/bright.luau")
@@ -182,6 +189,7 @@ local function startTrackers()
 		remember(Ravager.new({Traffic = Traffic}))
 		remember(Revenant.new({Traffic = Traffic}))
 		remember(Shadow.new({Traffic = Traffic}))
+		remember(Siren.new({Traffic = Traffic}))
 		remember(createFlickerArray({Traffic = Traffic}))
 		remember(createSpeedFilter({
 			Traffic = Traffic,
@@ -195,6 +203,24 @@ local function startTrackers()
 		remember(createSmokeHolder({
 			Traffic = Traffic,
 			Workspace = Services.Workspace,
+		}))
+		remember(createHumming({
+			Traffic = Traffic,
+			ReplicatedStorage = Services.ReplicatedStorage,
+			Player = player,
+		}))
+		remember(createLOSSpeed({Traffic = Traffic}))
+		remember(createPlayerSpeed({
+			Traffic = Traffic,
+			Players = Services.Players,
+			UserInputService = Services.UserInputService,
+		}))
+		remember(createLOSSight({
+			Traffic = Traffic,
+			Workspace = Services.Workspace,
+			Ghost = ghost,
+			Players = Services.Players,
+			RunService = Services.RunService,
 		}))
 		remember(createItemTeleport({
 			Traffic = Traffic,
@@ -213,6 +239,7 @@ local function startTrackers()
 			RunService = Services.RunService,
 		}))
 		remember(createRoomTemperature({Traffic = Traffic}))
+		remember(createModelGender({Traffic = Traffic, Ghost = ghost}))
 		remember(createCrossAnimation({
 			Traffic = Traffic,
 			RunService = Services.RunService,

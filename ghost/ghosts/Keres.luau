@@ -6,7 +6,19 @@ function Keres.new(dependencies)
 	local Processor = {}
 
 	Processor.Disconnect = Traffic:Receive("Keres", function(signal, data)
-		if signal ~= "KillSpeed" or type(data) ~= "table" then return end
+		if type(data) ~= "table" then return end
+		if signal == "ModelGender" then
+			if data.Gender ~= "Female" and data.Gender ~= "Male" then return end
+			local female = data.Gender == "Female"
+			Traffic(female and "Support" or "RuleOut", {
+				Ghost = "Keres",
+				Confidence = female and 25 or 99,
+				Reason = female and "the ghost uses a female VisualModel"
+					or "the ghost uses a male VisualModel",
+			}):SendTo("Verdict")
+			return
+		end
+		if signal ~= "KillSpeed" then return end
 		local before = data.baselineKill or data.beforeKill and data.beforeKill[#data.beforeKill]
 		local after = data.afterKill or {}
 		if not before or #after < 3 then return end

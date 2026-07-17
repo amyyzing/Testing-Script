@@ -1,0 +1,185 @@
+local createTraffic = require("../traffic")
+local createVerdict = require("../verdict")
+local createHumming = require("../dormant-trackers/humming")
+local createModelGender = require("../discardable-trackers/model-gender")
+local createPlayerSpeed = require("../active-trackers/player-speed")
+local createLOSSight = require("../dormant-trackers/los-sight")
+local createLOSSpeed = require("../dormant-trackers/los-speed")
+local Siren = require("../ghosts/Siren")
+
+local function expect(condition, message)
+	if not condition then error(message, 2) end
+end
+
+local function signal()
+	local callbacks = {}
+	return {
+		Connect = function(_, callback)
+			table.insert(callbacks, callback)
+			return {Disconnect = function()
+				local index = table.find(callbacks, callback)
+				if index then table.remove(callbacks, index) end
+			end}
+		end,
+		Fire = function(_, ...)
+			for _, callback in ipairs(table.clone(callbacks)) do callback(...) end
+		end,
+	}
+end
+
+local function verdictHarness()
+	local Traffic = createTraffic()
+	local Verdict = createVerdict({Traffic = Traffic})
+	local siren = Siren.new({Traffic = Traffic})
+	return Traffic, Verdict, siren
+end
+
+local hummingTraffic, hummingVerdict, hummingSiren = verdictHarness()
+local subtitle = signal()
+local humming = createHumming({Traffic = hummingTraffic, RemoteSignal = subtitle})
+subtitle:Fire("- HUMMING -")
+expect(hummingVerdict.Confidence[16] == nil,
+	"humming should remain dormant while no Spirit Box is enabled")
+local spiritState = {}
+hummingTraffic("SpiritBoxState", {State = spiritState, Enabled = true}):SendTo("Humming")
+subtitle:Fire("  - HUMMING -  ")
+expect(hummingVerdict.Confidence[16] == 99 and hummingVerdict.Selected[1] == 16,
+	"an enabled Spirit Box followed by the exact humming subtitle should support Siren")
+humming:Destroy()
+hummingSiren:Destroy()
+
+local femaleTraffic, femaleVerdict, femaleSiren = verdictHarness()
+local femaleGhost = {VisualModel = "Abaddon"}
+function femaleGhost:GetAttribute(name) return self[name] end
+createModelGender({Traffic = femaleTraffic, Ghost = femaleGhost})
+expect(femaleVerdict.Confidence[16] == 25 and femaleVerdict.Selected[1] == 16,
+	"a verified female VisualModel should weakly support Siren")
+femaleSiren:Destroy()
+
+local maleTraffic, maleVerdict, maleSiren = verdictHarness()
+local maleGhost = {VisualModel = "FutureModel"}
+function maleGhost:GetAttribute(name) return self[name] end
+createModelGender({Traffic = maleTraffic, Ghost = maleGhost})
+expect(table.find(maleVerdict.RuledOut, 16),
+	"a non-female VisualModel package should rule out Siren")
+maleSiren:Destroy()
+
+local function losHarness(requiredExposure)
+	local now = 0
+	local sprinting = true
+	local visible = false
+	local heartbeat = signal()
+	local speedChanged = signal()
+	local characterAdded = signal()
+	local playerAdded = signal()
+	local playerRemoving = signal()
+	local playerAttributes = {Sprinting = signal(), IsSprinting = signal(), Sprint = signal()}
+	local humanoidAttributes = {Sprinting = signal(), IsSprinting = signal(), Sprint = signal()}
+	local Humanoid = {WalkSpeed = 16}
+	function Humanoid:GetPropertyChangedSignal(name)
+		expect(name == "WalkSpeed", "player-speed should only watch Humanoid WalkSpeed")
+		return speedChanged
+	end
+	function Humanoid:GetAttributeChangedSignal(name) return humanoidAttributes[name] end
+	function Humanoid:GetAttribute() return nil end
+	local Character = {}
+	function Character:FindFirstChildOfClass(class)
+		return class == "Humanoid" and Humanoid or nil
+	end
+	local Player = {Character = Character, CharacterAdded = characterAdded, Dead = false}
+	function Player:GetAttribute(name) return name == "Dead" and self.Dead or nil end
+	function Player:GetAttributeChangedSignal(name) return playerAttributes[name] end
+	local Players = {
+		LocalPlayer = Player,
+		PlayerAdded = playerAdded,
+		PlayerRemoving = playerRemoving,
+	}
+	function Players:GetPlayers() return {Player} end
+
+	local Traffic, Verdict, siren = verdictHarness()
+	local losSpeed = createLOSSpeed({
+		Traffic = Traffic,
+		RequiredExposure = requiredExposure,
+	})
+	local playerSpeed = createPlayerSpeed({
+		Traffic = Traffic,
+		Players = Players,
+		Clock = function() return now end,
+		Defer = function(callback) callback() end,
+		ReadSprinting = function() return sprinting end,
+	})
+	local losSight = createLOSSight({
+		Traffic = Traffic,
+		Workspace = {},
+		Ghost = {},
+		Players = Players,
+		RunService = {Heartbeat = heartbeat},
+		Clock = function() return now end,
+		HasLineOfSight = function() return visible end,
+	})
+	return {
+		Traffic = Traffic,
+		Verdict = Verdict,
+		Siren = siren,
+		LOSSpeed = losSpeed,
+		PlayerSpeed = playerSpeed,
+		LOSSight = losSight,
+		Humanoid = Humanoid,
+		SetVisible = function(value) visible = value end,
+		SetSprinting = function(value)
+			sprinting = value
+			playerAttributes.Sprinting:Fire()
+		end,
+		SetSpeed = function(value)
+			Humanoid.WalkSpeed = value
+			speedChanged:Fire()
+		end,
+		Step = function(delta)
+			now += delta
+			heartbeat:Fire(delta)
+		end,
+	}
+end
+
+local slowed = losHarness(4)
+slowed.SetVisible(true)
+slowed.Step(0.1)
+expect(slowed.Verdict.Confidence[16] == nil,
+	"line-of-sight tracking must remain dormant outside a hunt")
+slowed.Traffic("HuntingState", {Hunting = true}):SendTo("LOSSight")
+slowed.SetSpeed(12)
+expect(slowed.Verdict.Confidence[16] == 99 and slowed.Verdict.Selected[1] == 16,
+	"a player speed drop while sprinting in hunting LOS should support Siren")
+slowed.LOSSight:Destroy()
+slowed.PlayerSpeed:Destroy()
+slowed.LOSSpeed:Destroy()
+slowed.Siren:Destroy()
+
+local stoppedSprint = losHarness(0.3)
+stoppedSprint.Traffic("HuntingState", {Hunting = true}):SendTo("LOSSight")
+stoppedSprint.SetVisible(true)
+stoppedSprint.Step(0.1)
+stoppedSprint.SetSprinting(false)
+stoppedSprint.SetSpeed(10)
+stoppedSprint.Step(0.4)
+stoppedSprint.SetVisible(false)
+stoppedSprint.Step(0.1)
+expect(#stoppedSprint.Verdict.Selected == 0 and #stoppedSprint.Verdict.RuledOut == 0,
+	"a speed drop caused by stopping sprint must not produce a Siren verdict")
+stoppedSprint.LOSSight:Destroy()
+stoppedSprint.PlayerSpeed:Destroy()
+stoppedSprint.LOSSpeed:Destroy()
+stoppedSprint.Siren:Destroy()
+
+local unchanged = losHarness(0.3)
+unchanged.Traffic("HuntingState", {Hunting = true}):SendTo("LOSSight")
+unchanged.SetVisible(true)
+for _ = 1, 4 do unchanged.Step(0.1) end
+expect(table.find(unchanged.Verdict.RuledOut, 16),
+	"continuous sprinting LOS without a speed drop should rule out Siren")
+unchanged.LOSSight:Destroy()
+unchanged.PlayerSpeed:Destroy()
+unchanged.LOSSpeed:Destroy()
+unchanged.Siren:Destroy()
+
+print("siren.spec: humming, model gender, and hunting LOS speed passed")
