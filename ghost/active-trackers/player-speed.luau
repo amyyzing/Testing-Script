@@ -1,13 +1,13 @@
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "player-speed requires Traffic")
 	local Players = dependencies.Players or game:GetService("Players")
-	local UserInputService = dependencies.UserInputService
-	local defer = dependencies.Defer or task.defer
 	local clock = dependencies.Clock or os.clock
-	local customSprinting = dependencies.ReadSprinting
+	local epsilon = tonumber(dependencies.SpeedEpsilon) or 0.01
+	local normalSpeeds = {8, 10, 12, 14, 16}
 	local Tracker = {
 		Kind = "active",
 		Running = true,
+		Hunting = false,
 		States = setmetatable({}, {__mode = "k"}),
 		Connections = {},
 	}
@@ -16,40 +16,29 @@ return function(dependencies)
 		table.insert(Tracker.Connections, connection)
 	end
 
-	local function sprinting(player, humanoid)
-		if customSprinting then return customSprinting(player, humanoid) == true end
-		for _, owner in ipairs({player, humanoid}) do
-			if owner then
-				for _, name in ipairs({"Sprinting", "IsSprinting", "Sprint"}) do
-					local value = owner:GetAttribute(name)
-					if type(value) == "boolean" then return value end
-				end
-			end
-		end
-		if player == Players.LocalPlayer and UserInputService and humanoid then
-			local moving = humanoid.MoveDirection.Magnitude > 0.05
-			return moving and (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
-				or UserInputService:IsKeyDown(Enum.KeyCode.RightShift))
-		end
-		return false
+	local function near(first, second)
+		return math.abs(first - second) <= epsilon
 	end
 
-	local function send(state, completed)
-		if not state.BeforeLOS then return end
-		Traffic("PlayerLOSSpeed", {
-			Player = state.Player,
-			beforeLOS = state.BeforeLOS,
-			afterLOS = state.AfterLOS,
-			ContinuousSprinting = state.ContinuousSprinting,
-			Duration = math.max(0, clock() - state.StartedAt),
-			completed = completed == true,
-		}):SendTo("LOSSpeed")
+	local function learn(state, speed)
+		if not state.BaseSpeed then
+			for _, candidate in ipairs(normalSpeeds) do
+				if near(speed, candidate) then
+					state.BaseSpeed = candidate
+					state.SprintSpeed = candidate * 1.6
+					return
+				end
+			end
+		elseif near(speed, state.BaseSpeed * 1.6) then
+			state.SprintSpeed = speed
+			state.SprintObserved = true
+		end
 	end
 
 	local function rawPoint(state)
 		local speed = state.Humanoid and tonumber(state.Humanoid.WalkSpeed)
 		if not speed then return nil end
-		return {s = speed, sprinting = sprinting(state.Player, state.Humanoid)}
+		return {s = speed}
 	end
 
 	local function append(state, point)
@@ -57,68 +46,61 @@ return function(dependencies)
 		while #state.Samples > 40 do table.remove(state.Samples, 1) end
 	end
 
-	local function beginTrial(state, point)
-		state.BeforeLOS = table.clone(state.Samples)
-		state.AfterLOS = {point}
-		state.ContinuousSprinting = true
-		state.StartedAt = clock()
-		send(state, false)
+	local function send(state, completed)
+		if not state.BeforeLOS or not state.BaseSpeed then return end
+		Traffic("PlayerLOSSpeed", {
+			Player = state.Player,
+			BaseSpeed = state.BaseSpeed,
+			SprintSpeed = state.SprintSpeed or state.BaseSpeed * 1.6,
+			beforeLOS = state.BeforeLOS,
+			afterLOS = state.AfterLOS,
+			Duration = math.max(0, clock() - state.StartedAt),
+			Hunting = Tracker.Hunting,
+			completed = completed == true,
+		}):SendTo("LOSSpeed")
+	end
+
+	local function clearTrial(state)
+		state.InLOS = false
+		state.BeforeLOS, state.AfterLOS, state.StartedAt = nil, nil, nil
 	end
 
 	local function sample(state)
 		local point = rawPoint(state)
 		if not point then return end
+		if not Tracker.Hunting then learn(state, point.s) end
 		append(state, point)
-		if not state.InLOS then return end
+		if not Tracker.Hunting or not state.InLOS or not state.BaseSpeed then return end
 		if not state.BeforeLOS then
-			if point.sprinting then beginTrial(state, point) end
-			return
-		end
-		table.insert(state.AfterLOS, point)
-		if not point.sprinting then
-			state.ContinuousSprinting = false
-			send(state, true)
-			state.BeforeLOS, state.AfterLOS, state.StartedAt = nil, nil, nil
-			return
+			state.BeforeLOS = table.clone(state.Samples)
+			state.AfterLOS = {point}
+			state.StartedAt = clock()
+		else
+			table.insert(state.AfterLOS, point)
 		end
 		send(state, false)
-	end
-
-	local function queueSample(state)
-		if state.Pending or not Tracker.Running then return end
-		state.Pending = true
-		defer(function()
-			state.Pending = false
-			if Tracker.Running and Tracker.States[state.Player] == state then sample(state) end
-		end)
 	end
 
 	local function bindCharacter(state, character)
 		state.Character = character
 		state.Humanoid = character and character:FindFirstChildOfClass("Humanoid") or nil
 		state.Samples = {}
-		state.BeforeLOS, state.AfterLOS, state.StartedAt = nil, nil, nil
+		state.BaseSpeed, state.SprintSpeed, state.SprintObserved = nil, nil, false
+		clearTrial(state)
 		if not state.Humanoid then return end
 		local initial = rawPoint(state)
-		if initial then append(state, initial) end
-		remember(state.Humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
-			queueSample(state)
-		end))
-		for _, name in ipairs({"Sprinting", "IsSprinting", "Sprint"}) do
-			remember(state.Humanoid:GetAttributeChangedSignal(name):Connect(function()
-				queueSample(state)
-			end))
+		if initial then
+			if not Tracker.Hunting then learn(state, initial.s) end
+			append(state, initial)
 		end
+		remember(state.Humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+			if Tracker.Running and Tracker.States[state.Player] == state then sample(state) end
+		end))
 	end
 
 	local function track(player)
 		local state = {Player = player, Samples = {}, InLOS = false}
 		Tracker.States[player] = state
-		for _, name in ipairs({"Sprinting", "IsSprinting", "Sprint"}) do
-			remember(player:GetAttributeChangedSignal(name):Connect(function()
-				queueSample(state)
-			end))
-		end
 		bindCharacter(state, player.Character)
 		remember(player.CharacterAdded:Connect(function(character)
 			bindCharacter(state, character)
@@ -132,26 +114,30 @@ return function(dependencies)
 	end))
 
 	Tracker.Disconnect = Traffic:Receive("PlayerSpeed", function(signal, payload)
-		if signal ~= "PlayerLineOfSight" or type(payload) ~= "table" then return end
-		local state = Tracker.States[payload.Player]
-		if not state then return end
-		local visible = payload.LineOfSight == true
-		if not visible then
-			if state.InLOS and state.BeforeLOS then
-				local point = rawPoint(state)
-				if point then
-					append(state, point)
-					table.insert(state.AfterLOS, point)
-					if not point.sprinting then state.ContinuousSprinting = false end
-				end
-				send(state, true)
+		payload = type(payload) == "table" and payload or {}
+		if signal == "HuntingState" then
+			Tracker.Hunting = payload.Hunting == true
+			for _, state in pairs(Tracker.States) do
+				clearTrial(state)
+				if not Tracker.Hunting then sample(state) end
 			end
-			state.InLOS = false
-			state.BeforeLOS, state.AfterLOS, state.StartedAt = nil, nil, nil
 			return
 		end
-		state.InLOS = true
-		sample(state)
+		if signal ~= "PlayerLineOfSight" or not Tracker.Hunting then return end
+		local state = Tracker.States[payload.Player]
+		if not state then return end
+		if payload.LineOfSight == true then
+			state.InLOS = true
+			sample(state)
+		elseif state.InLOS then
+			local point = rawPoint(state)
+			if point and state.BeforeLOS then
+				append(state, point)
+				table.insert(state.AfterLOS, point)
+				send(state, true)
+			end
+			clearTrial(state)
+		end
 	end)
 
 	function Tracker:Destroy()

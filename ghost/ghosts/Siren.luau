@@ -24,9 +24,9 @@ function Siren.new(dependencies)
 			end
 		elseif signal == "LOSSpeedResult" then
 			if payload.Slowed == true then
-				verdict("Support", 99, "a sprinting player slowed while in the ghost's line of sight")
+				verdict("Support", 99, "a hunting player entered the Siren's 0.8x walk or sprint speed state")
 			elseif payload.Completed == true and payload.Slowed == false then
-				verdict("RuleOut", 99, "a continuous sprinting line-of-sight trial caused no slowdown")
+				verdict("RuleOut", 99, "a hunting line-of-sight trial stayed at the learned walk and sprint speeds")
 			end
 		end
 	end)

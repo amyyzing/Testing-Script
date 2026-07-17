@@ -223,7 +223,6 @@ local function startTrackers()
 		remember(createPlayerSpeed({
 			Traffic = Traffic,
 			Players = Services.Players,
-			UserInputService = Services.UserInputService,
 		}))
 		remember(createLOSSight({
 			Traffic = Traffic,

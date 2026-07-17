@@ -7,33 +7,38 @@ return function(dependencies)
 	Tracker.Disconnect = Traffic:Receive("LOSSpeed", function(signal, payload)
 		if not Tracker.Running or Tracker.Resolved or signal ~= "PlayerLOSSpeed"
 			or type(payload) ~= "table" then return end
-		local before = payload.beforeLOS or {}
 		local after = payload.afterLOS or {}
-		local baseline
-		for _, point in ipairs(before) do
-			if point.sprinting and (not baseline or point.s > baseline) then baseline = point.s end
+		local base = tonumber(payload.BaseSpeed)
+		local sprint = tonumber(payload.SprintSpeed) or (base and base * 1.6)
+		if payload.Hunting ~= true or not base or not sprint then return end
+		local function near(first, second)
+			return math.abs(first - second) <= epsilon
 		end
-		if not baseline then return end
-		local compared, dropped = 0, false
-		for index = 2, #after do
-			local point = after[index]
-			if point.sprinting then
+		local compared, slowed, unknown = 0, false, false
+		local observed
+		for _, point in ipairs(after) do
+			local speed = tonumber(point.s)
+			if speed then
 				compared += 1
-				if point.s < baseline - epsilon then
-					dropped = true
+				if near(speed, base * 0.8) or near(speed, sprint * 0.8) then
+					slowed, observed = true, speed
 					break
+				elseif not near(speed, base) and not near(speed, sprint) then
+					unknown = true
 				end
 			end
 		end
 		local duration = tonumber(payload.Duration) or 0
-		local ruleOut = payload.ContinuousSprinting == true
-			and duration >= requiredExposure and compared > 0
-		if not dropped and not ruleOut then return end
+		local ruleOut = duration >= requiredExposure and compared > 0 and not unknown
+		if not slowed and not ruleOut then return end
 		Tracker.Resolved = true
 		Traffic("LOSSpeedResult", {
 			Player = payload.Player,
-			Slowed = dropped,
-			Completed = dropped or ruleOut,
+			Slowed = slowed,
+			ObservedSpeed = observed,
+			BaseSpeed = base,
+			SprintSpeed = sprint,
+			Completed = slowed or ruleOut,
 			Duration = duration,
 		}):SendTo("Siren")
 	end)
