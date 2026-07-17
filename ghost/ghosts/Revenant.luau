@@ -29,10 +29,11 @@ function Revenant.new(dependencies)
 		Processor.Generation += 1
 		local generation = Processor.Generation
 		delay(1.5, function()
-			if not Processor.Resolved and Processor.Hunting
-				and Processor.PendingKill == killTime
+			if not Processor.Resolved and Processor.PendingKill == killTime
 				and Processor.Generation == generation then
-				verdict(false, "the hunt continued for at least 1.5 seconds after a player kill")
+				verdict(not Processor.Hunting, Processor.Hunting
+					and "the hunt remained active after a player kill"
+					or "the hunt stopped after a player kill")
 			end
 		end)
 	end
@@ -49,22 +50,14 @@ function Revenant.new(dependencies)
 			elseif wasHunting then
 				Processor.LastHuntEnd = eventTime
 				if Processor.PendingKill then
-					local elapsed = eventTime - Processor.PendingKill
-					if elapsed <= 1 then
-						verdict(true, "the hunt ended within one second of a player kill")
-					elseif elapsed >= 1.5 then
-						verdict(false, "the hunt ended at least 1.5 seconds after a player kill")
-					else
-						Processor.PendingKill = nil
-						Processor.Generation += 1
-					end
+					verdict(true, "the hunt stopped after a player kill")
 				end
 			end
-		elseif signal == "PlayerKilled" and (tonumber(payload.PlayerCount) or 0) >= 2 then
+		elseif signal == "PlayerKilled" then
 			if Processor.Hunting then
 				beginProbe(eventTime)
 			elseif Processor.LastHuntEnd
-				and math.abs(eventTime - Processor.LastHuntEnd) <= 1 then
+				and math.abs(eventTime - Processor.LastHuntEnd) <= 1.5 then
 				verdict(true, "the hunt ended immediately before the player kill signal arrived")
 			end
 		end

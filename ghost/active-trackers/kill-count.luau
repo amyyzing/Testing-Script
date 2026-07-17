@@ -26,7 +26,6 @@ return function(dependencies)
 				Traffic("PlayerKilled", {
 					userId = id,
 					Time = clock(),
-					PlayerCount = #Players:GetPlayers(),
 				}):SendTo("Revenant", "SpeedTracker")
 			end
 		end

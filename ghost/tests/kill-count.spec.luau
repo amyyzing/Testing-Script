@@ -67,8 +67,8 @@ alive:SetDead(true)
 expect(#deaths == 1 and deaths[1].userId == 1 and type(deaths[1].Time) == "number",
 	"Humanoid.Died should emit immediately and the later Dead attribute should not duplicate it")
 expect(#revenantDeaths == 1 and revenantDeaths[1] == deaths[1]
-	and revenantDeaths[1].PlayerCount == 2,
-	"the same multiplayer kill event should reach Revenant and SpeedTracker")
+	and revenantDeaths[1].userId == 1,
+	"the same player kill event should reach Revenant and SpeedTracker")
 alive:SetDead(false)
 alive:SetDead(true)
 expect(#deaths == 1, "a revived player's later death must not emit again")
