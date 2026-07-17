@@ -42,28 +42,32 @@ local controller = createHuntSpeedArray({
 	Defer = function(callback) callback() end,
 })
 
-Traffic("HuntSpeedReset", {}):SendTo("SpeedArrayLog")
-for index = 1, 14 do
-	Traffic("HuntSpeedSample", {
-		Index = index,
-		Point = {s = 27, v = index % 2 == 0},
-	}):SendTo("SpeedArrayLog")
-end
-Traffic("HuntSpeedMarker", {Index = 4, Label = "SALT SPLIT"}):SendTo("SpeedArrayLog")
-Traffic("SevenPairResult", {Samples = 14}):SendTo("SpeedArrayLog")
-Traffic("HuntSpeedSample", {Index = 15, Point = {s = 99, v = true}}):SendTo("SpeedArrayLog")
-Traffic("HuntSpeedEnded", {Count = 2}):SendTo("SpeedArrayLog")
+Traffic("WendigoEnergySnapshot", {
+	Transition = 1,
+	Hunting = true,
+	AverageEnergy = 62,
+}):SendTo("SpeedArrayLog")
+Traffic("WendigoSpeedSample", {
+	Transition = 1,
+	Hunting = true,
+	Speed = 24.5,
+}):SendTo("SpeedArrayLog")
+Traffic("HuntSpeedSample", {
+	Index = 1,
+	Point = {s = 99, v = true},
+}):SendTo("SpeedArrayLog")
 
-expect(#entries == 15 and string.find(entries[14].Text, "P14", 1, true),
-	"all fourteen paced samples should render before completion")
-expect(entries[15].TextColor3 == "accent"
-	and string.find(entries[15].Text, "SALT SPLIT", 1, true),
-	"event markers should remain visible beside the paced array")
-expect(#entries == 15, "speed rows should stop after the seven-pair result")
-expect(string.find(view.Title.Text, "ENDED - 7 PAIRS", 1, true),
-	"hunt end should retain the completed seven-pair label")
+expect(#entries == 2, "the drawer should ignore the old hunt-array display signals")
+expect(entries[1].Text == "T01  HUNTING  ENERGY 62.00%"
+	and entries[1].TextColor3 == "text",
+	"the transition Energy snapshot should be the first row")
+expect(entries[2].Text == "T01  HUNTING  SPEED 24.500"
+	and entries[2].TextColor3 == "accent",
+	"the settled Wendigo speed should be the second row")
+expect(entries[1].LayoutOrder < entries[2].LayoutOrder,
+	"Energy should render before speed for the same transition")
 
 controller:Destroy()
 expect(entries[1].Destroyed and entries[2].Destroyed, "destroy should remove generated rows")
 
-print("hunt-speed-array.spec: live samples, salt marker, and retention passed")
+print("hunt-speed-array.spec: Wendigo transition Energy and speed rows passed")

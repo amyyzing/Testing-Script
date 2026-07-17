@@ -271,8 +271,8 @@ function Aesthetic.Create(dependencies)
 	)
 	local speedDrawer = makeDrawer(
 		"SpeedDrawer",
-		"HUNT SPEED ARRAY",
-		"Waiting for hunt samples.",
+		"WENDIGO STATE LOG",
+		"Waiting for a hunt-state transition.",
 		"S\nP\nE\nE\nD",
 		54
 	)

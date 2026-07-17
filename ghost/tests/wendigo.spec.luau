@@ -22,7 +22,12 @@ local function harness(energies, mapSize, speed)
 	local World = {FindFirstChild = function(_, name) return name == "Map" and Map or nil end}
 	local Humanoid = {WalkSpeed = speed}
 	local delayed = {}
+	local display = {}
 	local Traffic = createTraffic()
+	Traffic:Receive("SpeedArrayLog", function(signal, payload)
+		if signal ~= "WendigoEnergySnapshot" and signal ~= "WendigoSpeedSample" then return end
+		table.insert(display, {Signal = signal, Payload = payload})
+	end)
 	local Verdict = createVerdict({Traffic = Traffic})
 	local processor = Wendigo.new({Traffic = Traffic})
 	local filter = createSpeedFilter({Traffic = Traffic, Workspace = World})
@@ -36,6 +41,7 @@ local function harness(energies, mapSize, speed)
 		Traffic = Traffic,
 		Verdict = Verdict,
 		Humanoid = Humanoid,
+		Display = display,
 		RunDelayed = function()
 			local pending = delayed
 			delayed = {}
@@ -53,9 +59,17 @@ end
 local startup = harness({100, 100}, "Small", 9 * 2)
 startup.Traffic:Broadcast("HuntingState", {Hunting = false, Time = 0})
 expect(startup.Verdict.Confidence[23] == nil, "startup speed should wait for replication settling")
+expect(#startup.Display == 1
+	and startup.Display[1].Signal == "WendigoEnergySnapshot"
+	and startup.Display[1].Payload.AverageEnergy == 100,
+	"the Energy level should be snapshotted immediately at the state transition")
 startup.RunDelayed()
 expect(startup.Verdict.Confidence[23] == 99,
 	"execution during non-hunting should match 100 Energy to base 9 with a configured multiplier")
+expect(#startup.Display == 2
+	and startup.Display[2].Signal == "WendigoSpeedSample"
+	and startup.Display[2].Payload.Speed == 18,
+	"the settled state speed should be logged after its Energy snapshot")
 startup:Destroy()
 
 local zeroEnergy = harness({0}, "Small", 28)
