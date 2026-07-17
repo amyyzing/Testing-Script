@@ -5,7 +5,14 @@ return function(dependencies)
 	local delay = dependencies.DelayTask or (task and task.delay)
 	assert(type(delay) == "function", "wendigo-speed requires task.delay")
 	local settleDelay = tonumber(dependencies.SettleDelay) or 0.1
-	local Tracker = {Kind = "dormant", Running = true, Token = 0, TransitionCount = 0}
+	local Tracker = {
+		Kind = "dormant",
+		Running = true,
+		Token = 0,
+		TransitionCount = 0,
+		LastHunting = nil,
+		Started = false,
+	}
 
 	local function averageEnergy()
 		local players = Players:GetPlayers()
@@ -22,13 +29,24 @@ return function(dependencies)
 	Tracker.Disconnect = Traffic:Receive("WendigoSpeed", function(signal, payload)
 		if signal ~= "HuntingState" or type(payload) ~= "table"
 			or type(payload.Hunting) ~= "boolean" then return end
+		local hunting = payload.Hunting
+		if Tracker.LastHunting == nil then
+			Tracker.LastHunting = hunting
+			return
+		end
+		if Tracker.LastHunting == hunting then return end
+		Tracker.LastHunting = hunting
+		if not Tracker.Started then
+			if not hunting then return end
+			Tracker.Started = true
+		end
 		local energy = averageEnergy()
 		if not energy then return end
 		Tracker.TransitionCount += 1
 		local transition = Tracker.TransitionCount
 		Traffic("WendigoEnergySnapshot", {
 			Transition = transition,
-			Hunting = payload.Hunting,
+			Hunting = hunting,
 			AverageEnergy = energy,
 			TransitionTime = payload.Time,
 		}):SendTo("SpeedArrayLog")
@@ -38,7 +56,7 @@ return function(dependencies)
 			if not Tracker.Running or Tracker.Token ~= token then return end
 			Traffic("WendigoSpeedSample", {
 				Transition = transition,
-				Hunting = payload.Hunting,
+				Hunting = hunting,
 				AverageEnergy = energy,
 				Speed = Humanoid.WalkSpeed,
 				TransitionTime = payload.Time,
