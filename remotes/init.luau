@@ -33,17 +33,19 @@ function Remotes.new(dependencies)
 	dependencies = type(dependencies) == "table" and dependencies or {}
 	local loadModule = assert(dependencies.LoadModule, "Remotes requires LoadModule")
 	local available = {}
+	local package = {}
 	for _, name in ipairs(Remotes.Manifest) do
 		available[name] = true
 	end
-	return setmetatable({}, {
-		__index = function(package, name)
-			if not available[name] then return nil end
-			local remote = loadModule("remotes/" .. name .. ".luau")
-			rawset(package, name, remote)
-			return remote
-		end,
-	})
+	function package:Get(name)
+		if not available[name] then return nil end
+		local remote = rawget(self, name)
+		if remote then return remote end
+		remote = loadModule("remotes/" .. name .. ".luau")
+		rawset(self, name, remote)
+		return remote
+	end
+	return package
 end
 
 return Remotes

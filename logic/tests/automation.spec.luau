@@ -56,6 +56,7 @@ local controller = createAutomation({
 	AutoSpirit = autoSpirit,
 	EscapeHunt = escapeHunt,
 	TeleportToBaseCamp = function() table.insert(order, "base") end,
+	PrepareReturn = function() table.insert(order, "queue:return") return true end,
 	Clock = function() return now end,
 	Wait = function(seconds) now += seconds end,
 	Spawn = function(callback) callback() end,
@@ -66,8 +67,9 @@ local controller = createAutomation({
 })
 
 click:Fire()
-expect(order[1] == "select:Aswang" and order[2] == "base" and order[3] == "lobby",
-	"selection must finish before Base Camp and the lobby request")
+expect(order[1] == "select:Aswang" and order[2] == "base"
+	and order[3] == "queue:return" and order[4] == "lobby",
+	"selection and return handoff must finish before the lobby request")
 expect(autoSpirit.Enabled and escapeHunt.Enabled,
 	"automation should lease Auto Spirit and Hunt Escape while enabled")
 controller:SetEnabled(false)

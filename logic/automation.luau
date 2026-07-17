@@ -35,6 +35,7 @@ return function(dependencies)
 	local autoSpirit = dependencies.AutoSpirit
 	local escapeHunt = dependencies.EscapeHunt
 	local teleportBaseCamp = dependencies.TeleportToBaseCamp
+	local prepareReturn = dependencies.PrepareReturn
 	local roundStarted = dependencies.RoundStarted
 	local clock = dependencies.Clock or os.clock
 	local wait = dependencies.Wait or task.wait
@@ -79,7 +80,12 @@ return function(dependencies)
 	end
 
 	local function remote(name, ...)
-		local ok, callable = pcall(function() return Remotes[name] end)
+		local ok, callable
+		if type(Remotes.Get) == "function" then
+			ok, callable = pcall(Remotes.Get, Remotes, name)
+		else
+			ok, callable = true, Remotes[name]
+		end
 		if not ok or type(callable) ~= "function" then return false end
 		ok = pcall(callable, ...)
 		wait(0.1)
@@ -505,6 +511,7 @@ return function(dependencies)
 		pause(generation, 0.35)
 		phase("Returning to Base Camp")
 		if type(teleportBaseCamp) == "function" then pcall(teleportBaseCamp) end
+		if type(prepareReturn) == "function" then pcall(prepareReturn) end
 		local earliest = roundStarted and roundStarted.StartedAt
 		earliest = (tonumber(earliest) or controller.StartedAt) + 30
 		while alive(generation) and clock() < earliest do
@@ -569,6 +576,7 @@ return function(dependencies)
 		if self.Enabled == enabled then return self.Enabled end
 		self.Enabled = enabled
 		self.Generation += 1
+		if dependencies.OnEnabledChanged then dependencies.OnEnabledChanged(enabled) end
 		if enabled then
 			self.StartedAt = clock()
 			self.Phase = "Starting"

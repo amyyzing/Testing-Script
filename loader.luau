@@ -3,6 +3,11 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 local BASE_URL = "https://raw.githubusercontent.com/amyyzing/Testing-Script/refs/heads/main/"
 local VERSION = tostring(os.time())
 local environment = (getgenv and getgenv()) or _G
+local handoff = type(environment.DemonologyAutoHandoff) == "table"
+	and environment.DemonologyAutoHandoff or nil
+environment.DemonologyAutoHandoff = nil
+local autoHandoff = handoff and handoff.Auto == true
+local arrivalContext = handoff and tostring(handoff.Context or "") or ""
 local Services = {
 	Players = game:GetService("Players"),
 	ReplicatedStorage = game:GetService("ReplicatedStorage"),
@@ -29,6 +34,7 @@ end
 
 local previous = environment.DemonologySession
 if previous and type(previous.Destroy) == "function" then pcall(previous.Destroy, previous) end
+if autoHandoff then environment.DemonologyLoopEnabled = true end
 
 local LoadScreen = loadModule("gui/load-screen.luau")
 local loading = LoadScreen.new({Services = Services, Player = player, Title = "Demonology Assistant"})
@@ -43,7 +49,7 @@ local createRemotes = loadModule("remotes/init.luau")
 local Remotes = createRemotes.new({LoadModule = loadModule})
 loading:SetStage("Loading verdict", 4, 10)
 local createVerdict = loadModule("ghost/verdict.luau")
-local markJournal = Remotes.EvidenceMarkedInJournal
+local markJournal = Remotes:Get("EvidenceMarkedInJournal")
 loading:SetStage("Loading ghost processors", 5, 10)
 local Aswang = loadModule("ghost/ghosts/Aswang.luau")
 local Demon = loadModule("ghost/ghosts/Demon.luau")
@@ -99,9 +105,11 @@ local createLOSSpeed = loadModule("ghost/dormant-trackers/los-speed.luau")
 local createRoomTemperature = loadModule("ghost/dormant-trackers/room-temperature.luau")
 local createSpecterTrial = loadModule("ghost/dormant-trackers/specter-trial.luau")
 local createWendigoSpeed = loadModule("ghost/dormant-trackers/wendigo-speed.luau")
-local askSpiritBox = Remotes.AskSpiritBoxFromUI
+local askSpiritBox = Remotes:Get("AskSpiritBoxFromUI")
 local createAutoSpiritBox = loadModule("logic/auto-spirit-box.luau")
 local createAutomation = loadModule("logic/automation.luau")
+local createLobbyAutomation = loadModule("logic/lobby-automation.luau")
+local createTeleportLoop = loadModule("logic/teleport-loop.luau")
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
 local createBright = loadModule("logic/bright.luau")
 local createGhostESP = loadModule("logic/ghost-esp.luau")
@@ -134,6 +142,11 @@ session = {
 	Loading = loading,
 }
 environment.DemonologySession = session
+local teleportLoop = createTeleportLoop({
+	Environment = environment,
+	LoaderUrl = BASE_URL .. "logic.luau",
+})
+session.TeleportLoop = teleportLoop
 
 local function remember(value)
 	table.insert(session.Trackers, value)
@@ -154,6 +167,24 @@ session.AutoSpirit = remember(createAutoSpiritBox({
 	Button = view.Buttons.AutoSpirit,
 	EnabledColor = view.Colors.Accent,
 }))
+
+local initialGhost = Services.Workspace:FindFirstChild("Ghost")
+if not initialGhost and arrivalContext == "AttemptStart" then
+	initialGhost = Services.Workspace:WaitForChild("Ghost", 15)
+end
+if not initialGhost and arrivalContext ~= "AttemptStart" then
+	session.LobbyAutomation = remember(createLobbyAutomation({
+		Player = player,
+		Remotes = Remotes,
+		Button = view.Buttons.Automation,
+		EnabledColor = view.Colors.Accent,
+		PrepareTeleport = function(context) return teleportLoop:Queue(context) end,
+		OnEnabledChanged = function(enabled) teleportLoop:SetEnabled(enabled) end,
+	}))
+	if autoHandoff and arrivalContext == "ReturnToLobby" then
+		session.LobbyAutomation:SetEnabled(true, true)
+	end
+end
 
 local function disconnectWaiting()
 	for _, connection in ipairs(session.Connections) do connection:Disconnect() end
@@ -363,8 +394,13 @@ local function startTrackers()
 			EscapeHunt = session.EscapeHunt,
 			TeleportToBaseCamp = teleportToBaseCamp,
 			RoundStarted = session.RoundStarted,
+			PrepareReturn = function() return teleportLoop:Queue("ReturnToLobby") end,
+			OnEnabledChanged = function(enabled) teleportLoop:SetEnabled(enabled) end,
 			RuntimeIsActive = function() return not session.Destroyed end,
 		}))
+		if autoHandoff and arrivalContext == "AttemptStart" then
+			session.Automation:SetEnabled(true)
+		end
 	end
 
 	local saltPiles = Services.Workspace:FindFirstChild("SaltPiles")

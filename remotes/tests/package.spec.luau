@@ -9,11 +9,12 @@ local package = Remotes.new({
 })
 
 assert(#loaded == 0, "remote files should load lazily")
+assert(getmetatable(package) == nil, "remote loading must not use a yielding metamethod")
 for index, name in ipairs(Remotes.Manifest) do
 	local path = "remotes/" .. name .. ".luau"
-	assert(type(package[name]) == "function", name .. " was not exposed")
+	assert(type(package:Get(name)) == "function", name .. " was not exposed")
 	assert(loaded[index] == path, "remote load order changed")
-	assert(package[name]() == path, name .. " did not remain callable")
+	assert(package:Get(name)() == path, name .. " did not remain callable")
 end
 
-print("package.spec: every remote file is lazily loaded and exposed")
+print("package.spec: explicit lazy loading avoids yielding in a metamethod")
