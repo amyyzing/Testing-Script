@@ -149,6 +149,20 @@ function Aesthetic.Create(dependencies)
 		TextSize = 12,
 	}, content)
 
+	local automationButton = create("TextButton", {
+		Name = "Automation",
+		AutoButtonColor = false,
+		BackgroundColor3 = COLORS.Control,
+		BorderSizePixel = 0,
+		Font = Enum.Font.GothamMedium,
+		Position = UDim2.fromOffset(16, 184),
+		Size = UDim2.new(1, -32, 0, 48),
+		Text = "AUTOMATION: OFF\nReady",
+		TextColor3 = COLORS.Text,
+		TextSize = 12,
+		TextWrapped = true,
+	}, content)
+
 	local function makeDrawer(name, titleText, emptyText, handleText, handleOffset)
 		local clip = create("Frame", {
 			Name = name .. "Clip",
@@ -321,6 +335,7 @@ function Aesthetic.Create(dependencies)
 			Bright = brightButton,
 			GhostESP = ghostEspButton,
 			AutoSpirit = autoSpiritButton,
+			Automation = automationButton,
 		},
 		Colors = COLORS,
 	}

@@ -63,4 +63,13 @@ local snapshot = Verdict:Snapshot()
 expect(#snapshot.Lists == 25 and #snapshot.Selected == 1 and #snapshot["ruled-out"] == 2,
 	"the snapshot should contain two arrays and one single-element Selected array")
 
-print("verdict-journal.spec: rule-outs, selection, and unknown journal states passed")
+expect(Verdict:ForceSelect("Aswang"), "a valid final guess should lock")
+Traffic("Support", {Ghost = "Ghoul", Confidence = 100}):SendTo("Verdict")
+Traffic("RuleOut", {Ghost = "Aswang", Confidence = 99}):SendTo("Verdict")
+expect(Verdict.Selected[1] == 1 and not rows.Aswang.Children.Strikethrough.Visible,
+	"later tracker traffic must not replace or cross out the locked final guess")
+Verdict:Reset()
+expect(Verdict.ForcedIndex == nil and #Verdict.Selected == 0,
+	"reset should clear the final-guess lock")
+
+print("verdict-journal.spec: rule-outs, selection lock, and unknown journal states passed")

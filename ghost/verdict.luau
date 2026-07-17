@@ -83,14 +83,18 @@ return function(dependencies)
 	local function selectBest(forceJournal)
 		local bestIndex
 		local bestScore = -math.huge
-		for index, name in ipairs(GHOSTS) do
-			local confidence = Verdict.Confidence[index]
-			local currentScore = score(index)
-			if not isRuledOut(index)
-				and confidence ~= nil
-				and currentScore > bestScore then
-				bestIndex = index
-				bestScore = currentScore
+		if Verdict.ForcedIndex and not isRuledOut(Verdict.ForcedIndex) then
+			bestIndex = Verdict.ForcedIndex
+		else
+			for index in ipairs(GHOSTS) do
+				local confidence = Verdict.Confidence[index]
+				local currentScore = score(index)
+				if not isRuledOut(index)
+					and confidence ~= nil
+					and currentScore > bestScore then
+					bestIndex = index
+					bestScore = currentScore
+				end
 			end
 		end
 		local previous = Verdict.Selected[1]
@@ -133,6 +137,7 @@ return function(dependencies)
 	function Verdict:RuleOut(ghost, confidence, reason)
 		local index = indexes[ghost]
 		if not index then return false end
+		if self.ForcedIndex == index then return false end
 		if not isRuledOut(index) then
 			table.insert(self.RuledOut, index)
 			table.sort(self.RuledOut)
@@ -144,6 +149,14 @@ return function(dependencies)
 		return true
 	end
 
+	function Verdict:ForceSelect(ghost)
+		local index = indexes[ghost]
+		if not index or isRuledOut(index) then return false end
+		self.ForcedIndex = index
+		selectBest(true)
+		return self.Selected[1] == index
+	end
+
 	function Verdict:Reset()
 		for index in pairs(self.JournalTouched) do applyJournal(index, nil) end
 		table.clear(self.JournalTouched)
@@ -152,6 +165,7 @@ return function(dependencies)
 		table.clear(self.Confidence)
 		table.clear(self.NegativeConfidence)
 		table.clear(self.Reasons)
+		self.ForcedIndex = nil
 	end
 
 	function Verdict:Snapshot()

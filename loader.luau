@@ -39,9 +39,11 @@ loading:SetStage("Loading window controls", 2, 10)
 local GuiLogic = loadModule("gui/gui-logic.luau")
 loading:SetStage("Loading traffic", 3, 10)
 local createTraffic = loadModule("ghost/traffic.luau")
+local createRemotes = loadModule("remotes/init.luau")
+local Remotes = createRemotes.new({LoadModule = loadModule})
 loading:SetStage("Loading verdict", 4, 10)
 local createVerdict = loadModule("ghost/verdict.luau")
-local markJournal = loadModule("remotes/EvidenceMarkedInJournal.luau")
+local markJournal = Remotes.EvidenceMarkedInJournal
 loading:SetStage("Loading ghost processors", 5, 10)
 local Aswang = loadModule("ghost/ghosts/Aswang.luau")
 local Demon = loadModule("ghost/ghosts/Demon.luau")
@@ -97,8 +99,9 @@ local createLOSSpeed = loadModule("ghost/dormant-trackers/los-speed.luau")
 local createRoomTemperature = loadModule("ghost/dormant-trackers/room-temperature.luau")
 local createSpecterTrial = loadModule("ghost/dormant-trackers/specter-trial.luau")
 local createWendigoSpeed = loadModule("ghost/dormant-trackers/wendigo-speed.luau")
-local askSpiritBox = loadModule("remotes/AskSpiritBoxFromUI.luau")
+local askSpiritBox = Remotes.AskSpiritBoxFromUI
 local createAutoSpiritBox = loadModule("logic/auto-spirit-box.luau")
+local createAutomation = loadModule("logic/automation.luau")
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
 local createBright = loadModule("logic/bright.luau")
 local createGhostESP = loadModule("logic/ghost-esp.luau")
@@ -347,6 +350,20 @@ local function startTrackers()
 		session.RoundStarted = remember(createRoundStarted({
 			Traffic = Traffic,
 			Workspace = Services.Workspace,
+		}))
+		session.Automation = remember(createAutomation({
+			Services = Services,
+			Player = player,
+			Ghost = ghost,
+			Verdict = Verdict,
+			Remotes = Remotes,
+			Button = view.Buttons.Automation,
+			EnabledColor = view.Colors.Accent,
+			AutoSpirit = session.AutoSpirit,
+			EscapeHunt = session.EscapeHunt,
+			TeleportToBaseCamp = teleportToBaseCamp,
+			RoundStarted = session.RoundStarted,
+			RuntimeIsActive = function() return not session.Destroyed end,
 		}))
 	end
 

@@ -25,6 +25,7 @@ return function(dependencies)
 		if not Tracker.Running or Tracker.Started
 			or door:GetAttribute("DoorClosed") ~= false then return end
 		Tracker.Started = true
+		Tracker.StartedAt = clock()
 		publish()
 		Tracker.Running = false
 		disconnectAll()

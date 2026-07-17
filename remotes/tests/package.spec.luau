@@ -10,7 +10,7 @@ local package = Remotes.new({
 
 assert(#loaded == 0, "remote files should load lazily")
 for index, name in ipairs(Remotes.Manifest) do
-	local path = "Remotes/" .. name .. ".luau"
+	local path = "remotes/" .. name .. ".luau"
 	assert(type(package[name]) == "function", name .. " was not exposed")
 	assert(loaded[index] == path, "remote load order changed")
 	assert(package[name]() == path, name .. " did not remain callable")

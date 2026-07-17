@@ -39,7 +39,7 @@ function Remotes.new(dependencies)
 	return setmetatable({}, {
 		__index = function(package, name)
 			if not available[name] then return nil end
-			local remote = loadModule("Remotes/" .. name .. ".luau")
+			local remote = loadModule("remotes/" .. name .. ".luau")
 			rawset(package, name, remote)
 			return remote
 		end,
