@@ -98,6 +98,7 @@ local tracker = createSaltHit({
 		spatialQueries += 1
 		return false
 	end,
+	Clock = function() return 12 end,
 })
 
 local cleanSalt = instance("SaltPile2", "Model", SaltFolder)
@@ -117,6 +118,8 @@ salt:Rename("DisturbedSaltLine")
 
 expect(#received == 2, "a disturbed salt model should emit a contact and its disturbed state")
 expect(received[1].name == "SaltHit", "disturbed salt should start the speed split")
+expect(received[1].payload.SaltCreatedAt == 12,
+	"salt hits should retain the salt model's workspace creation timestamp")
 expect(received[2].name == "SaltStateAfterHit" and received[2].payload.State == "disturbed",
 	"disturbed salt should immediately confirm the split state")
 expect(received[1].payload.ContactId == received[2].payload.ContactId,

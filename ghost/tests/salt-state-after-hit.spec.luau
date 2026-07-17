@@ -41,6 +41,7 @@ local function object(name)
 	return value
 end
 
+local now = 0
 local delayed, results = {}, {}
 local Traffic = createTraffic()
 Traffic:Receive("SpeedTracker", function(signalName, payload)
@@ -49,24 +50,43 @@ end)
 local tracker = createSaltState({
 	Traffic = Traffic,
 	Delay = 1.25,
-	DelayTask = function(_, callback) table.insert(delayed, callback) end,
+	CreationGrace = 3,
+	Clock = function() return now end,
+	DelayTask = function(seconds, callback)
+		table.insert(delayed, {Seconds = seconds, Callback = callback})
+	end,
 })
 
 local salt, child = object("SaltPile"), object("Salt")
 salt.Descendants = {child}
-Traffic("SaltHit", {ContactId = 1, Salt = salt, Hunting = true}):SendTo("SaltStateAfterHit")
-expect(#results == 0 and #delayed == 1, "a clean salt hit should wait without polling")
+Traffic("SaltHit", {
+	ContactId = 1,
+	Salt = salt,
+	Hunting = true,
+	SaltCreatedAt = 0,
+}):SendTo("SaltStateAfterHit")
+expect(#results == 0 and #delayed == 1 and delayed[1].Seconds == 3,
+	"a newly created clean salt should retain the full three-second grace")
 child:SetName("DisturbedSaltLine")
 expect(#results == 1 and results[1].State == "disturbed",
 	"a disturbed descendant change should complete the probe immediately")
-delayed[1]()
+delayed[1].Callback()
 expect(#results == 1, "the delayed fallback should not duplicate a completed probe")
 
 local clean = object("SaltPile")
-Traffic("SaltHit", {ContactId = 2, Salt = clean, Hunting = false}):SendTo("SaltStateAfterHit")
-delayed[2]()
-expect(#results == 2 and results[2].State == "undisturbed",
-	"the one delayed check should report an undisturbed salt")
+now = 4
+Traffic("SaltHit", {
+	ContactId = 2,
+	Salt = clean,
+	Hunting = false,
+	SaltCreatedAt = 0,
+}):SendTo("SaltStateAfterHit")
+expect(delayed[2].Seconds == 1.25,
+	"an older salt should retain only the normal post-hit observation window")
+delayed[2].Callback()
+expect(#results == 2 and results[2].State == "undisturbed"
+	and results[2].GraceComplete == true,
+	"the delayed check should report an undisturbed salt only after its grace")
 
 tracker:Destroy()
 print("salt-state-after-hit.spec: event-driven disturbed probe passed")

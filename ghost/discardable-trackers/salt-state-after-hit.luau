@@ -1,7 +1,9 @@
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "salt-state-after-hit requires Traffic")
 	local delaySeconds = tonumber(dependencies.Delay) or 1.25
+	local graceSeconds = tonumber(dependencies.CreationGrace) or 3
 	local delay = dependencies.DelayTask or task.delay
+	local clock = dependencies.Clock or os.clock
 	local Tracker = {Kind = "discardable", Running = true, Active = {}}
 
 	local function isDisturbed(object)
@@ -19,7 +21,7 @@ return function(dependencies)
 		return false
 	end
 
-	local function finish(id, disturbed)
+	local function finish(id, disturbed, graceComplete)
 		local probe = Tracker.Active[id]
 		if not probe then return end
 		Tracker.Active[id] = nil
@@ -29,8 +31,10 @@ return function(dependencies)
 			Salt = probe.Payload.Salt,
 			HuntingAtHit = probe.Payload.Hunting == true,
 			State = disturbed and "disturbed" or "undisturbed",
-			ObservedFor = delaySeconds,
-		}):SendTo("SpeedTracker")
+			ObservedFor = disturbed and math.max(0, clock() - probe.StartedAt)
+				or probe.WaitSeconds,
+			GraceComplete = graceComplete == true,
+		}):SendTo("SpeedTracker", "Wraith")
 	end
 
 	local function watch(id, object)
@@ -38,7 +42,7 @@ return function(dependencies)
 		if not probe or probe.Watched[object] then return end
 		probe.Watched[object] = true
 		local function changed()
-			if isDisturbed(object) then finish(id, true) end
+			if isDisturbed(object) then finish(id, true, false) end
 		end
 		table.insert(probe.Connections, object:GetPropertyChangedSignal("Name"):Connect(changed))
 		table.insert(probe.Connections, object:GetAttributeChangedSignal("Disturbed"):Connect(changed))
@@ -47,24 +51,30 @@ return function(dependencies)
 	local function runOnce(payload)
 		local id, salt = payload.ContactId, payload.Salt
 		if Tracker.Active[id] then return end
+		local now = clock()
+		local createdAt = tonumber(payload.SaltCreatedAt) or now
+		local waitSeconds = math.max(delaySeconds, createdAt + graceSeconds - now)
 		Tracker.Active[id] = {
 			Payload = payload,
+			StartedAt = now,
+			WaitSeconds = waitSeconds,
 			Connections = {},
 			Watched = setmetatable({}, {__mode = "k"}),
 		}
 		if isSaltDisturbed(salt) then
-			finish(id, true)
+			finish(id, true, false)
 			return
 		end
 		watch(id, salt)
 		for _, object in ipairs(salt:GetDescendants()) do watch(id, object) end
 		table.insert(Tracker.Active[id].Connections, salt.DescendantAdded:Connect(function(object)
 			watch(id, object)
-			if isDisturbed(object) then finish(id, true) end
+			if isDisturbed(object) then finish(id, true, false) end
 		end))
-		delay(delaySeconds, function()
+		delay(waitSeconds, function()
 			if Tracker.Running and Tracker.Active[id] then
-				finish(id, isSaltDisturbed(salt))
+				local disturbed = isSaltDisturbed(salt)
+				finish(id, disturbed, not disturbed)
 			end
 		end)
 	end

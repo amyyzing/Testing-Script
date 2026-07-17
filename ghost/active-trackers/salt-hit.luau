@@ -4,6 +4,7 @@ return function(dependencies)
 	local SaltFolder = assert(dependencies.SaltFolder, "salt-hit requires SaltFolder")
 	local World = dependencies.Workspace or workspace
 	local RunService = assert(dependencies.RunService, "salt-hit requires RunService")
+	local clock = dependencies.Clock or os.clock
 	local Tracker = {
 		Kind = "active",
 		Running = true,
@@ -13,6 +14,7 @@ return function(dependencies)
 		PendingSpatial = setmetatable({}, {__mode = "k"}),
 		Touched = setmetatable({}, {__mode = "k"}),
 		Disturbed = setmetatable({}, {__mode = "k"}),
+		CreatedAt = setmetatable({}, {__mode = "k"}),
 		NextContactId = 0,
 	}
 
@@ -40,11 +42,13 @@ return function(dependencies)
 
 	local function payloadFor(tracker, salt)
 		tracker.NextContactId += 1
+		tracker.CreatedAt[salt] = tracker.CreatedAt[salt] or clock()
 		return {
 			ContactId = tracker.NextContactId,
 			Salt = salt,
 			Hunting = Ghost:GetAttribute("Hunting") == true,
-			Time = os.clock(),
+			Time = clock(),
+			SaltCreatedAt = tracker.CreatedAt[salt],
 		}
 	end
 
@@ -70,10 +74,13 @@ return function(dependencies)
 			HuntingAtHit = payload.Hunting,
 			State = "disturbed",
 			ObservedFor = 0,
-		}):SendTo("SpeedTracker")
+			GraceComplete = false,
+		}):SendTo("SpeedTracker", "Wraith")
 	end
 
 	function Tracker:Watch(object)
+		local salt = saltObject(object)
+		self.CreatedAt[salt] = self.CreatedAt[salt] or clock()
 		if self.Watched[object] then return end
 		self.Watched[object] = true
 		table.insert(self.Connections, object:GetPropertyChangedSignal("Name"):Connect(function()
@@ -161,6 +168,7 @@ return function(dependencies)
 		self.Running = false
 		for _, connection in ipairs(self.Connections) do connection:Disconnect() end
 		table.clear(self.Connections)
+		table.clear(self.CreatedAt)
 	end
 
 	return Tracker
