@@ -1,6 +1,7 @@
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "kill-count requires Traffic")
 	local Players = dependencies.Players or game:GetService("Players")
+	local clock = dependencies.Clock or os.clock
 	local Tracker = {
 		Kind = "active", Running = true,
 		Alive = {}, Dead = {},
@@ -22,7 +23,11 @@ return function(dependencies)
 			Tracker.DeadSet[id] = true
 			table.insert(Tracker.Dead, id)
 			if emit then
-				Traffic("PlayerKilled", {userId = id, Time = os.clock()}):SendTo("SpeedTracker")
+				Traffic("PlayerKilled", {
+					userId = id,
+					Time = clock(),
+					PlayerCount = #Players:GetPlayers(),
+				}):SendTo("Revenant", "SpeedTracker")
 			end
 		end
 	end
