@@ -78,6 +78,21 @@ local function orbit(degrees)
 	heartbeat:Fire(0.1)
 end
 
+local function radial(step)
+	Ghost.Current = {X = 0, Y = 0, Z = 0}
+	for index, object in ipairs(objects) do
+		local angle = math.rad(phases[index])
+		local radius = 8 + index + step
+		object.Current = {
+			X = math.cos(angle) * radius,
+			Y = index,
+			Z = math.sin(angle) * radius,
+		}
+	end
+	now += 0.1
+	heartbeat:Fire(0.1)
+end
+
 orbit(0)
 orbit(30)
 expect(orbitEvent == nil and heartbeat:Count() == 0,
@@ -85,12 +100,17 @@ expect(orbitEvent == nil and heartbeat:Count() == 0,
 
 Traffic("HuntingState", {Hunting = true}):SendTo("ItemOrbit")
 expect(heartbeat:Count() == 1, "hunting should enable exactly one orbit sampler")
-orbit(0)
-orbit(30)
-orbit(60)
-orbit(90)
+for step = 0, 7 do radial(step) end
+expect(orbitEvent == nil,
+	"three straight radial movements must not be mistaken for a Ravager vortex")
+Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
+Traffic("HuntingState", {Hunting = true}):SendTo("ItemOrbit")
+for degrees = 0, 84, 12 do orbit(degrees) end
 expect(orbitEvent and orbitEvent.Count == 3,
 	"three distinct models maintaining an orbit should emit one Ravager event")
+expect(orbitEvent.Duration >= 0.5 and orbitEvent.Intervals >= 5
+	and orbitEvent.GoodShare >= 0.7 and orbitEvent.AccumulatedAngle >= 45,
+	"the restored legacy duration, interval, geometry, and angle gates must all pass")
 expect(Verdict.Selected[1] == 13 and Verdict.Confidence[13] == 99,
 	"the three-model orbit should support Ravager at 99%")
 
@@ -99,14 +119,11 @@ expect(heartbeat:Count() == 0, "hunt end should immediately disable orbit sampli
 
 orbitEvent = nil
 Traffic("HuntingState", {Hunting = true}):SendTo("ItemOrbit")
-orbit(90)
-orbit(60)
-orbit(30)
-orbit(0)
+for degrees = 84, 0, -12 do orbit(degrees) end
 expect(orbitEvent and orbitEvent.Count == 3,
 	"clockwise and counter-clockwise model orbits should both qualify")
 Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
 
 tracker:Destroy()
 ravager:Destroy()
-print("ravager.spec: hunting-only three-model orbit detection passed")
+print("ravager.spec: hunting-only legacy vortex detection passed")
