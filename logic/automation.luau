@@ -510,7 +510,9 @@ return function(dependencies)
 		end
 		pause(generation, 0.35)
 		phase("Returning to Base Camp")
+		if escapeHunt and escapeHunt.SetEnabled then escapeHunt:SetEnabled(false) end
 		if type(teleportBaseCamp) == "function" then pcall(teleportBaseCamp) end
+		pause(generation, 1.25)
 		if type(prepareReturn) == "function" then pcall(prepareReturn) end
 		local earliest = roundStarted and roundStarted.StartedAt
 		earliest = (tonumber(earliest) or controller.StartedAt) + 30
@@ -546,7 +548,7 @@ return function(dependencies)
 			end
 			openExitDoor(generation)
 		end
-		local lastRoomCheck = -math.huge
+		local lastRoomCheck, lastMaintenance = -math.huge, clock()
 		while alive(generation) do
 			high, name = identified()
 			local reference = roundStarted and roundStarted.StartedAt or controller.StartedAt
@@ -562,6 +564,11 @@ return function(dependencies)
 					if root and insidePart(box, root.Position) then inRoom = true break end
 				end
 				if room and not inRoom then moveTo(roomPosition(room)) end
+			end
+			if not hunting and clock() - lastMaintenance >= 8 then
+				lastMaintenance = clock()
+				phase("Maintaining room items")
+				placeRoomItems(generation)
 			end
 			if not pause(generation, 0.25) then return end
 		end

@@ -17,6 +17,7 @@ local Services = {
 	Lighting = game:GetService("Lighting"),
 	CoreGui = game:GetService("CoreGui"),
 	Workspace = game:GetService("Workspace"),
+	HttpService = game:GetService("HttpService"),
 }
 local player = Services.Players.LocalPlayer
 
@@ -41,6 +42,7 @@ local loading = LoadScreen.new({Services = Services, Player = player, Title = "D
 loading:SetStage("Loading interface", 1, 10)
 
 local Aesthetic = loadModule("gui/aesthetic.luau")
+local LobbySettings = loadModule("gui/lobby-settings.luau")
 loading:SetStage("Loading window controls", 2, 10)
 local GuiLogic = loadModule("gui/gui-logic.luau")
 loading:SetStage("Loading traffic", 3, 10)
@@ -110,6 +112,7 @@ local createAutoSpiritBox = loadModule("logic/auto-spirit-box.luau")
 local createAutomation = loadModule("logic/automation.luau")
 local createLobbyAutomation = loadModule("logic/lobby-automation.luau")
 local createTeleportLoop = loadModule("logic/teleport-loop.luau")
+local createSettingsStore = loadModule("logic/settings-store.luau")
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
 local createBright = loadModule("logic/bright.luau")
 local createGhostESP = loadModule("logic/ghost-esp.luau")
@@ -142,9 +145,18 @@ session = {
 	Loading = loading,
 }
 environment.DemonologySession = session
+local settingsStore = createSettingsStore({
+	Environment = environment,
+	HttpService = Services.HttpService,
+})
+local settings = settingsStore:Load(handoff and handoff.Settings)
+if not table.find(LobbySettings.JobSiteNames(), settings.JobSite) then settings.JobSite = "School" end
+if not table.find(LobbySettings.Difficulties, settings.Difficulty) then settings.Difficulty = "Nightmare" end
+session.Settings, session.SettingsStore = settings, settingsStore
 local teleportLoop = createTeleportLoop({
 	Environment = environment,
 	LoaderUrl = BASE_URL .. "logic.luau",
+	ReadSettings = function() return settings end,
 })
 session.TeleportLoop = teleportLoop
 
@@ -173,16 +185,42 @@ if not initialGhost and arrivalContext == "AttemptStart" then
 	initialGhost = Services.Workspace:WaitForChild("Ghost", 15)
 end
 if not initialGhost and arrivalContext ~= "AttemptStart" then
-	session.LobbyAutomation = remember(createLobbyAutomation({
+	local lobbyAutomation
+	session.LobbyView = remember(LobbySettings.Create({
+		View = view,
+		Player = player,
+		Settings = settings,
+		OnChanged = function(_, source)
+			settingsStore:Save(settings)
+			if session.LobbyView then session.LobbyView:Render() end
+			if source == "Auto" and lobbyAutomation then
+				lobbyAutomation:SetLoopEnabled(settings.Auto)
+			end
+		end,
+		OnStart = function()
+			if lobbyAutomation then lobbyAutomation:Start(false, false) end
+		end,
+	}))
+	lobbyAutomation = remember(createLobbyAutomation({
 		Player = player,
 		Remotes = Remotes,
-		Button = view.Buttons.Automation,
-		EnabledColor = view.Colors.Accent,
+		ReplicatedStorage = Services.ReplicatedStorage,
+		LobbySettings = LobbySettings,
+		Settings = settings,
+		View = session.LobbyView,
 		PrepareTeleport = function(context) return teleportLoop:Queue(context) end,
 		OnEnabledChanged = function(enabled) teleportLoop:SetEnabled(enabled) end,
+		OnSettingsChanged = function()
+			settingsStore:Save(settings)
+			session.LobbyView:Render()
+		end,
+		RuntimeIsActive = function() return not session.Destroyed end,
 	}))
-	if autoHandoff and arrivalContext == "ReturnToLobby" then
-		session.LobbyAutomation:SetEnabled(true, true)
+	session.LobbyAutomation = lobbyAutomation
+	lobbyAutomation:SetLoopEnabled(settings.Auto)
+	-- A first lobby execution never starts by itself. Only a queued return does.
+	if autoHandoff and arrivalContext == "ReturnToLobby" and settings.Auto then
+		lobbyAutomation:Start(true, true)
 	end
 end
 
@@ -204,6 +242,11 @@ function session:Destroy()
 	if self.Loading and not self.Loading.Destroyed then self.Loading:Destroy() end
 	if environment.UntitledGuiInstance == self.View.Gui then environment.UntitledGuiInstance = nil end
 	if environment.DemonologySession == self then environment.DemonologySession = nil end
+end
+
+if not initialGhost and arrivalContext == "AttemptStart" then
+	session:Destroy()
+	error("AttemptStart arrival did not replicate Workspace.Ghost within 15 seconds", 0)
 end
 
 local coreStarted, saltStarted = false, false
@@ -395,11 +438,46 @@ local function startTrackers()
 			TeleportToBaseCamp = teleportToBaseCamp,
 			RoundStarted = session.RoundStarted,
 			PrepareReturn = function() return teleportLoop:Queue("ReturnToLobby") end,
-			OnEnabledChanged = function(enabled) teleportLoop:SetEnabled(enabled) end,
+			OnEnabledChanged = function(enabled)
+				settings.Auto = enabled
+				settingsStore:Save(settings)
+				teleportLoop:SetEnabled(enabled)
+			end,
 			RuntimeIsActive = function() return not session.Destroyed end,
 		}))
 		if autoHandoff and arrivalContext == "AttemptStart" then
-			session.Automation:SetEnabled(true)
+			task.spawn(function()
+				local stableSince
+				local deadline = os.clock() + 20
+				while not session.Destroyed and os.clock() < deadline do
+					local character = player.Character
+					local root = character and character:FindFirstChild("HumanoidRootPart")
+					local playerHumanoid = character and character:FindFirstChildOfClass("Humanoid")
+					local doors = Services.Workspace:FindFirstChild("Doors")
+					local events = Services.ReplicatedStorage:FindFirstChild("Events")
+					local doorRemote = events and events:FindFirstChild("ClientChangeDoorState")
+					local hasDoor = false
+					if doors then
+						for _, candidate in ipairs(doors:GetChildren()) do
+							if candidate:FindFirstChild("Door") then hasDoor = true break end
+						end
+					end
+					local ready = Services.Workspace:FindFirstChild("Ghost") == ghost
+						and Services.Workspace:FindFirstChild("Map") ~= nil
+						and hasDoor and doorRemote and doorRemote:IsA("RemoteEvent")
+						and root ~= nil and playerHumanoid ~= nil
+					if ready then
+						stableSince = stableSince or os.clock()
+						if os.clock() - stableSince >= 1 then
+							if not session.Destroyed then session.Automation:SetEnabled(true) end
+							return
+						end
+					else
+						stableSince = nil
+					end
+					task.wait(0.1)
+				end
+			end)
 		end
 	end
 

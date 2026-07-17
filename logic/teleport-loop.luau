@@ -28,6 +28,8 @@ return function(dependencies)
 		context = tostring(context or "Teleport")
 		if self.QueuedContext == context then return true end
 		serial += 1
+		local settings = dependencies.ReadSettings and dependencies.ReadSettings() or {}
+		local challenges = type(settings.Challenges) == "table" and settings.Challenges or {}
 		local token = table.concat({tostring(os.time()), tostring(os.clock()), tostring(serial), context}, ":")
 		local source = string.format([[
 local environment = (getgenv and getgenv()) or _G
@@ -36,7 +38,20 @@ environment.DemonologyLoopEnabled = true
 local token = %q
 if environment.DemonologyHandoffToken == token then return end
 environment.DemonologyHandoffToken = token
-environment.DemonologyAutoHandoff = {Auto = true, Context = %q}
+environment.DemonologyAutoHandoff = {
+	Auto = true,
+	Context = %q,
+	Settings = {
+		Auto = true,
+		JobSite = %q,
+		Difficulty = %q,
+		CustomPreset = %q,
+		EquipmentPreset = %q,
+		GhostWalkSpeedMultiplier = %s,
+		Challenges = {%s, %s, %s},
+		ChallengesConfigured = %s,
+	},
+}
 if not game:IsLoaded() then game.Loaded:Wait() end
 task.wait(4)
 local compiler = loadstring or load
@@ -45,7 +60,15 @@ local source = game:HttpGet(%q .. "?v=" .. tostring(os.time()))
 local chunk, compileError = compiler(source, "@DemonologyAutoLoop")
 assert(chunk, compileError)
 chunk()
-]], token, context, loaderUrl)
+]], token, context,
+			tostring(settings.JobSite or "School"),
+			tostring(settings.Difficulty or "Nightmare"),
+			tostring(settings.CustomPreset or ""),
+			tostring(settings.EquipmentPreset or "green"),
+			tostring(tonumber(settings.GhostWalkSpeedMultiplier) or "nil"),
+			tostring(challenges[1] == true), tostring(challenges[2] == true),
+			tostring(challenges[3] == true), tostring(settings.ChallengesConfigured == true),
+			loaderUrl)
 		local ok, failure = pcall(queue, source)
 		if not ok then return false, tostring(failure) end
 		self.QueuedContext = context
