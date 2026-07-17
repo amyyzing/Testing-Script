@@ -59,7 +59,7 @@ local Siren = loadModule("ghost/ghosts/Siren.luau")
 loading:SetStage("Loading trackers", 6, 10)
 local createCrossBurn = loadModule("ghost/active-trackers/cross-burn.luau")
 local createGhostRoom = loadModule("ghost/active-trackers/ghost-room.luau")
-local createHuntingState = loadModule("ghost/active-trackers/hunting-state.luau")
+local createHuntingState = loadModule("ghost/dormant-trackers/hunting-state.luau")
 local createItemTeleport = loadModule("ghost/active-trackers/item-teleport.luau")
 local createItemState = loadModule("ghost/active-trackers/item-state.luau")
 local createKillCount = loadModule("ghost/active-trackers/kill-count.luau")
@@ -71,6 +71,7 @@ local createFlickerArray = loadModule("ghost/filter/flicker-array.luau")
 local createSpeedFilter = loadModule("ghost/filter/speed-filter.luau")
 local createCrossAnimation = loadModule("ghost/discardable-trackers/cross-animation.luau")
 local createModelGender = loadModule("ghost/discardable-trackers/model-gender.luau")
+local createRoundStarted = loadModule("ghost/discardable-trackers/round-started.luau")
 local createSaltState = loadModule("ghost/discardable-trackers/salt-state-after-hit.luau")
 local createSmokeHolder = loadModule("ghost/discardable-trackers/smoke-holder.luau")
 local createItemOrbit = loadModule("ghost/dormant-trackers/item-orbit.luau")
@@ -281,6 +282,10 @@ local function startTrackers()
 			Workspace = Services.Workspace,
 			Ghost = ghost,
 			RunService = Services.RunService,
+		}))
+		session.RoundStarted = remember(createRoundStarted({
+			Traffic = Traffic,
+			Workspace = Services.Workspace,
 		}))
 	end
 

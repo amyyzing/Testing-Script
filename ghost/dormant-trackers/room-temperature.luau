@@ -6,6 +6,7 @@ return function(dependencies)
 	local Tracker = {
 		Kind = "dormant",
 		Running = true,
+		RoundStarted = false,
 		Active = false,
 		Resolved = false,
 		Changes = {},
@@ -56,23 +57,33 @@ return function(dependencies)
 		end
 	end
 
-	local function setRoom(room)
-		if room == Tracker.Room or Tracker.Resolved then return end
+	local function activateRoom()
 		disconnectRoom()
-		Tracker.Room = room
-		Tracker.Active = room ~= nil
-		Tracker.Previous = temperature(room)
+		Tracker.Active = Tracker.RoundStarted and Tracker.Room ~= nil
+		Tracker.Previous = Tracker.Active and temperature(Tracker.Room) or nil
 		table.clear(Tracker.Changes)
 		if Tracker.Active then
-			Tracker.RoomConnection = room:GetAttributeChangedSignal("Temperature"):Connect(function()
+			Tracker.RoomConnection = Tracker.Room:GetAttributeChangedSignal("Temperature"):Connect(function()
 				Tracker:Sample()
 			end)
 		end
 	end
 
+	local function setRoom(room)
+		if room == Tracker.Room or Tracker.Resolved then return end
+		Tracker.Room = room
+		activateRoom()
+	end
+
 	Tracker.Disconnect = Traffic:Receive("RoomTemperature", function(signal, payload)
-		if signal ~= "GhostRoom" or type(payload) ~= "table" then return end
-		setRoom(payload.Room)
+		if type(payload) ~= "table" then return end
+		if signal == "GhostRoom" then
+			setRoom(payload.Room)
+		elseif signal == "RoundStarted" and payload.Started == true
+			and not Tracker.RoundStarted then
+			Tracker.RoundStarted = true
+			activateRoom()
+		end
 	end)
 
 	function Tracker:Destroy()
