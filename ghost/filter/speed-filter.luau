@@ -66,14 +66,46 @@ return function(dependencies)
 		return result
 	end
 
+	local function inspectWendigo(payload)
+		local energy = tonumber(payload.AverageEnergy)
+		local speed = tonumber(payload.Speed)
+		if not energy or not speed then return {Complete = false} end
+		energy = math.clamp(energy, 0, 100)
+		local result = {
+			Complete = true,
+			Hunting = payload.Hunting == true,
+			AverageEnergy = energy,
+			Speed = speed,
+			BaseSpeed = 14 - energy * 0.05,
+			MapMultiplier = mapMultiplier(),
+		}
+		local multipliers = result.Hunting and customMultipliers or {1.75}
+		local bestError = math.huge
+		for _, multiplier in ipairs(multipliers) do
+			local expected = result.BaseSpeed * result.MapMultiplier * multiplier
+			local errorAmount = math.abs(speed - expected)
+			if errorAmount < bestError then
+				bestError = errorAmount
+				result.Multiplier = multiplier
+				result.ExpectedSpeed = expected
+			end
+		end
+		result.Error = bestError
+		result.Matched = bestError <= epsilon
+		return result
+	end
+
 	Filter.Disconnect = Traffic:Receive("SpeedFilter", function(signal, payload)
-		if not Filter.Running or signal ~= "SevenPairResult"
-			or type(payload) ~= "table" then return end
-		local result = inspect(payload.Pairs)
-		result.Pairs = payload.Pairs
-		result.DistinctPairs = payload.DistinctPairs
-		result.Samples = payload.Samples
-		Traffic("SpeedFilterResult", result):SendTo("Dullahan", "Oni")
+		if not Filter.Running or type(payload) ~= "table" then return end
+		if signal == "SevenPairResult" then
+			local result = inspect(payload.Pairs)
+			result.Pairs = payload.Pairs
+			result.DistinctPairs = payload.DistinctPairs
+			result.Samples = payload.Samples
+			Traffic("SpeedFilterResult", result):SendTo("Dullahan", "Oni")
+		elseif signal == "WendigoSpeedSample" then
+			Traffic("WendigoSpeedResult", inspectWendigo(payload)):SendTo("Wendigo")
+		end
 	end)
 
 	function Filter:Destroy()

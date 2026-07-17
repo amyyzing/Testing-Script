@@ -60,6 +60,7 @@ local Specter = loadModule("ghost/ghosts/Specter.luau")
 local Spirit = loadModule("ghost/ghosts/Spirit.luau")
 local Umbra = loadModule("ghost/ghosts/Umbra.luau")
 local Vex = loadModule("ghost/ghosts/Vex.luau")
+local Wendigo = loadModule("ghost/ghosts/Wendigo.luau")
 loading:SetStage("Loading trackers", 6, 10)
 local createCrossBurn = loadModule("ghost/active-trackers/cross-burn.luau")
 local createGhostRoom = loadModule("ghost/active-trackers/ghost-room.luau")
@@ -87,6 +88,7 @@ local createLOSSight = loadModule("ghost/dormant-trackers/los-sight.luau")
 local createLOSSpeed = loadModule("ghost/dormant-trackers/los-speed.luau")
 local createRoomTemperature = loadModule("ghost/dormant-trackers/room-temperature.luau")
 local createSpecterTrial = loadModule("ghost/dormant-trackers/specter-trial.luau")
+local createWendigoSpeed = loadModule("ghost/dormant-trackers/wendigo-speed.luau")
 local askSpiritBox = loadModule("remotes/AskSpiritBoxFromUI.luau")
 local createAutoSpiritBox = loadModule("logic/auto-spirit-box.luau")
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
@@ -212,6 +214,7 @@ local function startTrackers()
 		remember(Spirit.new({Traffic = Traffic}))
 		remember(Umbra.new({Traffic = Traffic}))
 		remember(Vex.new({Traffic = Traffic}))
+		remember(Wendigo.new({Traffic = Traffic}))
 		remember(createFlickerArray({Traffic = Traffic}))
 		remember(createSpeedFilter({
 			Traffic = Traffic,
@@ -308,6 +311,11 @@ local function startTrackers()
 				if refresh then ghostRoom:Sample() end
 				return ghostRoom.Room
 			end,
+		}))
+		remember(createWendigoSpeed({
+			Traffic = Traffic,
+			Players = Services.Players,
+			Humanoid = humanoid,
 		}))
 		remember(createHuntingState({Traffic = Traffic, Ghost = ghost}))
 		session.RoundStarted = remember(createRoundStarted({
