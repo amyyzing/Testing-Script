@@ -79,9 +79,8 @@ return function(dependencies)
 			BaseSpeed = 14 - energy * 0.05,
 			MapMultiplier = mapMultiplier(),
 		}
-		local multipliers = result.Hunting and customMultipliers or {1.75}
 		local bestError = math.huge
-		for _, multiplier in ipairs(multipliers) do
+		for _, multiplier in ipairs(customMultipliers) do
 			local expected = result.BaseSpeed * result.MapMultiplier * multiplier
 			local errorAmount = math.abs(speed - expected)
 			if errorAmount < bestError then

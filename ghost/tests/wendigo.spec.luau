@@ -50,13 +50,20 @@ local function harness(energies, mapSize, speed)
 	return result
 end
 
-local startup = harness({100, 100}, "Small", 9 * 1.75)
+local startup = harness({100, 100}, "Small", 9 * 2)
 startup.Traffic:Broadcast("HuntingState", {Hunting = false, Time = 0})
 expect(startup.Verdict.Confidence[23] == nil, "startup speed should wait for replication settling")
 startup.RunDelayed()
 expect(startup.Verdict.Confidence[23] == 99,
-	"execution during non-hunting should match 100 Energy to base 9 with the 175 percent state factor")
+	"execution during non-hunting should match 100 Energy to base 9 with a configured multiplier")
 startup:Destroy()
+
+local zeroEnergy = harness({0}, "Small", 28)
+zeroEnergy.Traffic:Broadcast("HuntingState", {Hunting = false, Time = 5})
+zeroEnergy.RunDelayed()
+expect(zeroEnergy.Verdict.Confidence[23] == 99,
+	"0 Energy and WalkSpeed 28 should match base 14 at the configured 200 percent multiplier")
+zeroEnergy:Destroy()
 
 local hunting = harness({20, 60}, "Medium", 12 * 1.05 * 2)
 hunting.Traffic:Broadcast("HuntingState", {Hunting = true, Time = 10})
