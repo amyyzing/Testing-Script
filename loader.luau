@@ -56,6 +56,7 @@ local Ravager = loadModule("ghost/ghosts/Ravager.luau")
 local Revenant = loadModule("ghost/ghosts/Revenant.luau")
 local Shadow = loadModule("ghost/ghosts/Shadow.luau")
 local Siren = loadModule("ghost/ghosts/Siren.luau")
+local Specter = loadModule("ghost/ghosts/Specter.luau")
 loading:SetStage("Loading trackers", 6, 10)
 local createCrossBurn = loadModule("ghost/active-trackers/cross-burn.luau")
 local createGhostRoom = loadModule("ghost/active-trackers/ghost-room.luau")
@@ -79,6 +80,7 @@ local createHumming = loadModule("ghost/dormant-trackers/humming.luau")
 local createLOSSight = loadModule("ghost/dormant-trackers/los-sight.luau")
 local createLOSSpeed = loadModule("ghost/dormant-trackers/los-speed.luau")
 local createRoomTemperature = loadModule("ghost/dormant-trackers/room-temperature.luau")
+local createSpecterTrial = loadModule("ghost/dormant-trackers/specter-trial.luau")
 local askSpiritBox = loadModule("remotes/AskSpiritBoxFromUI.luau")
 local createAutoSpiritBox = loadModule("logic/auto-spirit-box.luau")
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
@@ -200,6 +202,7 @@ local function startTrackers()
 		remember(Revenant.new({Traffic = Traffic}))
 		remember(Shadow.new({Traffic = Traffic}))
 		remember(Siren.new({Traffic = Traffic}))
+		remember(Specter.new({Traffic = Traffic}))
 		remember(createFlickerArray({Traffic = Traffic}))
 		remember(createSpeedFilter({
 			Traffic = Traffic,
@@ -275,13 +278,22 @@ local function startTrackers()
 		}))
 		remember(createSpeedTracker({Traffic = Traffic, Ghost = ghost}))
 		remember(createKillCount({Traffic = Traffic, Players = Services.Players}))
-		remember(createHuntingState({Traffic = Traffic, Ghost = ghost}))
-		remember(createGhostRoom({
+		local ghostRoom = remember(createGhostRoom({
 			Traffic = Traffic,
 			Workspace = Services.Workspace,
 			Ghost = ghost,
 			RunService = Services.RunService,
 		}))
+		remember(createSpecterTrial({
+			Traffic = Traffic,
+			Ghost = ghost,
+			RunService = Services.RunService,
+			ReadCurrentRoom = function(refresh)
+				if refresh then ghostRoom:Sample() end
+				return ghostRoom.Room
+			end,
+		}))
+		remember(createHuntingState({Traffic = Traffic, Ghost = ghost}))
 		session.RoundStarted = remember(createRoundStarted({
 			Traffic = Traffic,
 			Workspace = Services.Workspace,
