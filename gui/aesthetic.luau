@@ -136,6 +136,19 @@ function Aesthetic.Create(dependencies)
 		TextSize = 12,
 	}, content)
 
+	local autoSpiritButton = create("TextButton", {
+		Name = "AutoSpirit",
+		AutoButtonColor = false,
+		BackgroundColor3 = COLORS.Control,
+		BorderSizePixel = 0,
+		Font = Enum.Font.GothamMedium,
+		Position = UDim2.fromOffset(16, 142),
+		Size = UDim2.new(1, -32, 0, 34),
+		Text = "AUTO SPIRIT: OFF",
+		TextColor3 = COLORS.Text,
+		TextSize = 12,
+	}, content)
+
 	local function makeDrawer(name, titleText, emptyText, handleText, handleOffset)
 		local clip = create("Frame", {
 			Name = name .. "Clip",
@@ -307,6 +320,7 @@ function Aesthetic.Create(dependencies)
 			HuntEscape = huntEscapeButton,
 			Bright = brightButton,
 			GhostESP = ghostEspButton,
+			AutoSpirit = autoSpiritButton,
 		},
 		Colors = COLORS,
 	}

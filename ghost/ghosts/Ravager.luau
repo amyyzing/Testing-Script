@@ -6,12 +6,13 @@ function Ravager.new(dependencies)
 
 	Processor.Disconnect = Traffic:Receive("Ravager", function(signal, payload)
 		if Processor.Resolved or signal ~= "ItemOrbit" or type(payload) ~= "table"
+			or payload.Mode ~= "NearPerfect"
 			or (tonumber(payload.Count) or 0) < 3 then return end
 		Processor.Resolved = true
 		Traffic("Support", {
 			Ghost = "Ravager",
 			Confidence = 99,
-			Reason = "at least three item or interactable models orbited around the hunting ghost",
+			Reason = "at least three item or interactable models followed near-circular paths around the moving hunting ghost",
 		}):SendTo("Verdict")
 	end)
 

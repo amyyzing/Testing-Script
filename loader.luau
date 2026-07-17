@@ -78,6 +78,8 @@ local createHumming = loadModule("ghost/dormant-trackers/humming.luau")
 local createLOSSight = loadModule("ghost/dormant-trackers/los-sight.luau")
 local createLOSSpeed = loadModule("ghost/dormant-trackers/los-speed.luau")
 local createRoomTemperature = loadModule("ghost/dormant-trackers/room-temperature.luau")
+local askSpiritBox = loadModule("remotes/AskSpiritBoxFromUI.luau")
+local createAutoSpiritBox = loadModule("logic/auto-spirit-box.luau")
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
 local createBright = loadModule("logic/bright.luau")
 local createGhostESP = loadModule("logic/ghost-esp.luau")
@@ -121,6 +123,13 @@ session.TeleportToBaseCamp = teleportToBaseCamp
 session.Bright = remember(createBright({
 	Lighting = Services.Lighting,
 	Button = view.Buttons.Bright,
+	EnabledColor = view.Colors.Accent,
+}))
+session.AutoSpirit = remember(createAutoSpiritBox({
+	Player = player,
+	RunService = Services.RunService,
+	AskSpiritBox = askSpiritBox,
+	Button = view.Buttons.AutoSpirit,
 	EnabledColor = view.Colors.Accent,
 }))
 

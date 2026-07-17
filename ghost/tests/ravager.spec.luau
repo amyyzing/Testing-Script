@@ -104,6 +104,21 @@ local function radial(step)
 	heartbeat:Fire(0.1)
 end
 
+local function spiral(degrees)
+	Ghost.Current = {X = degrees / 12, Y = 0, Z = -degrees / 24}
+	for index, object in ipairs(objects) do
+		local angle = math.rad(degrees + phases[index])
+		local radius = 7 + degrees / 8
+		object.Part.Position = {
+			X = Ghost.Current.X + math.cos(angle) * radius,
+			Y = index,
+			Z = Ghost.Current.Z + math.sin(angle) * radius,
+		}
+	end
+	now += 0.1
+	heartbeat:Fire(0.1)
+end
+
 orbit(0)
 orbit(30)
 expect(orbitEvent == nil and heartbeat:Count() == 0,
@@ -115,14 +130,24 @@ for step = 0, 7 do radial(step) end
 expect(orbitEvent == nil,
 	"three straight radial movements must not be mistaken for a Ravager vortex")
 Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
+
+orbitEvent = nil
+Traffic("HuntingState", {Hunting = true}):SendTo("ItemOrbit")
+for degrees = 0, 84, 12 do spiral(degrees) end
+expect(orbitEvent == nil,
+	"three spiralling paths with a changing radius must not be mistaken for a circular vortex")
+Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
+
+orbitEvent = nil
 Traffic("HuntingState", {Hunting = true}):SendTo("ItemOrbit")
 for degrees = 0, 84, 12 do orbit(degrees) end
 expect(orbitEvent and orbitEvent.Count == 3,
-	"three distinct models maintaining an orbit should emit one Ravager event")
-expect(orbitEvent.Mode == "Legacy", "a fast sustained vortex should use the legacy classifier")
-expect(orbitEvent.Duration >= 0.5 and orbitEvent.Intervals >= 5
-	and orbitEvent.GoodShare >= 0.7 and orbitEvent.AccumulatedAngle >= 45,
-	"the restored legacy duration, interval, geometry, and angle gates must all pass")
+	"three distinct models circling the ghost's moving center should emit one Ravager event")
+expect(orbitEvent.Mode == "NearPerfect", "Ravager must require the near-circular classifier")
+expect(orbitEvent.Duration >= 0.5 and orbitEvent.Steps >= 5
+	and orbitEvent.Rotation >= math.rad(60)
+	and orbitEvent.MaximumRadiusVariation <= 0.18,
+	"the duration, step, rotation, and radius gates must all pass")
 expect(Verdict.Selected[1] == 13 and Verdict.Confidence[13] == 99,
 	"the three-model orbit should support Ravager at 99%")
 
@@ -138,11 +163,11 @@ Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
 
 orbitEvent = nil
 Traffic("HuntingState", {Hunting = true}):SendTo("ItemOrbit")
-for degrees = 0, 50, 2 do orbit(degrees) end
+for degrees = 0, 72, 6 do orbit(degrees) end
 expect(orbitEvent and orbitEvent.Mode == "NearPerfect" and orbitEvent.Count == 3,
-	"a slower near-perfect vortex should use the geometry-only fallback")
+	"a slower near-circular vortex should qualify")
 Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
 
 tracker:Destroy()
 ravager:Destroy()
-print("ravager.spec: legacy and near-perfect hunting-only vortex detection passed")
+print("ravager.spec: moving-center near-circular hunting-only vortex detection passed")
