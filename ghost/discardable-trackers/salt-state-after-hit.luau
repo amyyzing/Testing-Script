@@ -1,7 +1,7 @@
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "salt-state-after-hit requires Traffic")
 	local delaySeconds = tonumber(dependencies.Delay) or 1.25
-	local graceSeconds = tonumber(dependencies.CreationGrace) or 3
+	local graceSeconds = tonumber(dependencies.CreationGrace) or 4
 	local delay = dependencies.DelayTask or task.delay
 	local clock = dependencies.Clock or os.clock
 	local Tracker = {Kind = "discardable", Running = true, Active = {}}

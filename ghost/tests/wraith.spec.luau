@@ -73,10 +73,10 @@ positive.Traffic("SaltHit", {
 	Salt = clean,
 	SaltCreatedAt = 0,
 }):SendTo("SaltStateAfterHit")
-expect(#positive.Delayed == 1 and positive.Delayed[1].Seconds == 3
+expect(#positive.Delayed == 1 and positive.Delayed[1].Seconds == 4
 	and positive.Verdict.Confidence[25] == nil,
 	"an undisturbed hit must not support Wraith before the creation grace ends")
-positive.SetTime(3)
+positive.SetTime(4)
 positive.Delayed[1].Callback()
 expect(positive.Verdict.Confidence[25] == 99
 	and positive.Verdict.Selected[1] == 25,
@@ -95,4 +95,4 @@ expect(table.find(negative.Verdict.RuledOut, 25),
 	"a direct salt hit becoming disturbed should rule Wraith out immediately")
 negative.Destroy()
 
-print("wraith.spec: direct salt hit and three-second creation grace passed")
+print("wraith.spec: direct salt hit and four-second creation grace passed")

@@ -532,6 +532,7 @@ local function startTrackers()
 			EnabledColor = view.Colors.Accent,
 			AutoSpirit = session.AutoSpirit,
 			PrepareReturn = function() return teleportLoop:Queue("ReturnToLobby") end,
+			RequestItemUnequip = Remotes:Get("RequestItemUnequip"),
 			OnEnabledChanged = function(enabled)
 				settings.Auto = enabled
 				settingsStore:Save(settings)

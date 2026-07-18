@@ -15,6 +15,7 @@ Remotes.Manifest = {
 	"PourHolyOil",
 	"RequestItemDrop",
 	"RequestItemEquip",
+	"RequestItemUnequip",
 	"RequestItemPickup",
 	"RequestReturnToLobby",
 	"ShowSubtitle",

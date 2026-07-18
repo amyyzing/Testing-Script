@@ -27,6 +27,7 @@ return function(dependencies: any)
 	local setDoRoundStatus: any = assert(dependencies.SetDoRoundStatus, "round-automation requires SetDoRoundStatus")
 	local setGhostIdentificationLabel: any = assert(dependencies.SetGhostIdentificationLabel, "round-automation requires SetGhostIdentificationLabel")
 	local releasePlayerMovement: any = assert(dependencies.ReleasePlayerMovement, "round-automation requires ReleasePlayerMovement")
+	local requestItemUnequip: any = assert(dependencies.RequestItemUnequip, "round-automation requires RequestItemUnequip")
 	local prepareTeleport: any = dependencies.PrepareTeleport
 	if type(prepareTeleport) ~= "function" then
 		prepareTeleport = function()
@@ -1452,6 +1453,59 @@ local function roundPlacementPreviewPart(toolName)
 	return previewPart and previewPart:IsA("BasePart") and previewPart or nil
 end
 
+local function repairRoundHeldPreview(toolName, equipped, generation)
+	if toolName ~= "Salt Canister" and toolName ~= "Holy Oil" then
+		return equipped
+	end
+	local uses = equipped and tonumber(equipped:GetAttribute("Uses"))
+	if not uses or uses <= 0 or roundPlacementPreviewPart(toolName) then
+		return equipped
+	end
+	local slotNumber = findRoundHotbarSlot(toolName)
+	if not slotNumber then
+		return nil, toolName .. " preview was missing and its hotbar slot was unavailable"
+	end
+	if not roundActionIsSafe(generation) then
+		return nil, roundUnsafeReason(generation)
+	end
+	beginAutomationMutation(2)
+	doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
+	local slotKey = "InvSlot" .. tostring(slotNumber)
+	if not pcall(requestItemUnequip, slotKey) then
+		return nil, "RequestItemUnequip failed for " .. toolName
+	end
+	local unequipDeadline = os.clock() + 1.25
+	repeat
+		if not roundActionIsSafe(generation) then
+			return nil, roundUnsafeReason(generation)
+		end
+		if not getRoundEquippedItem(toolName) then
+			break
+		end
+		doRoundWait(generation, 0.05)
+	until os.clock() >= unequipDeadline
+	if getRoundEquippedItem(toolName) then
+		return nil, toolName .. " did not unequip after its preview disappeared"
+	end
+	doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
+	local reequipped, equipReason = equipRoundItem(toolName, 1.5, generation)
+	if not reequipped then
+		return nil, equipReason
+	end
+	local previewDeadline = os.clock() + 1.5
+	repeat
+		if roundPlacementPreviewPart(toolName) then
+			return reequipped
+		end
+		if not roundActionIsSafe(generation) then
+			return nil, roundUnsafeReason(generation)
+		end
+		reequipped = getRoundEquippedItem(toolName) or reequipped
+		doRoundWait(generation, 0.05)
+	until os.clock() >= previewDeadline
+	return nil, toolName .. " preview was still missing after re-equipping"
+end
+
 local function waitForRoundPlacementXZDistance(toolName, generation)
 	local deadline = os.clock() + 2
 	local lastDistance
@@ -1913,6 +1967,7 @@ end
 		SettleDoorInteraction = settleRoundDoorInteraction,
 		BeginMutation = beginAutomationMutation,
 		PlacementXZDistance = waitForRoundPlacementXZDistance,
+		RepairHeldPreview = repairRoundHeldPreview,
 		FirePlaceable = fireRoundPlaceable,
 		WorldItemIsInsideRoom = roundWorldItemIsInsideRoom,
 		InstanceInsideAnyRoom = roundInstanceInsideAnyRoom,
@@ -1968,6 +2023,7 @@ local setDoRoundEnabled = (function()
 	local beginAutomationMutation = roundUtilities.BeginMutation
 	local waitForRoundPlacementXZDistance =
 		roundUtilities.PlacementXZDistance
+	local repairRoundHeldPreview = roundUtilities.RepairHeldPreview
 	local fireRoundPlaceable = roundUtilities.FirePlaceable
 	local roundWorldItemIsInsideRoom = roundUtilities.WorldItemIsInsideRoom
 	local ROUND_PICKUP_MAX_DISTANCE = roundUtilities.PickupMaxDistance
@@ -2278,6 +2334,7 @@ local function placeRoundToolsAtDoors(generation)
 	local equipFailures = {}
 	local missingToolFailures = {}
 	local missingUsesFailures = {}
+	local previewFailures = {}
 	local doorRetryPasses = {}
 	local currentDoors = {}
 	local currentDoorFailures = {}
@@ -2493,6 +2550,29 @@ local function placeRoundToolsAtDoors(generation)
 				doRoundState.completedDoorTools[toolKey] = true
 				break
 			end
+			local previewReady, previewReason = repairRoundHeldPreview(
+				toolName,
+				equipped,
+				generation
+			)
+			if not previewReady then
+				if previewReason == "hunt started"
+					or previewReason == "ghost unavailable"
+					or previewReason == "Do-Round cancelled" then
+					return false, previewReason
+				end
+				previewFailures[toolKey] = (previewFailures[toolKey] or 0) + 1
+				if previewFailures[toolKey] >= 3 then
+					doRoundState.completedDoorTools[toolKey] = true
+					addWarning(toolKey .. ":preview", previewReason)
+					break
+				end
+				setDoRoundStatus("Repairing " .. toolName .. " preview")
+				doRoundWait(generation, 0.35)
+				continue
+			end
+			equipped = previewReady
+			previewFailures[toolKey] = 0
 
 			local selectedDoor, selectedKey, selectedInstanceKey = selectDoor(toolKey)
 			if not selectedDoor then
@@ -2811,6 +2891,7 @@ local function captureRoundRoomItems(room)
 			end
 		end
 	end
+	local now = os.clock()
 	for _, itemName in ipairs(DROPPED_ROOM_ITEMS) do
 		local normalized = normalizeRoundItemName(itemName)
 		local existing = doRoundState.roomItems[normalized]
@@ -2820,16 +2901,26 @@ local function captureRoundRoomItems(room)
 		local inside
 		local fallback
 		for _, model in ipairs(candidatesByName[normalized] or {}) do
-			fallback = fallback or model
 			if roundWorldItemIsInsideRoom(model, room) then
 				inside = model
 				break
 			end
+			local retryAt = doRoundState.maintenanceBackoff
+				and doRoundState.maintenanceBackoff[model]
+				or 0
+			if not fallback and now >= retryAt then
+				fallback = model
+			end
 		end
+		local existingRetryAt = existing and doRoundState.maintenanceBackoff
+			and doRoundState.maintenanceBackoff[existing]
+			or 0
+		local existingAvailable = existing and existing.Parent
+			and not roundItemIsBurntCross(existing)
+			and now >= existingRetryAt
 		doRoundState.roomItems[normalized] = inside
+			or (existingAvailable and existing)
 			or fallback
-			or (existing and existing.Parent and not roundItemIsBurntCross(existing)
-				and existing)
 			or getRoundEquippedItem(itemName)
 			or getRoundInventoryItem(itemName)
 	end
@@ -3068,11 +3159,14 @@ local function maintainRoundRoomItems(room, generation)
 					setDoRoundStatus("Maintaining room items")
 					if restoreRoundItemToRoom(model, room, generation) then
 						doRoundState.outsideSince[model] = nil
-						doRoundState.maintenanceBackoff[model] = now + 0.5
+						doRoundState.maintenanceBackoff[model] = nil
 						doRoundState.itemsDirty = true
 					else
 						doRoundState.maintenanceBackoff[model] = now
 							+ ROUND_MAINTENANCE_RETRY_BACKOFF
+						doRoundState.outsideSince[model] = nil
+						doRoundState.roomItems[normalized] = nil
+						doRoundState.itemsDirty = true
 					end
 					return
 				end
@@ -3612,6 +3706,51 @@ local function completeIdentifiedRound(generation, guess, score, certain)
 	return false
 end
 
+local function performRoundRoomItemSetup(generation)
+	while roomItemPlacementState.busy
+		and doRoundOperationActive(generation) do
+		setDoRoundStatus("Waiting for room item setup")
+		doRoundWait(generation, 0.15)
+	end
+	if not doRoundOperationActive(generation) then
+		return false, "Do-Round cancelled"
+	end
+	local started, placementGeneration = placeItemsInFavouriteRoom("DoRound")
+	if not started then
+		return false, tostring(placementGeneration)
+	end
+	repeat
+		if roundIsHunting() then
+			setDoRoundStatus("Waiting for hunt")
+			waitForRoundHuntEnd(generation)
+		else
+			setDoRoundStatus("Placing room items")
+		end
+		doRoundWait(generation, 0.15)
+		local currentGhost = getGhostModel()
+		if not roundIdentityIsCurrent()
+			or (currentGhost and currentGhost ~= doRoundState.roundGhost) then
+			error("the round changed during room item setup", 0)
+		end
+	until roomItemPlacementState.lastCompletedGeneration >= placementGeneration
+	return roomItemPlacementState.lastResult ~= false,
+		roomItemPlacementState.lastError
+end
+
+local function resetRoundRoomItemTracking()
+	for _, power in pairs(doRoundState.itemPower or {}) do
+		if power.Connection and power.Connection.Connected then
+			power.Connection:Disconnect()
+		end
+	end
+	doRoundState.roomItems = {}
+	doRoundState.itemPower = setmetatable({}, {__mode = "k"})
+	doRoundState.outsideSince = setmetatable({}, {__mode = "k"})
+	doRoundState.maintenanceBackoff = setmetatable({}, {__mode = "k"})
+	doRoundState.itemsDirty = true
+	doRoundState.nextMaintenanceAt = 0
+end
+
 local function runDoRound(generation)
 	local success, failure = xpcall(function()
 		local identifiedGhost, identifiedScore, identifiedCertain =
@@ -3662,46 +3801,11 @@ local function runDoRound(generation)
 			return
 		end
 		setDoRoundStatus("Placing room items")
-		while roomItemPlacementState.busy
-			and doRoundOperationActive(generation) do
-			setDoRoundStatus("Waiting for room item setup")
-			doRoundWait(generation, 0.15)
-		end
-		if not doRoundOperationActive(generation) then
-			return
-		end
-		local started, placementGeneration =
-			placeItemsInFavouriteRoom("DoRound")
-		if started then
-			repeat
-				if roundIsHunting() then
-					setDoRoundStatus("Waiting for hunt")
-					waitForRoundHuntEnd(generation)
-				else
-					setDoRoundStatus("Placing room items")
-				end
-				doRoundWait(generation, 0.15)
-				local currentGhost = getGhostModel()
-				if not roundIdentityIsCurrent()
-					or (currentGhost and currentGhost ~= doRoundState.roundGhost) then
-					error("the round changed during room item setup", 0)
-				end
-				if not currentGhost then
-					setDoRoundStatus("Waiting for ghost")
-				end
-			until roomItemPlacementState.lastCompletedGeneration
-				>= placementGeneration
-			if roomItemPlacementState.lastResult == false
-				and presenter and presenter.Notify then
-				presenter:Notify(
-					roomItemPlacementState.lastError
-						or "Room item setup failed; continuing with available items"
-				)
-			end
-		elseif presenter and presenter.Notify then
+		local setupCompleted, setupReason = performRoundRoomItemSetup(generation)
+		if not setupCompleted and presenter and presenter.Notify then
 			presenter:Notify(
-				tostring(placementGeneration)
-					.. "; continuing with available items"
+				setupReason
+					or "Room item setup failed; continuing with available items"
 			)
 		end
 		captureRoundRoomItems(favouriteRoom)
@@ -3814,9 +3918,21 @@ local function runDoRound(generation)
 			if currentFavourite and currentFavourite ~= favouriteRoom then
 				favouriteRoom = currentFavourite
 				doRoundState.lastFavouriteRoom = favouriteRoom
+				doRoundState.questionsActive = false
+				resetRoundRoomItemTracking()
+				setDoRoundStatus("Relocating room items")
+				local relocated, relocationReason =
+					performRoundRoomItemSetup(generation)
+				if not relocated and presenter and presenter.Notify then
+					presenter:Notify(
+						relocationReason
+							or "Room item relocation failed; continuing with available items"
+					)
+				end
 				captureRoundRoomItems(favouriteRoom)
 				doRoundState.itemsDirty = true
 				doRoundState.nextMaintenanceAt = 0
+				continue
 			end
 			if roundIsHunting() then
 				doRoundState.questionsActive = false

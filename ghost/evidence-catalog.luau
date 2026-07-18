@@ -331,7 +331,7 @@ local Profiles = {
 		note("GhostWall.CanCollide remaining true during a qualified burning-oil passage, or a hunt starting outside the favourite room, is a strong negative.", SOURCE.Wisp, "user-observed", false, "RuleOut"),
 	}), {"The Wisp", "Will-o-the-Wisp", "Will o the Wisp"}),
 	profile("Wraith", {"EMFLevel5", "LaserProjector", "SpiritBox"}, "user-observed", perks({
-		note("The ghost is directly observed touching a SaltLine and the contacted pile remains undisturbed for at least 1.25 seconds; hunting state does not matter.", SOURCE.Wraith, "user-observed", false, "Weakness"),
+		note("The ghost is directly observed touching a SaltLine and the contacted pile remains undisturbed through its four-second creation grace; hunting state does not matter.", SOURCE.Wraith, "user-observed", false, "Weakness"),
 	}, {}, {
 		note("Any DisturbedSaltLine appearing anywhere in Workspace.SaltPiles rules Wraith out at 99%.", SOURCE.Wraith, "user-observed", false, "RuleOut"),
 	})),

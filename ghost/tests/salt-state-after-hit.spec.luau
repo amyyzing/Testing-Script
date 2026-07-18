@@ -50,7 +50,7 @@ end)
 local tracker = createSaltState({
 	Traffic = Traffic,
 	Delay = 1.25,
-	CreationGrace = 3,
+	CreationGrace = 4,
 	Clock = function() return now end,
 	DelayTask = function(seconds, callback)
 		table.insert(delayed, {Seconds = seconds, Callback = callback})
@@ -65,8 +65,8 @@ Traffic("SaltHit", {
 	Hunting = true,
 	SaltCreatedAt = 0,
 }):SendTo("SaltStateAfterHit")
-expect(#results == 0 and #delayed == 1 and delayed[1].Seconds == 3,
-	"a newly created clean salt should retain the full three-second grace")
+expect(#results == 0 and #delayed == 1 and delayed[1].Seconds == 4,
+	"a newly created clean salt should retain the full four-second grace")
 child:SetName("DisturbedSaltLine")
 expect(#results == 1 and results[1].State == "disturbed",
 	"a disturbed descendant change should complete the probe immediately")

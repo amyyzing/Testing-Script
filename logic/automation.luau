@@ -356,6 +356,7 @@ return function(dependencies)
 		SetGhostIdentificationLabel = function() end,
 		ReleasePlayerMovement = releasePlayerMovement,
 		PrepareTeleport = dependencies.PrepareReturn,
+		RequestItemUnequip = dependencies.RequestItemUnequip,
 	})
 
 	local controller = {
