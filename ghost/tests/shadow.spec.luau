@@ -74,6 +74,12 @@ local function harness(initialRoom)
 		if name == "Doors" then return doors end
 	end
 	local Traffic = createTraffic()
+	local progress = {}
+	Traffic:Receive("GhostPatternLog", function(signalName, payload)
+		if signalName == "RoomTemperatureProgress" then
+			table.insert(progress, payload)
+		end
+	end)
 	local Verdict = createVerdict({Traffic = Traffic})
 	local shadow = Shadow.new({Traffic = Traffic})
 	local temperature = createRoomTemperature({Traffic = Traffic})
@@ -95,6 +101,7 @@ local function harness(initialRoom)
 		RoundStarted = roundStarted,
 		ExitDoors = exits,
 		Heartbeat = heartbeat,
+		Progress = progress,
 		SetRoom = function(value) currentRoom = value end,
 	}
 end
@@ -118,6 +125,9 @@ shadowRoom:SetTemperature(12.3)
 for index = 1, 7 do shadowRoom:SetTemperature(12.3 - index * 0.05) end
 expect(#positive.Temperature.Changes == 7,
 	"temperature increases should be ignored while seven cooling changes are retained")
+expect(#positive.Progress == 7 and positive.Progress[7].Count == 7
+	and math.abs(positive.Progress[7].Average - 0.05) < 0.000001,
+	"every cooling change must publish the current unrounded Shadow average")
 expect(positive.Verdict.Selected[1] == 15 and positive.Verdict.Confidence[15] == 99,
 	"seven cooling changes averaging below 0.08 should support Shadow")
 positive.GhostRoom:Destroy()
@@ -128,7 +138,8 @@ positive.Shadow:Destroy()
 local firstRoom = room("Classroom", 15)
 local secondRoom = room("Hallway", 20)
 local negative = harness(firstRoom)
-negative.ExitDoors[1]:SetClosed(false)
+expect(negative.RoundStarted:Start(),
+	"automation must be able to explicitly start the shared Shadow pipeline")
 for index = 1, 3 do firstRoom:SetTemperature(15 - index * 0.04) end
 negative.SetRoom(secondRoom)
 negative.Heartbeat:Fire(0.25)
@@ -143,5 +154,18 @@ negative.GhostRoom:Destroy()
 negative.RoundStarted:Destroy()
 negative.Temperature:Destroy()
 negative.Shadow:Destroy()
+
+local thresholdRoom = room("Office", 10)
+local threshold = harness(thresholdRoom)
+threshold.RoundStarted:Start()
+for index = 1, 7 do
+	thresholdRoom:SetTemperature(10 - index * 0.08)
+end
+expect(table.find(threshold.Verdict.RuledOut, 15),
+	"an average equal to 0.08 must rule Shadow out instead of remaining unresolved")
+threshold.GhostRoom:Destroy()
+threshold.RoundStarted:Destroy()
+threshold.Temperature:Destroy()
+threshold.Shadow:Destroy()
 
 print("shadow.spec: exit-door round gate and dormant temperature average passed")

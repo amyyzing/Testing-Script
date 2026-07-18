@@ -21,14 +21,20 @@ return function(dependencies)
 		}):SendTo("RoomTemperature")
 	end
 
+	function Tracker:Start()
+		if self.Started or not self.Running then return self.Started end
+		self.Started = true
+		self.StartedAt = clock()
+		publish()
+		self.Running = false
+		disconnectAll()
+		return true
+	end
+
 	local function check(door)
 		if not Tracker.Running or Tracker.Started
 			or door:GetAttribute("DoorClosed") ~= false then return end
-		Tracker.Started = true
-		Tracker.StartedAt = clock()
-		publish()
-		Tracker.Running = false
-		disconnectAll()
+		Tracker:Start()
 	end
 
 	local function bindDoor(door)

@@ -32,7 +32,18 @@ return function(dependencies)
 		end
 		if self.Previous ~= nil then
 			local decrease = self.Previous - current
-			if decrease > 0 then table.insert(self.Changes, decrease) end
+			if decrease > 0 then
+				table.insert(self.Changes, decrease)
+				local sum = 0
+				for _, change in ipairs(self.Changes) do sum += change end
+				Traffic("RoomTemperatureProgress", {
+					Room = self.Room,
+					RoomName = self.Room and self.Room.Name or nil,
+					Count = #self.Changes,
+					Required = requiredChanges,
+					Average = sum / #self.Changes,
+				}):SendTo("GhostPatternLog")
+			end
 		end
 		self.Previous = current
 		if #self.Changes < requiredChanges then return end
@@ -48,13 +59,9 @@ return function(dependencies)
 			Threshold = threshold,
 			Complete = true,
 		}):SendTo("Shadow")
-		if average < threshold or average > threshold then
-			self.Resolved = true
-			self.Active = false
-			disconnectRoom()
-		else
-			table.clear(self.Changes)
-		end
+		self.Resolved = true
+		self.Active = false
+		disconnectRoom()
 	end
 
 	local function activateRoom()

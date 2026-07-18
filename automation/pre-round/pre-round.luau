@@ -28,6 +28,7 @@ return function(dependencies: any)
 	local setGhostIdentificationLabel: any = assert(dependencies.SetGhostIdentificationLabel, "round-automation requires SetGhostIdentificationLabel")
 	local releasePlayerMovement: any = assert(dependencies.ReleasePlayerMovement, "round-automation requires ReleasePlayerMovement")
 	local requestItemUnequip: any = assert(dependencies.RequestItemUnequip, "round-automation requires RequestItemUnequip")
+	local publishRoundStarted: any = dependencies.MarkRoundStarted
 	local prepareTeleport: any = dependencies.PrepareTeleport
 	if type(prepareTeleport) ~= "function" then
 		prepareTeleport = function()
@@ -2763,6 +2764,9 @@ end
 
 local function openRoundExitDoor(generation)
 	local function markRoundStarted()
+		if type(publishRoundStarted) == "function" then
+			publishRoundStarted()
+		end
 		doRoundState.exitOpenedAt = doRoundState.exitOpenedAt or os.clock()
 		return true
 	end

@@ -39,6 +39,13 @@ local click = signal()
 local createPreRound = function() end
 local createRound = function() end
 local createPostRound = function() end
+local roundStartCalls = 0
+local roundStarted = {
+	Start = function()
+		roundStartCalls += 1
+		return true
+	end,
+}
 local controller = createAutomation({
 	Services = {Workspace = {}, RunService = nil},
 	Player = {FindFirstChildOfClass = function() return nil end},
@@ -55,6 +62,7 @@ local controller = createAutomation({
 		ForceSelect = function() return true end,
 	},
 	Movement = movement,
+	RoundStarted = roundStarted,
 	CreatePreRound = createPreRound,
 	CreateRound = createRound,
 	CreatePostRound = createPostRound,
@@ -74,6 +82,8 @@ local controller = createAutomation({
 			"round automation must use the restored room teleport")
 		expect(dependencies.TeleportToBaseCamp == movement.TeleportToBaseCamp,
 			"round automation must use the shared legacy Base Camp teleport")
+		expect(dependencies.MarkRoundStarted(),
+			"round automation must be able to publish its confirmed exit opening")
 		return {
 			SetEnabled = function(enabled)
 				dependencies.State.enabled = enabled == true
@@ -102,6 +112,8 @@ expect(enabledChanges[1] == true,
 	"the automation handoff must receive the enabled state")
 expect(controller.TeleportToBaseCamp == movement.TeleportToBaseCamp,
 	"hunt escape and automation must expose the same Base Camp movement path")
+expect(roundStartCalls == 1,
+	"the confirmed automation exit opening must reach the round-start tracker")
 expect(perkStateSeen.currentGhostGuess == "Wraith"
 	and perkStateSeen.currentGhostGuessScore == 100
 	and perkStateSeen.currentGhostGuessCertain == true

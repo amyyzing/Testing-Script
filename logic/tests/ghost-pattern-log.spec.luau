@@ -70,8 +70,26 @@ Traffic("KillSpeed", {
 }):SendTo("Aswang")
 expect(controller.Count == 5 and string.find(entries[5].Text, "22.000 -> 24.000", 1, true),
 	"a pre-signal speed rise should update the player-kill row from its retained baseline")
+Traffic("RoomTemperatureProgress", {
+	RoomName = "Library",
+	Count = 1,
+	Required = 7,
+	Average = 0.0525,
+}):SendTo("GhostPatternLog")
+expect(controller.Count == 6 and string.find(entries[6].Text, "1/7", 1, true)
+	and string.find(entries[6].Text, "0.0525", 1, true),
+	"the first Shadow cooling change should create a live average row")
+Traffic("RoomTemperatureProgress", {
+	RoomName = "Library",
+	Count = 2,
+	Required = 7,
+	Average = 0.06,
+}):SendTo("GhostPatternLog")
+expect(controller.Count == 6 and string.find(entries[6].Text, "2/7", 1, true)
+	and string.find(entries[6].Text, "0.0600", 1, true),
+	"later Shadow changes should update the existing average row")
 Traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
-expect(controller.Count == 5, "unrequested tracker events should not create rows")
+expect(controller.Count == 6, "unrequested tracker events should not create rows")
 
 controller:Destroy()
 for _, entry in ipairs(entries) do expect(entry.Destroyed, "destroy should remove every generated log") end

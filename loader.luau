@@ -534,6 +534,7 @@ local function startTrackers()
 			CreateRound = createRound,
 			CreatePostRound = createPostRound,
 			CreateRoomItemSetup = createRoomItemSetup,
+			RoundStarted = session.RoundStarted,
 			Button = view.Buttons.Automation,
 			EnabledColor = view.Colors.Accent,
 			AutoSpirit = session.AutoSpirit,

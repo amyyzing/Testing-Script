@@ -9,16 +9,16 @@ function Shadow.new(dependencies)
 			or type(payload) ~= "table" or payload.Complete ~= true then return end
 		local average = tonumber(payload.Average)
 		local threshold = tonumber(payload.Threshold) or 0.08
-		if not average or average == threshold then return end
+		if not average then return end
 		Processor.Resolved = true
-		local supported = average < threshold
+		local supported = average < threshold - 0.000001
 		Traffic(supported and "Support" or "RuleOut", {
 			Ghost = "Shadow",
 			Confidence = 99,
 			Reason = string.format(
 				"room temperature changes averaged %.4f, %s 0.08",
 				average,
-				supported and "below" or "above"
+				supported and "below" or "at or above"
 			),
 		}):SendTo("Verdict")
 	end)

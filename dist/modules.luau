@@ -546,6 +546,7 @@ end
 	local setGhostIdentificationLabel: any = assert(dependencies.SetGhostIdentificationLabel, "round-automation requires SetGhostIdentificationLabel")
 	local releasePlayerMovement: any = assert(dependencies.ReleasePlayerMovement, "round-automation requires ReleasePlayerMovement")
 	local requestItemUnequip: any = assert(dependencies.RequestItemUnequip, "round-automation requires RequestItemUnequip")
+	local publishRoundStarted: any = dependencies.MarkRoundStarted
 	local prepareTeleport: any = dependencies.PrepareTeleport
 	if type(prepareTeleport) ~= "function" then
 		prepareTeleport = function()
@@ -3281,6 +3282,9 @@ end
 
 local function openRoundExitDoor(generation)
 	local function markRoundStarted()
+		if type(publishRoundStarted) == "function" then
+			publishRoundStarted()
+		end
 		doRoundState.exitOpenedAt = doRoundState.exitOpenedAt or os.clock()
 		return true
 	end
@@ -6090,14 +6094,20 @@ end
 		}):SendTo("RoomTemperature")
 	end
 
+	function Tracker:Start()
+		if self.Started or not self.Running then return self.Started end
+		self.Started = true
+		self.StartedAt = clock()
+		publish()
+		self.Running = false
+		disconnectAll()
+		return true
+	end
+
 	local function check(door)
 		if not Tracker.Running or Tracker.Started
 			or door:GetAttribute("DoorClosed") ~= false then return end
-		Tracker.Started = true
-		Tracker.StartedAt = clock()
-		publish()
-		Tracker.Running = false
-		disconnectAll()
+		Tracker:Start()
 	end
 
 	local function bindDoor(door)
@@ -7002,7 +7012,18 @@ end
 		end
 		if self.Previous ~= nil then
 			local decrease = self.Previous - current
-			if decrease > 0 then table.insert(self.Changes, decrease) end
+			if decrease > 0 then
+				table.insert(self.Changes, decrease)
+				local sum = 0
+				for _, change in ipairs(self.Changes) do sum += change end
+				Traffic("RoomTemperatureProgress", {
+					Room = self.Room,
+					RoomName = self.Room and self.Room.Name or nil,
+					Count = #self.Changes,
+					Required = requiredChanges,
+					Average = sum / #self.Changes,
+				}):SendTo("GhostPatternLog")
+			end
 		end
 		self.Previous = current
 		if #self.Changes < requiredChanges then return end
@@ -7018,13 +7039,9 @@ end
 			Threshold = threshold,
 			Complete = true,
 		}):SendTo("Shadow")
-		if average < threshold or average > threshold then
-			self.Resolved = true
-			self.Active = false
-			disconnectRoom()
-		else
-			table.clear(self.Changes)
-		end
+		self.Resolved = true
+		self.Active = false
+		disconnectRoom()
 	end
 
 	local function activateRoom()
@@ -9235,16 +9252,16 @@ function Shadow.new(dependencies)
 			or type(payload) ~= "table" or payload.Complete ~= true then return end
 		local average = tonumber(payload.Average)
 		local threshold = tonumber(payload.Threshold) or 0.08
-		if not average or average == threshold then return end
+		if not average then return end
 		Processor.Resolved = true
-		local supported = average < threshold
+		local supported = average < threshold - 0.000001
 		Traffic(supported and "Support" or "RuleOut", {
 			Ghost = "Shadow",
 			Confidence = 99,
 			Reason = string.format(
 				"room temperature changes averaged %.4f, %s 0.08",
 				average,
-				supported and "below" or "above"
+				supported and "below" or "at or above"
 			),
 		}):SendTo("Verdict")
 	end)
@@ -10996,6 +11013,7 @@ end
 		dependencies.CreatePostRound,
 		"automation requires CreatePostRound"
 	)
+	local roundStarted = dependencies.RoundStarted
 	local runtimeIsActive = dependencies.RuntimeIsActive or function() return true end
 	local button = dependencies.Button
 	local enabledColor = dependencies.EnabledColor
@@ -11344,6 +11362,10 @@ end
 		ReleasePlayerMovement = releasePlayerMovement,
 		PrepareTeleport = dependencies.PrepareReturn,
 		RequestItemUnequip = dependencies.RequestItemUnequip,
+		MarkRoundStarted = function()
+			return roundStarted and roundStarted.Start
+				and roundStarted:Start() or false
+		end,
 	})
 
 	local controller = {
@@ -12071,9 +12093,26 @@ end
 		defer(updateCanvas)
 	end
 
+	local function recordTemperature(signal, payload)
+		if signal ~= "RoomTemperatureProgress" then return end
+		payload = type(payload) == "table" and payload or {}
+		if not controller.ShadowRow then
+			controller.ShadowRow = add("", eventColor)
+		end
+		controller.ShadowRow.Text = string.format(
+			"TRACK  SHADOW TEMPERATURE\n%s | %d/%d | average: %.4f C",
+			tostring(payload.RoomName or "Unknown room"),
+			tonumber(payload.Count) or 0,
+			tonumber(payload.Required) or 7,
+			tonumber(payload.Average) or 0
+		)
+		defer(updateCanvas)
+	end
+
 	table.insert(controller.Disconnects, Traffic:Receive("Verdict", recordVerdict))
 	table.insert(controller.Disconnects, Traffic:Receive("SpeedTracker", recordTracker))
 	table.insert(controller.Disconnects, Traffic:Receive("Aswang", recordKillSpeed))
+	table.insert(controller.Disconnects, Traffic:Receive("GhostPatternLog", recordTemperature))
 	controller.LayoutConnection = view.Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateCanvas)
 	updateCanvas()
 

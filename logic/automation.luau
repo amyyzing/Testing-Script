@@ -24,6 +24,7 @@ return function(dependencies)
 		dependencies.CreatePostRound,
 		"automation requires CreatePostRound"
 	)
+	local roundStarted = dependencies.RoundStarted
 	local runtimeIsActive = dependencies.RuntimeIsActive or function() return true end
 	local button = dependencies.Button
 	local enabledColor = dependencies.EnabledColor
@@ -372,6 +373,10 @@ return function(dependencies)
 		ReleasePlayerMovement = releasePlayerMovement,
 		PrepareTeleport = dependencies.PrepareReturn,
 		RequestItemUnequip = dependencies.RequestItemUnequip,
+		MarkRoundStarted = function()
+			return roundStarted and roundStarted.Start
+				and roundStarted:Start() or false
+		end,
 	})
 
 	local controller = {

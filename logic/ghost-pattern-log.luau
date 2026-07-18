@@ -92,9 +92,26 @@ return function(dependencies)
 		defer(updateCanvas)
 	end
 
+	local function recordTemperature(signal, payload)
+		if signal ~= "RoomTemperatureProgress" then return end
+		payload = type(payload) == "table" and payload or {}
+		if not controller.ShadowRow then
+			controller.ShadowRow = add("", eventColor)
+		end
+		controller.ShadowRow.Text = string.format(
+			"TRACK  SHADOW TEMPERATURE\n%s | %d/%d | average: %.4f C",
+			tostring(payload.RoomName or "Unknown room"),
+			tonumber(payload.Count) or 0,
+			tonumber(payload.Required) or 7,
+			tonumber(payload.Average) or 0
+		)
+		defer(updateCanvas)
+	end
+
 	table.insert(controller.Disconnects, Traffic:Receive("Verdict", recordVerdict))
 	table.insert(controller.Disconnects, Traffic:Receive("SpeedTracker", recordTracker))
 	table.insert(controller.Disconnects, Traffic:Receive("Aswang", recordKillSpeed))
+	table.insert(controller.Disconnects, Traffic:Receive("GhostPatternLog", recordTemperature))
 	controller.LayoutConnection = view.Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateCanvas)
 	updateCanvas()
 
