@@ -1735,6 +1735,30 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 		return false, facingReason
 	end
 	local guarded, guardedFailure = xpcall(function()
+		-- The equipped-item controller creates Camera.SaltLine/Camera.HolyOil
+		-- from EquippedObject and updates it on Heartbeat. Only repair a genuinely
+		-- missing clone after the player is already positioned and rotation-locked.
+		if not roundPlacementPreviewPart(toolName) then
+			Services.RunService.Heartbeat:Wait()
+		end
+		if not roundPlacementPreviewPart(toolName) then
+			local repaired, repairReason = repairRoundHeldPreview(
+				toolName,
+				equipped,
+				generation
+			)
+			if not repaired then
+				dispatchFailure = repairReason
+				return
+			end
+			equipped = repaired
+			uses = tonumber(equipped:GetAttribute("Uses")) or uses
+			if not facingLock:Enforce() then
+				dispatchFailure =
+					"player could not face the door after repairing the placement preview"
+				return
+			end
+		end
 		local aligned, alignReason, settledRenderPass = waitForRoundPreview(
 			toolName,
 			target,
@@ -2334,7 +2358,6 @@ local function placeRoundToolsAtDoors(generation)
 	local equipFailures = {}
 	local missingToolFailures = {}
 	local missingUsesFailures = {}
-	local previewFailures = {}
 	local doorRetryPasses = {}
 	local currentDoors = {}
 	local currentDoorFailures = {}
@@ -2550,30 +2573,6 @@ local function placeRoundToolsAtDoors(generation)
 				doRoundState.completedDoorTools[toolKey] = true
 				break
 			end
-			local previewReady, previewReason = repairRoundHeldPreview(
-				toolName,
-				equipped,
-				generation
-			)
-			if not previewReady then
-				if previewReason == "hunt started"
-					or previewReason == "ghost unavailable"
-					or previewReason == "Do-Round cancelled" then
-					return false, previewReason
-				end
-				previewFailures[toolKey] = (previewFailures[toolKey] or 0) + 1
-				if previewFailures[toolKey] >= 3 then
-					doRoundState.completedDoorTools[toolKey] = true
-					addWarning(toolKey .. ":preview", previewReason)
-					break
-				end
-				setDoRoundStatus("Repairing " .. toolName .. " preview")
-				doRoundWait(generation, 0.35)
-				continue
-			end
-			equipped = previewReady
-			previewFailures[toolKey] = 0
-
 			local selectedDoor, selectedKey, selectedInstanceKey = selectDoor(toolKey)
 			if not selectedDoor then
 				doorRetryPasses[toolKey] = (doorRetryPasses[toolKey] or 0) + 1
