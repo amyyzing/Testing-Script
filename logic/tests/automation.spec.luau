@@ -44,7 +44,7 @@ local verdict = {
 local controller = createAutomation({
 	Services = {Workspace = {}},
 	Player = {},
-	Ghost = {GetAttribute = function() return false end},
+	Ghost = {GetAttribute = function(_, name) return name == "Hunting" end},
 	Verdict = verdict,
 	Remotes = {
 		RequestReturnToLobby = function()
@@ -164,5 +164,39 @@ expect(roomAttempts == 2 and doorAttempts == 0 and exitAttempts == 0,
 	"the Automation timeout did not stop an unconfirmed pre-round setup")
 expect(selectedAt >= 1 and roundState.Started == false,
 	"the three-minute Automation clock must include pre-round setup time")
+
+now, active, order = 30, true, {}
+local selectionAttempts, returnAttempts, queueAttempts = 0, 0, 0
+createAutomation({
+	Services = {Workspace = {}},
+	Player = {},
+	Ghost = {GetAttribute = function() return false end},
+	Verdict = {
+		Lists = {"Aswang"}, Confidence = {[1] = 60}, NegativeConfidence = {}, RuledOut = {},
+		ForceSelect = function()
+			selectionAttempts += 1
+			return selectionAttempts >= 2
+		end,
+	},
+	Remotes = {RequestReturnToLobby = function()
+		returnAttempts += 1
+		if returnAttempts >= 2 then active = false end
+	end},
+	AutoSpirit = toggle(false), EscapeHunt = toggle(false),
+	TeleportToBaseCamp = function() return true end,
+	PlayerAtBaseCamp = function() return true end,
+	PrepareReturn = function() queueAttempts += 1 return true end,
+	Clock = function() return now end,
+	Wait = function(seconds) now += seconds end,
+	Spawn = function(callback) callback() end,
+	RuntimeIsActive = function() return active end,
+	PlaceRoomItems = function() error("preidentified retry test placed room items") end,
+	PlaceDoorTools = function() error("preidentified retry test placed door tools") end,
+	OpenExitDoor = function() error("preidentified retry test opened the exit") end,
+}):SetEnabled(true)
+expect(selectionAttempts == 2,
+	"a transient journal selection failure must retry before Base Camp or lobby work")
+expect(returnAttempts == 2 and queueAttempts == 2,
+	"every four-second lobby retry must queue its teleport payload first")
 
 print("automation.spec: confirmed setup, Automation clock, selection, Base Camp, and lobby finish passed")
