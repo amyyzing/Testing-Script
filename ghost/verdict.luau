@@ -8,6 +8,7 @@ local GHOSTS = {
 
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "verdict requires Traffic")
+	local EvidenceCatalog = dependencies.EvidenceCatalog
 	local Player = dependencies.Player
 	local markJournal = dependencies.MarkJournal
 	local customFindRow = dependencies.FindJournalRow
@@ -21,6 +22,8 @@ return function(dependencies)
 		Confidence = {},
 		NegativeConfidence = {},
 		Reasons = {},
+		Evidence = {},
+		DisprovedEvidence = {},
 		JournalTouched = {},
 		JournalDirty = false,
 	}
@@ -115,21 +118,61 @@ return function(dependencies)
 		return table.find(Verdict.RuledOut, index) ~= nil
 	end
 
+	local function evidenceCompatible(index)
+		if type(EvidenceCatalog) ~= "table" then return true end
+		local ghost = GHOSTS[index]
+		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence)
+		if orb.Qualified then return ghost == "Skinwalker" end
+		for evidence in pairs(Verdict.Evidence) do
+			if not EvidenceCatalog.SupportsEvidence(ghost, evidence, {
+				IncludeFalseEvidence = true,
+			}) then
+				return false
+			end
+		end
+		for evidence in pairs(Verdict.DisprovedEvidence) do
+			if EvidenceCatalog.SupportsEvidence(ghost, evidence, {RealOnly = true}) then
+				return false
+			end
+		end
+		return true
+	end
+
+	local function resolvedEvidenceIndex()
+		if type(EvidenceCatalog) ~= "table" then return nil end
+		local count = 0
+		for _ in pairs(Verdict.Evidence) do count += 1 end
+		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence)
+		if orb.Qualified then return indexes.Skinwalker end
+		if count ~= 3 then return nil end
+		local candidates = EvidenceCatalog.FilterCandidates(Verdict.Evidence, {}, {
+			NamesOnly = true,
+			RealOnly = true,
+			IncludeFalseEvidence = false,
+		})
+		return #candidates == 1 and indexes[candidates[1]] or nil
+	end
+
 	local function score(index)
 		return math.max(0,
 			(Verdict.Confidence[index] or 0) - (Verdict.NegativeConfidence[index] or 0))
 	end
 
 	local function selectBest(forceJournal)
-		local bestIndex
+		local bestIndex = resolvedEvidenceIndex()
 		local bestScore = -math.huge
-		if Verdict.ForcedIndex and not isRuledOut(Verdict.ForcedIndex) then
+		if bestIndex and isRuledOut(bestIndex) then
+			bestIndex = nil
+		end
+		if not bestIndex and Verdict.ForcedIndex and not isRuledOut(Verdict.ForcedIndex)
+			and evidenceCompatible(Verdict.ForcedIndex) then
 			bestIndex = Verdict.ForcedIndex
-		else
+		elseif not bestIndex then
 			for index in ipairs(GHOSTS) do
 				local confidence = Verdict.Confidence[index]
 				local currentScore = score(index)
 				if not isRuledOut(index)
+					and evidenceCompatible(index)
 					and confidence ~= nil
 					and currentScore > bestScore then
 					bestIndex = index
@@ -179,7 +222,7 @@ return function(dependencies)
 	function Verdict:RuleOut(ghost, confidence, reason)
 		local index = indexes[ghost]
 		if not index then return false end
-		if self.ForcedIndex == index then return false end
+		if self.ForcedIndex == index or resolvedEvidenceIndex() == index then return false end
 		if not isRuledOut(index) then
 			table.insert(self.RuledOut, index)
 			table.sort(self.RuledOut)
@@ -192,9 +235,61 @@ return function(dependencies)
 		return true
 	end
 
+	function Verdict:SetEvidence(evidence, state)
+		if type(EvidenceCatalog) ~= "table" then return false end
+		local key = EvidenceCatalog.NormalizeEvidence(evidence)
+		if not key then return false end
+		if state ~= true and state ~= false then state = nil end
+		local previous
+		if self.Evidence[key] then
+			previous = true
+		elseif self.DisprovedEvidence[key] then
+			previous = false
+		end
+		if previous == state then return true end
+		if state == true then
+			self.Evidence[key] = true
+			self.DisprovedEvidence[key] = nil
+		elseif state == false then
+			self.Evidence[key] = nil
+			self.DisprovedEvidence[key] = true
+		else
+			self.Evidence[key] = nil
+			self.DisprovedEvidence[key] = nil
+		end
+		local resolved = resolvedEvidenceIndex()
+		if resolved then
+			local ruledOutPosition = table.find(self.RuledOut, resolved)
+			if ruledOutPosition then table.remove(self.RuledOut, ruledOutPosition) end
+		end
+		if self.ForcedIndex and not evidenceCompatible(self.ForcedIndex) then
+			self.ForcedIndex = nil
+		end
+		selectBest(true)
+		return true
+	end
+
+	function Verdict:IsCompatible(ghost)
+		local index = indexes[ghost]
+		return index ~= nil and evidenceCompatible(index)
+	end
+
+	function Verdict:GetConfirmedEvidence()
+		return table.clone(self.Evidence)
+	end
+
+	function Verdict:GetDisprovedEvidence()
+		return table.clone(self.DisprovedEvidence)
+	end
+
+	function Verdict:GetEvidenceResolvedGhost()
+		local index = resolvedEvidenceIndex()
+		return index and not isRuledOut(index) and GHOSTS[index] or nil
+	end
+
 	function Verdict:ForceSelect(ghost)
 		local index = indexes[ghost]
-		if not index or isRuledOut(index) then return false end
+		if not index or isRuledOut(index) or not evidenceCompatible(index) then return false end
 		self.ForcedIndex = index
 		selectBest(true)
 		return self.Selected[1] == index
@@ -239,6 +334,8 @@ return function(dependencies)
 		table.clear(self.Confidence)
 		table.clear(self.NegativeConfidence)
 		table.clear(self.Reasons)
+		table.clear(self.Evidence)
+		table.clear(self.DisprovedEvidence)
 		self.ForcedIndex = nil
 		self.JournalDirty = false
 	end
@@ -251,6 +348,8 @@ return function(dependencies)
 			Confidence = table.clone(self.Confidence),
 			NegativeConfidence = table.clone(self.NegativeConfidence),
 			Reasons = table.clone(self.Reasons),
+			Evidence = table.clone(self.Evidence),
+			DisprovedEvidence = table.clone(self.DisprovedEvidence),
 		}
 	end
 
@@ -262,6 +361,8 @@ return function(dependencies)
 			Verdict:Negative(payload.Ghost, payload.Confidence, payload.Reason)
 		elseif signal == "RuleOut" then
 			Verdict:RuleOut(payload.Ghost, payload.Confidence, payload.Reason)
+		elseif signal == "EvidenceState" then
+			Verdict:SetEvidence(payload.Evidence, payload.State)
 		end
 	end)
 

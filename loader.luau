@@ -77,6 +77,7 @@ local Wisp = loadModule("ghost/ghosts/Wisp.luau")
 local Wraith = loadModule("ghost/ghosts/Wraith.luau")
 loading:SetStage("Loading trackers", 6, 10)
 local createCrossBurn = loadModule("ghost/active-trackers/cross-burn.luau")
+local createEvidenceState = loadModule("ghost/active-trackers/evidence-state.luau")
 local createGhostRoom = loadModule("ghost/active-trackers/ghost-room.luau")
 local createHuntingState = loadModule("ghost/dormant-trackers/hunting-state.luau")
 local createItemTeleport = loadModule("ghost/active-trackers/item-teleport.luau")
@@ -278,6 +279,7 @@ local function startTrackers()
 			Traffic = Traffic,
 			Player = player,
 			MarkJournal = markJournal,
+			EvidenceCatalog = GhostCatalog,
 		})
 		session.Traffic, session.Verdict, session.Ghost = Traffic, Verdict, ghost
 		local journalSyncElapsed = 0
@@ -305,6 +307,11 @@ local function startTrackers()
 			View = view.SpeedDrawer,
 			TextColor = view.Colors.Text,
 			AccentColor = view.Colors.Accent,
+		}))
+		remember(createEvidenceState({
+			Traffic = Traffic,
+			Player = player,
+			RunService = Services.RunService,
 		}))
 		remember(Aswang.new({Traffic = Traffic}))
 		remember(Demon.new({Traffic = Traffic}))

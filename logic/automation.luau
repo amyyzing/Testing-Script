@@ -82,9 +82,16 @@ return function(dependencies)
 			allowed = {}
 			for _, name in ipairs(candidates) do allowed[name] = true end
 		end
+		if type(Verdict.GetEvidenceResolvedGhost) == "function" then
+			local resolved = Verdict:GetEvidenceResolvedGhost()
+			if resolved and (not allowed or allowed[resolved]) then return resolved, 100 end
+		end
 		local bestName, bestScore
 		for index, name in ipairs(Verdict.Lists) do
-			if not isRuledOut(index) and (not allowed or allowed[name]) then
+			if not isRuledOut(index)
+				and (type(Verdict.IsCompatible) ~= "function" or Verdict:IsCompatible(name))
+				and Verdict.Confidence[index] ~= nil
+				and (not allowed or allowed[name]) then
 				local candidateScore = score(index)
 				if bestName == nil or candidateScore > bestScore
 					or (candidateScore == bestScore
@@ -98,7 +105,6 @@ return function(dependencies)
 
 	local perkBacking = {
 		evidenceMode = "Normal",
-		orbObserved = false,
 		journalMutationBusy = false,
 		journalForcedGhost = nil,
 		lastJournalSelectedGhost = nil,
@@ -107,6 +113,9 @@ return function(dependencies)
 	}
 	local perkTrackerState = setmetatable(perkBacking, {
 		__index = function(_, key)
+			if key == "orbObserved" then
+				return Verdict.Evidence and Verdict.Evidence.GhostOrb == true
+			end
 			if key == "currentGhostGuess" then return bestGuess() end
 			if key == "currentGhostGuessScore" then return select(2, bestGuess()) end
 			if key == "currentGhostGuessCertain" then
@@ -127,15 +136,21 @@ return function(dependencies)
 		return index and (Verdict.NegativeConfidence[index] or 0) or 0
 	end
 
-	function perkTrackerState.getRemainingCandidates()
+	function perkTrackerState.getRemainingCandidates(ignoreRuleOut)
 		local result = {}
 		for index, name in ipairs(Verdict.Lists) do
-			if not isRuledOut(index) then table.insert(result, name) end
+			if (ignoreRuleOut == true or not isRuledOut(index))
+				and (type(Verdict.IsCompatible) ~= "function" or Verdict:IsCompatible(name)) then
+				table.insert(result, name)
+			end
 		end
 		return result
 	end
 
 	function perkTrackerState.getConfirmedEvidence()
+		if type(Verdict.GetConfirmedEvidence) == "function" then
+			return Verdict:GetConfirmedEvidence()
+		end
 		return {}
 	end
 

@@ -17,7 +17,7 @@ local function signal()
 	}
 end
 
-local stateSeen
+local stateSeen, perkStateSeen
 local movement = {
 	FindRoomsFolder = function() end,
 	FindFavouriteRoom = function() end,
@@ -43,8 +43,12 @@ local controller = createAutomation({
 	Verdict = {
 		Lists = {"Aswang", "Wraith"},
 		RuledOut = {},
-		Confidence = {[1] = 99},
+		Confidence = {[1] = 99, [2] = 35},
 		NegativeConfidence = {},
+		Evidence = {GhostOrb = true},
+		IsCompatible = function(_, name) return name == "Wraith" end,
+		GetConfirmedEvidence = function() return {GhostOrb = true} end,
+		GetEvidenceResolvedGhost = function() return "Wraith" end,
 		ForceSelect = function() return true end,
 	},
 	Movement = movement,
@@ -55,6 +59,7 @@ local controller = createAutomation({
 	end,
 	CreateRoundAutomation = function(dependencies)
 		stateSeen = dependencies.State
+		perkStateSeen = dependencies.PerkTrackerState
 		expect(dependencies.TeleportToRoom == movement.TeleportToRoom,
 			"round automation must use the restored room teleport")
 		expect(dependencies.TeleportToBaseCamp == movement.TeleportToBaseCamp,
@@ -87,6 +92,11 @@ expect(enabledChanges[1] == true,
 	"the automation handoff must receive the enabled state")
 expect(controller.TeleportToBaseCamp == movement.TeleportToBaseCamp,
 	"hunt escape and automation must expose the same Base Camp movement path")
+expect(perkStateSeen.currentGhostGuess == "Wraith"
+	and perkStateSeen.currentGhostGuessScore == 100
+	and perkStateSeen.currentGhostGuessCertain == true
+	and perkStateSeen.getConfirmedEvidence().GhostOrb == true,
+	"automation must treat unique evidence as Certain and expose confirmed evidence")
 
 controller:SetEnabled(false)
 expect(not controller.Enabled and not autoSpirit.Enabled,
