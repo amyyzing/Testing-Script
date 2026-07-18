@@ -42,12 +42,19 @@ return function(dependencies)
 		if not root or not room then return false end
 
 		local bounds = boundingParts(room)
-		if #bounds == 0 then return false end
 		local truckPosition = pivotPosition(room:FindFirstChild("Truck", true))
 		if truckPosition then
 			table.sort(bounds, function(a, b)
 				return (a.Position - truckPosition).Magnitude < (b.Position - truckPosition).Magnitude
 			end)
+		end
+
+		local function teleport(position)
+			local targetRoot = CFrame.new(position) * root.CFrame.Rotation
+			character:PivotTo(targetRoot * root.CFrame:ToObjectSpace(character:GetPivot()))
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			return true
 		end
 
 		local excluded = {character}
@@ -104,11 +111,35 @@ return function(dependencies)
 		end
 
 		if fallback then
-			local targetRoot = CFrame.new(fallback) * root.CFrame.Rotation
-			character:PivotTo(targetRoot * root.CFrame:ToObjectSpace(character:GetPivot()))
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.AssemblyAngularVelocity = Vector3.zero
-			return true
+			return teleport(fallback)
+		end
+
+		if truckPosition then
+			local truckFallback
+			for radius = 3, 12, 3 do
+				local diagonal = radius / math.sqrt(2)
+				for _, offset in ipairs({
+					Vector2.new(radius, 0), Vector2.new(-radius, 0),
+					Vector2.new(0, radius), Vector2.new(0, -radius),
+					Vector2.new(diagonal, diagonal), Vector2.new(diagonal, -diagonal),
+					Vector2.new(-diagonal, diagonal), Vector2.new(-diagonal, -diagonal),
+				}) do
+					local center = truckPosition + Vector3.new(offset.X, 8, offset.Y)
+					local ray = world:Raycast(center, Vector3.new(0, -18, 0), rayParams)
+					if ray then
+						local position = ray.Position + Vector3.new(0, root.Size.Y * 0.5 + 0.3, 0)
+						truckFallback = truckFallback or position
+						local blocked = false
+						for _, part in ipairs(world:GetPartBoundsInBox(
+							CFrame.new(position), root.Size + Vector3.new(1, 1, 1), overlapParams
+						)) do
+							if part ~= ray.Instance and part.CanCollide then blocked = true break end
+						end
+						if not blocked then return teleport(position) end
+					end
+				end
+			end
+			if truckFallback then return teleport(truckFallback) end
 		end
 		return false
 	end

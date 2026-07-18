@@ -32,7 +32,15 @@ return function(dependencies)
 	end
 
 	local function bindDoor(door)
-		if not Tracker.Running or door.Name ~= "ExitDoor" then return end
+		local key = string.lower(door.Name):gsub("[^%w]", "")
+		local kind = string.lower(tostring(
+			door:GetAttribute("DoorType") or door:GetAttribute("Type") or ""
+		)):gsub("[^%w]", "")
+		local isExit = string.find(key, "exitdoor", 1, true) ~= nil
+			or door:GetAttribute("IsExitDoor") == true
+			or door:GetAttribute("ExitDoor") == true
+			or kind == "exit" or kind == "exitdoor"
+		if not Tracker.Running or not isExit then return end
 		table.insert(Tracker.Connections,
 			door:GetAttributeChangedSignal("DoorClosed"):Connect(function()
 				check(door)

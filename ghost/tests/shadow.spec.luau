@@ -49,8 +49,8 @@ local function exitDoor(closed)
 	local changed = signal()
 	local object = {Name = "ExitDoor"}
 	function object:GetAttribute(attribute)
-		expect(attribute == "DoorClosed", "round-started should only read DoorClosed")
-		return closed
+		if attribute == "DoorClosed" then return closed end
+		return nil
 	end
 	function object:GetAttributeChangedSignal(attribute)
 		expect(attribute == "DoorClosed", "round-started should only watch DoorClosed")
