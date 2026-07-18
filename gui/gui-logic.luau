@@ -1,9 +1,9 @@
 local GuiLogic = {}
 
-function GuiLogic.DrawerList(patternDrawer, speedDrawer)
+function GuiLogic.DrawerList(patternDrawer, evidenceDrawer)
 	assert(patternDrawer, "gui-logic requires PatternDrawer")
-	assert(speedDrawer, "gui-logic requires SpeedDrawer")
-	return {patternDrawer, speedDrawer}
+	assert(evidenceDrawer, "gui-logic requires EvidenceDrawer")
+	return {patternDrawer, evidenceDrawer}
 end
 
 local function viewportSize()
@@ -17,7 +17,7 @@ function GuiLogic.new(dependencies)
 	local inputService = assert(services.UserInputService, "gui-logic requires UserInputService")
 	local tweenService = assert(services.TweenService, "gui-logic requires TweenService")
 	local runService = assert(services.RunService, "gui-logic requires RunService")
-	local drawers = GuiLogic.DrawerList(view.PatternDrawer, view.SpeedDrawer)
+	local drawers = GuiLogic.DrawerList(view.PatternDrawer, view.EvidenceDrawer)
 	local onClose = dependencies.OnClose
 	local presenter = {Connections = {}, View = view, Minimized = false, TweenToken = 0}
 	local drawerState = {}

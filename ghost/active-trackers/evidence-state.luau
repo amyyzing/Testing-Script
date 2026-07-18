@@ -47,7 +47,7 @@ return function(dependencies)
 		Traffic("EvidenceState", {
 			Evidence = row.Name,
 			State = state,
-		}):SendTo("Verdict")
+		}):SendTo("Verdict", "EvidenceLog")
 	end
 
 	local function queuePublish(row)

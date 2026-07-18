@@ -73,8 +73,12 @@ local Player = {
 
 local Traffic = createTraffic()
 local observations = {}
+local logObservations = {}
 Traffic:Receive("Verdict", function(signalName, payload)
 	if signalName == "EvidenceState" then table.insert(observations, payload) end
+end)
+Traffic:Receive("EvidenceLog", function(signalName, payload)
+	if signalName == "EvidenceState" then table.insert(logObservations, payload) end
 end)
 local tracker = createEvidenceState({
 	Traffic = Traffic,
@@ -84,6 +88,8 @@ local tracker = createEvidenceState({
 expect(observations[#observations].Evidence == "Ghost Orb"
 	and observations[#observations].State == true,
 	"the initial highlighted Journal evidence should publish as confirmed")
+expect(logObservations[#logObservations] == observations[#observations],
+	"the evidence drawer should receive the same initial journal state")
 
 highlight.Visible = false
 crossOut.Visible = true

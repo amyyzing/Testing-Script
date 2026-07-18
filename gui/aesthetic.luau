@@ -283,11 +283,11 @@ function Aesthetic.Create(dependencies)
 		"L\nO\nG\nS",
 		-54
 	)
-	local speedDrawer = makeDrawer(
-		"SpeedDrawer",
-		"WENDIGO STATE LOG",
-		"Waiting for a hunt-state transition.",
-		"S\nP\nE\nE\nD",
+	local evidenceDrawer = makeDrawer(
+		"EvidenceDrawer",
+		"EVIDENCE LOG",
+		"Waiting for evidence state.",
+		"E\nV\nI\nD",
 		54
 	)
 
@@ -329,7 +329,7 @@ function Aesthetic.Create(dependencies)
 		OpenButton = openButton,
 		ResizeHandle = resizeHandle,
 		PatternDrawer = patternDrawer,
-		SpeedDrawer = speedDrawer,
+		EvidenceDrawer = evidenceDrawer,
 		Buttons = {
 			HuntEscape = huntEscapeButton,
 			Bright = brightButton,
