@@ -54,6 +54,7 @@ return function(dependencies)
 
 	controller.HeartbeatConnection = RunService.Heartbeat:Connect(function(deltaTime)
 		if not controller.Enabled then return end
+		if type(controller.ShouldAsk) == "function" and not controller.ShouldAsk() then return end
 		controller.Accumulator += math.max(0, tonumber(deltaTime) or 0)
 		if controller.Accumulator < interval then return end
 		controller.Accumulator %= interval

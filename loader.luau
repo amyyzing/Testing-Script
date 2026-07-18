@@ -51,6 +51,7 @@ local createRemotes = loadModule("remotes/init.luau")
 local Remotes = createRemotes.new({LoadModule = loadModule})
 loading:SetStage("Loading verdict", 4, 10)
 local createVerdict = loadModule("ghost/verdict.luau")
+local GhostCatalog = loadModule("ghost/evidence-catalog.luau")
 local markJournal = Remotes:Get("EvidenceMarkedInJournal")
 loading:SetStage("Loading ghost processors", 5, 10)
 local Aswang = loadModule("ghost/ghosts/Aswang.luau")
@@ -110,6 +111,11 @@ local createWendigoSpeed = loadModule("ghost/dormant-trackers/wendigo-speed.luau
 local askSpiritBox = Remotes:Get("AskSpiritBoxFromUI")
 local createAutoSpiritBox = loadModule("logic/auto-spirit-box.luau")
 local createAutomation = loadModule("logic/automation.luau")
+local createRoundAutomation = loadModule("logic/round-automation.luau")
+local createTeleportation = loadModule("logic/teleportation.luau")
+local createRoomTeleport = loadModule("logic/room-teleport.luau")
+local createRoomItemSetup = loadModule("logic/room-item-setup.luau")
+local createMovement = loadModule("logic/movement.luau")
 local createLobbyAutomation = loadModule("logic/lobby-automation.luau")
 local createTeleportLoop = loadModule("logic/teleport-loop.luau")
 local createSettingsStore = loadModule("logic/settings-store.luau")
@@ -118,7 +124,6 @@ local createBright = loadModule("logic/bright.luau")
 local createGhostESP = loadModule("logic/ghost-esp.luau")
 local createGhostPatternLog = loadModule("logic/ghost-pattern-log.luau")
 local createHuntSpeedArray = loadModule("logic/hunt-speed-array.luau")
-local createTeleportBaseCamp = loadModule("logic/teleport-base-camp.luau")
 
 loading:SetStage("Building interface", 7, 10)
 local view = Aesthetic.Create({
@@ -165,7 +170,15 @@ local function remember(value)
 	return value
 end
 
-local teleportToBaseCamp = createTeleportBaseCamp({Player = player, Workspace = Services.Workspace})
+local movement = createMovement({
+	Services = Services,
+	Player = player,
+	RuntimeIsActive = function() return not session.Destroyed end,
+	GetGhostModel = function() return Services.Workspace:FindFirstChild("Ghost") end,
+	CreateTeleportation = createTeleportation,
+	CreateRoomTeleport = createRoomTeleport,
+})
+local teleportToBaseCamp = movement.TeleportToBaseCamp
 session.TeleportToBaseCamp = teleportToBaseCamp
 session.Bright = remember(createBright({
 	Lighting = Services.Lighting,
@@ -430,13 +443,13 @@ local function startTrackers()
 			Player = player,
 			Ghost = ghost,
 			Verdict = Verdict,
-			Remotes = Remotes,
+			GhostModule = GhostCatalog,
+			Movement = movement,
+			CreateRoundAutomation = createRoundAutomation,
+			CreateRoomItemSetup = createRoomItemSetup,
 			Button = view.Buttons.Automation,
 			EnabledColor = view.Colors.Accent,
 			AutoSpirit = session.AutoSpirit,
-			EscapeHunt = session.EscapeHunt,
-			TeleportToBaseCamp = teleportToBaseCamp,
-			RoundStarted = session.RoundStarted,
 			PrepareReturn = function() return teleportLoop:Queue("ReturnToLobby") end,
 			OnEnabledChanged = function(enabled)
 				settings.Auto = enabled
