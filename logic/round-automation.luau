@@ -58,6 +58,8 @@ local ROUND_PICKUP_MAX_DISTANCE = 8
 local ROUND_REMOTE_SAFETY_DELAY = 0.1
 local ROUND_LOBBY_RETRY_SECONDS = 4
 local ROUND_MINIMUM_LEAVE_AGE = 30
+local ROUND_BASE_CAMP_SETTLE_SECONDS = 1.25
+local ROUND_JOURNAL_SETTLE_SECONDS = 0.35
 -- Salt consumes every available use. Distinct door identity, not an arbitrary
 -- count, is the only placement cap; Holy Oil is capped at three placements.
 local ROUND_SALT_PLACEMENT_LIMIT = math.huge
@@ -1856,6 +1858,8 @@ end
 		RemoteSafetyDelay = ROUND_REMOTE_SAFETY_DELAY,
 		LobbyRetrySeconds = ROUND_LOBBY_RETRY_SECONDS,
 		MinimumLeaveAge = ROUND_MINIMUM_LEAVE_AGE,
+		BaseCampSettleSeconds = ROUND_BASE_CAMP_SETTLE_SECONDS,
+		JournalSettleSeconds = ROUND_JOURNAL_SETTLE_SECONDS,
 		SaltPlacementLimit = ROUND_SALT_PLACEMENT_LIMIT,
 		HolyOilPlacementLimit = ROUND_HOLY_OIL_PLACEMENT_LIMIT,
 		ItemOutsideGrace = ROUND_ITEM_OUTSIDE_GRACE,
@@ -1905,6 +1909,8 @@ local setDoRoundEnabled = (function()
 	local ROUND_REMOTE_SAFETY_DELAY = roundUtilities.RemoteSafetyDelay
 	local ROUND_LOBBY_RETRY_SECONDS = roundUtilities.LobbyRetrySeconds
 	local ROUND_MINIMUM_LEAVE_AGE = roundUtilities.MinimumLeaveAge
+	local ROUND_BASE_CAMP_SETTLE_SECONDS = roundUtilities.BaseCampSettleSeconds
+	local ROUND_JOURNAL_SETTLE_SECONDS = roundUtilities.JournalSettleSeconds
 	local ROUND_SALT_PLACEMENT_LIMIT = roundUtilities.SaltPlacementLimit
 	local ROUND_HOLY_OIL_PLACEMENT_LIMIT = roundUtilities.HolyOilPlacementLimit
 	local ROUND_ITEM_OUTSIDE_GRACE = roundUtilities.ItemOutsideGrace
@@ -1922,6 +1928,7 @@ local setDoRoundEnabled = (function()
 	local function roundTeleportOptions(generation)
 		return {
 			ReleaseMovementOnCancel = true,
+			ForcePreferredPosition = true,
 			IsActive = function()
 				return doRoundOperationActive(generation)
 			end,
@@ -1936,19 +1943,51 @@ local setDoRoundEnabled = (function()
 			or rooms:FindFirstChild("BaseCamp")
 			or findFavouriteRoom(rooms, "Base Camp")
 	end
+	local function roundPlayerRoot()
+		local character = player.Character
+		local root = character
+			and character:FindFirstChild("HumanoidRootPart")
+		return root and root:IsA("BasePart") and root or nil
+	end
 	local function playerIsInsideRoundBaseCamp()
 		local room = roundBaseCampRoom()
-		local character = player.Character
+		local root = roundPlayerRoot()
 		return room ~= nil
-			and character ~= nil
-			and instanceIsInsideRoom(character, room)
+			and root ~= nil
+			and instanceIsInsideRoom(root, room)
+	end
+	local function waitForRoundBaseCampSettle(generation)
+		releasePlayerMovement(true)
+		local stableRoot
+		local stableSince
+		while doRoundOperationActive(generation) do
+			local root = roundPlayerRoot()
+			local humanoid = player.Character
+				and player.Character:FindFirstChildOfClass("Humanoid")
+			local stable = root ~= nil
+				and humanoid ~= nil
+				and humanoid.Health > 0
+				and root.Anchored == false
+				and playerIsInsideRoundBaseCamp()
+			if stable then
+				if stableRoot ~= root then
+					stableRoot = root
+					stableSince = os.clock()
+				elseif os.clock() - (stableSince or os.clock())
+					>= ROUND_BASE_CAMP_SETTLE_SECONDS then
+					return true
+				end
+			else
+				stableRoot = nil
+				stableSince = nil
+			end
+			Services.RunService.Heartbeat:Wait()
+		end
+		return false
 	end
 	local function returnRoundToBase(generation)
 		local failedAttempts = 0
 		while doRoundOperationActive(generation) do
-			if playerIsInsideRoundBaseCamp() then
-				return true
-			end
 			setDoRoundStatus("Returning to Base Camp")
 			local teleported = teleportToBaseCamp(
 				roundTeleportOptions(generation)
@@ -1956,7 +1995,8 @@ local setDoRoundEnabled = (function()
 			if teleported then
 				Services.RunService.Heartbeat:Wait()
 			end
-			if teleported and playerIsInsideRoundBaseCamp() then
+			if teleported and playerIsInsideRoundBaseCamp()
+				and waitForRoundBaseCampSettle(generation) then
 				return true
 			end
 			failedAttempts = failedAttempts + 1
@@ -2997,6 +3037,31 @@ local function maintainRoundRoomItems(room, generation)
 	end
 end
 
+local function journalSelectionMatchesFinalState(ghostName)
+	local ghostTypes = perkTrackerState.findJournalGhostTypes()
+	if not ghostTypes then
+		return false
+	end
+	for _, profile in ipairs(GHOST_PROFILES) do
+		local frame = ghostTypes:FindFirstChild(profile.Name)
+		if not frame or not frame:IsA("Frame") then
+			return false
+		end
+		local expected = perkTrackerState.expectedJournalState(
+			profile.Name,
+			ghostName
+		)
+		local actual = perkTrackerState.readJournalRowState(frame)
+		if expected ~= nil and actual ~= expected then
+			return false
+		end
+		if expected == nil and actual == true then
+			return false
+		end
+	end
+	return perkTrackerState.lastJournalSelectedGhost == ghostName
+end
+
 local function selectRoundJournalGhost(ghostName, generation)
 	if not ghostName or string.find(tostring(ghostName), "/", 1, true) then
 		return false
@@ -3004,35 +3069,25 @@ local function selectRoundJournalGhost(ghostName, generation)
 	if not doRoundOperationActive(generation) then
 		return false
 	end
-	-- The server queries GetSelectedGhost, whose answer comes from the Journal
-	-- controller's local row table. EvidenceMarkedInJournal alone does not update
-	-- that table, so keep using the real click path until the intended row is the
-	-- only selected row. A cloning/busy Journal is a retry state, not success.
-	local deadline = os.clock() + 1.5
+	-- Sync the complete Verdict state: one selected row, every RuledOut row
+	-- crossed out, and unknown rows untouched. The real click path updates the
+	-- Journal controller before its EvidenceMarkedInJournal remote is sent.
+	local deadline = os.clock() + 8
 	repeat
-		pcall(perkTrackerState.syncJournal, ghostName)
 		if not doRoundOperationActive(generation) then
 			return false
 		end
-		local ghostTypes = perkTrackerState.findJournalGhostTypes()
-		local frame = ghostTypes and ghostTypes:FindFirstChild(ghostName)
-		if perkTrackerState.journalMutationBusy ~= true
-			and frame and frame:IsA("Frame")
-			and perkTrackerState.readJournalRowState(frame) == true then
-			local conflictingSelection = false
-			for _, otherFrame in ipairs(ghostTypes:GetChildren()) do
-				if otherFrame ~= frame and otherFrame:IsA("Frame")
-					and perkTrackerState.readJournalRowState(otherFrame) == true then
-					conflictingSelection = true
-					pcall(
-						perkTrackerState.applyJournalRowState,
-						otherFrame,
-						nil
-					)
+		if perkTrackerState.journalMutationBusy ~= true then
+			local syncedCall, synced = pcall(
+				perkTrackerState.syncJournal,
+				ghostName
+			)
+			if syncedCall and synced == true
+				and journalSelectionMatchesFinalState(ghostName) then
+				doRoundWait(generation, ROUND_JOURNAL_SETTLE_SECONDS)
+				if journalSelectionMatchesFinalState(ghostName) then
+					return true
 				end
-			end
-			if not conflictingSelection then
-				return true
 			end
 		end
 		task.wait(0.05)
@@ -3054,7 +3109,7 @@ end
 			pcall(lock.Release, lock)
 		end
 		doRoundState.facingLocks = setmetatable({}, {__mode = "k"})
-		releasePlayerMovement()
+		releasePlayerMovement(true)
 	end
 
 local function waitForRoundHuntEnd(generation)
@@ -3118,15 +3173,17 @@ local function requestRoundReturnToLobby(generation, ghostName)
 	end
 	local completed, returned, returnReason = xpcall(function()
 		local queueWarningShown = false
+		local basePositionPrepared = false
 		local roundStartedAt = doRoundState.exitOpenedAt
 			or doRoundState.startedAt
 			or os.clock()
 		local earliestReturnAt = roundStartedAt + ROUND_MINIMUM_LEAVE_AGE
 		while doRoundOperationActive(generation) do
-			if not playerIsInsideRoundBaseCamp()
+			if (not basePositionPrepared or not playerIsInsideRoundBaseCamp())
 				and not returnRoundToBase(generation) then
 				return false, "Do-Round cancelled before the Base Camp return"
 			end
+			basePositionPrepared = true
 			if not playerIsInsideRoundBaseCamp() then
 				doRoundWait(generation, 0.1)
 				continue
@@ -3143,17 +3200,12 @@ local function requestRoundReturnToLobby(generation, ghostName)
 			else
 				setDoRoundStatus("Returning to lobby")
 			end
+			if not journalSelectionMatchesFinalState(ghostName) then
+				return false, "the final Journal state was lost before lobby return"
+			end
 			doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
 			-- Displacement during the safety delay invalidates this attempt. Hunt
 			-- state is deliberately irrelevant once identification is confident.
-			if not playerIsInsideRoundBaseCamp() then
-				continue
-			end
-			if not selectRoundJournalGhost(ghostName, generation) then
-				setDoRoundStatus("Selecting ghost guess")
-				doRoundWait(generation, 0.1)
-				continue
-			end
 			if not playerIsInsideRoundBaseCamp() then
 				continue
 			end
@@ -3181,6 +3233,9 @@ local function requestRoundReturnToLobby(generation, ghostName)
 				and os.clock() < nextFireAt do
 				task.wait(math.min(0.05, math.max(0, nextFireAt - os.clock())))
 			end
+			-- If the server rejected this attempt, generate another settled root
+			-- position update before the next four-second retry.
+			basePositionPrepared = false
 		end
 		return false, "Do-Round cancelled before returning to the lobby"
 	end, debug.traceback)
@@ -3306,6 +3361,10 @@ local function finishRoundWithGhost(
 	if not doRoundOperationActive(generation) then
 		return false, "Do-Round cancelled before lobby return"
 	end
+	setDoRoundStatus("Identified; returning to Base Camp")
+	if not returnRoundToBase(generation) then
+		return false, "Do-Round cancelled before the Base Camp return"
+	end
 	local returned, returnReason = requestRoundReturnToLobby(
 		generation,
 		ghostName
@@ -3385,11 +3444,6 @@ local function completeIdentifiedRound(generation, guess, score, certain)
 	cancelRoundTask("identificationThread")
 	cancelRoundTask("timeoutThread")
 	cancelDoRoundSetupWork()
-	setDoRoundStatus("Identified; returning to Base Camp")
-	if not playerIsInsideRoundBaseCamp()
-		and not returnRoundToBase(completionGeneration) then
-		return false
-	end
 	while doRoundOperationActive(completionGeneration) do
 		local completedCall, completed, completionFailure = xpcall(
 			function()

@@ -7,7 +7,6 @@ return function(dependencies)
 		return Services.Workspace:FindFirstChild("Ghost")
 	end
 	local workspace = Services.Workspace
-	local closed = false
 
 local function findRoomsFolder()
 	local map = workspace:FindFirstChild("Map")
@@ -140,7 +139,6 @@ end
 		GetGhostModel = getGhostModel,
 	})
 	local perkTrackerState = {
-		baseCampTeleportBusy = false,
 		teleportSequence = 0,
 		teleportToRoomBoundingBoxCenter = teleportToRoom,
 	}
@@ -161,68 +159,67 @@ perkTrackerState.teleportToBaseCamp = function(options)
 		return false, "Base Camp room was not found"
 	end
 	options = table.clone(options or {})
-	local function alreadyInsideBaseCamp()
-		local character = player.Character
-		return character ~= nil and instanceIsInsideRoom(character, room)
+	if options.MinimumOpenClearance == nil then
+		options.MinimumOpenClearance = 2.1
 	end
-	if alreadyInsideBaseCamp() then
-		return true, nil
+	if options.StrictSearchExpansion == nil then
+		options.StrictSearchExpansion = 5
 	end
-	while perkTrackerState.baseCampTeleportBusy do
-		if closed
-			or (type(options.IsActive) == "function"
-				and options.IsActive() ~= true) then
-			return false, "teleport was cancelled"
-		end
-		Services.RunService.Heartbeat:Wait()
+	if options.PreferOpenSpace == nil then
+		options.PreferOpenSpace = true
 	end
-	if alreadyInsideBaseCamp() then
-		return true, nil
+	if options.PreferClosestOpenSpace == nil then
+		options.PreferClosestOpenSpace = true
 	end
-
-	perkTrackerState.baseCampTeleportBusy = true
-	local succeeded, teleported, reason = pcall(function()
-		if type(options.PreferredPositions) ~= "table"
-			or #options.PreferredPositions == 0 then
-			local baseCamp = workspace:FindFirstChild("BaseCamp")
-				or workspace:FindFirstChild("Base Camp")
-			local truck = baseCamp and baseCamp:FindFirstChild("Truck", true)
-				or room:FindFirstChild("Truck", true)
-				or workspace:FindFirstChild("Truck", true)
-			local preferredPosition = getInstanceWorldPosition(truck)
-			if not preferredPosition then
-				local doors = workspace:FindFirstChild("Doors")
-				if doors then
-					for _, object in ipairs(doors:GetDescendants()) do
-						local normalized = string.lower(object.Name):gsub("[^%w]", "")
-						local doorType = string.lower(tostring(
-							object:GetAttribute("DoorType")
-								or object:GetAttribute("Type")
-								or ""
-						)):gsub("[^%w]", "")
-						if string.find(normalized, "exitdoor", 1, true)
-							or object:GetAttribute("IsExitDoor") == true
-							or object:GetAttribute("ExitDoor") == true
-							or doorType == "exit"
-							or doorType == "exitdoor" then
-							preferredPosition = getInstanceWorldPosition(object)
-							if preferredPosition then
-								break
-							end
-						end
+	local preferredPosition
+	if type(options.PreferredPositions) ~= "table"
+		or #options.PreferredPositions == 0 then
+		local baseCamp = workspace:FindFirstChild("BaseCamp")
+			or workspace:FindFirstChild("Base Camp")
+		local truck = baseCamp and baseCamp:FindFirstChild("Truck", true)
+			or room:FindFirstChild("Truck", true)
+			or workspace:FindFirstChild("Truck", true)
+		preferredPosition = getInstanceWorldPosition(truck)
+		if not preferredPosition then
+			local doors = workspace:FindFirstChild("Doors")
+			if doors then
+				for _, object in ipairs(doors:GetDescendants()) do
+					local normalized = string.lower(object.Name):gsub("[^%w]", "")
+					local doorType = string.lower(tostring(
+						object:GetAttribute("DoorType")
+							or object:GetAttribute("Type")
+							or ""
+					)):gsub("[^%w]", "")
+					if string.find(normalized, "exitdoor", 1, true)
+						or object:GetAttribute("IsExitDoor") == true
+						or object:GetAttribute("ExitDoor") == true
+						or doorType == "exit"
+						or doorType == "exitdoor" then
+						preferredPosition = getInstanceWorldPosition(object)
+						if preferredPosition then break end
 					end
 				end
 			end
-			if preferredPosition then
-				-- Candidate safety still wins; among open, grounded Base Camp
-				-- destinations prefer the point nearest Truck. The exit is only a
-				-- fallback when this map does not expose BaseCamp.Truck.
-				options.PreferredPositions = {preferredPosition}
-			end
 		end
+		if preferredPosition then
+			options.PreferredPositions = {preferredPosition}
+		end
+	else
+		preferredPosition = options.PreferredPositions[1]
+	end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local alreadyInside = root and root:IsA("BasePart")
+		and instanceIsInsideRoom(root, room)
+	-- Completion deliberately requests a fresh PivotTo even when the local root
+	-- already appears nearby. This gives the server a real position update before
+	-- RequestReturnToLobby checks whether everyone is in Base Camp.
+	if alreadyInside and options.ForcePreferredPosition ~= true then
+		return true, nil
+	end
+	local succeeded, teleported, reason = pcall(function()
 		return perkTrackerState.teleportToRoomBoundingBoxCenter(room, options)
 	end)
-	perkTrackerState.baseCampTeleportBusy = false
 	if not succeeded then
 		return false, tostring(teleported):match("^[^\n]+")
 	end

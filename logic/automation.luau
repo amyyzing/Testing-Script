@@ -140,57 +140,28 @@ return function(dependencies)
 	end
 
 	function perkTrackerState.findJournalGhostTypes()
-		local node = player:FindFirstChildOfClass("PlayerGui")
-		for _, childName in ipairs({
-			"Journal", "Holder", "Pages", "Page4", "Right", "Page", "GhostTypes",
-		}) do
-			node = node and node:FindFirstChild(childName)
-		end
-		return node
+		return Verdict:FindJournalGhostTypes()
 	end
 
 	function perkTrackerState.readJournalRowState(frame)
-		if not frame then return nil end
-		local highlight = frame:FindFirstChild("Highlight")
-		local strikethrough = frame:FindFirstChild("Strikethrough")
-		if highlight and highlight.Visible then return true end
-		if strikethrough and strikethrough.Visible then return false end
-		return nil
+		return Verdict:ReadJournalRowState(frame)
+	end
+
+	function perkTrackerState.expectedJournalState(name, forcedGhost)
+		return Verdict:ExpectedJournalState(name, forcedGhost)
 	end
 
 	function perkTrackerState.syncJournal(forcedGhost)
 		if type(forcedGhost) ~= "string" then return false end
-		local ghostTypes = perkTrackerState.findJournalGhostTypes()
-		if not ghostTypes then return false end
-		local ruledOut = {}
-		for _, index in ipairs(Verdict.RuledOut) do ruledOut[index] = true end
-		for index, name in ipairs(Verdict.Lists) do
-			local frame = ghostTypes:FindFirstChild(name)
-			if not frame then return false end
-			local expected = name == forcedGhost and true
-				or (ruledOut[index] and false or nil)
-			for _ = 1, 3 do
-				if perkTrackerState.readJournalRowState(frame) == expected then break end
-				local detection = frame:FindFirstChild("Detection")
-				if not detection or type(firesignal) ~= "function"
-					or not pcall(firesignal, detection.MouseButton1Click) then
-					break
-				end
-				task.wait(0.03)
-			end
-			if perkTrackerState.readJournalRowState(frame) ~= expected then
-				local highlight = frame:FindFirstChild("Highlight")
-				local strikethrough = frame:FindFirstChild("Strikethrough")
-				if highlight then highlight.Visible = expected == true end
-				if strikethrough then strikethrough.Visible = expected == false end
-			end
-		end
-		local selected = Verdict:ForceSelect(forcedGhost)
-		if selected then
+		if perkTrackerState.journalMutationBusy then return false end
+		perkTrackerState.journalMutationBusy = true
+		local syncedCall, synced = pcall(Verdict.SyncJournal, Verdict, forcedGhost)
+		perkTrackerState.journalMutationBusy = false
+		if syncedCall and synced == true then
 			perkTrackerState.lastJournalSelectedGhost = forcedGhost
 			perkTrackerState.lastJournalVisualGhost = forcedGhost
 		end
-		return selected == true
+		return syncedCall and synced == true
 	end
 
 	local perkDetections = {}

@@ -280,6 +280,19 @@ local function startTrackers()
 			MarkJournal = markJournal,
 		})
 		session.Traffic, session.Verdict, session.Ghost = Traffic, Verdict, ghost
+		local journalSyncElapsed = 0
+		local journalSyncConnection = Services.RunService.Heartbeat:Connect(function(delta)
+			if session.Destroyed or not Verdict.JournalDirty then return end
+			journalSyncElapsed += math.max(0, tonumber(delta) or 0)
+			if journalSyncElapsed < 0.25 then return end
+			journalSyncElapsed = 0
+			Verdict:SyncJournal()
+		end)
+		remember({
+			Destroy = function()
+				if journalSyncConnection.Connected then journalSyncConnection:Disconnect() end
+			end,
+		})
 		remember(createGhostPatternLog({
 			Traffic = Traffic,
 			View = view.PatternDrawer,

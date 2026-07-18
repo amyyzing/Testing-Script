@@ -72,4 +72,29 @@ Verdict:Reset()
 expect(Verdict.ForcedIndex == nil and #Verdict.Selected == 0,
 	"reset should clear the final-guess lock")
 
+local retryTraffic = createTraffic()
+local retryStates = {}
+local blockRuleOut = true
+local retryVerdict = createVerdict({
+	Traffic = retryTraffic,
+	ApplyJournalState = function(name, state)
+		if name == "Banshee" and state == false and blockRuleOut then
+			return false, false
+		end
+		retryStates[name] = state
+		return true, false
+	end,
+})
+retryTraffic("Support", {Ghost = "Aswang", Confidence = 35}):SendTo("Verdict")
+retryTraffic("RuleOut", {Ghost = "Banshee", Confidence = 99}):SendTo("Verdict")
+expect(retryVerdict.JournalDirty,
+	"a missed Journal cross-out must remain queued")
+blockRuleOut = false
+expect(retryVerdict:SyncJournal(),
+	"queued Selected and RuledOut arrays should synchronize on retry")
+expect(retryStates.Aswang == true and retryStates.Banshee == false,
+	"the retry must select Aswang and cross out Banshee")
+expect(not retryVerdict.JournalDirty,
+	"a complete Journal retry should clear its dirty state")
+
 print("verdict-journal.spec: rule-outs, selection lock, and unknown journal states passed")
