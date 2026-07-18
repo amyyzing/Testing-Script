@@ -104,19 +104,24 @@ local function radial(step)
 	heartbeat:Fire(0.1)
 end
 
-local function spiral(degrees)
-	Ghost.Current = {X = degrees / 12, Y = 0, Z = -degrees / 24}
+local function flyPast(step)
+	Ghost.Current = {X = 0, Y = 0, Z = 0}
 	for index, object in ipairs(objects) do
-		local angle = math.rad(degrees + phases[index])
-		local radius = 7 + degrees / 8
 		object.Part.Position = {
-			X = Ghost.Current.X + math.cos(angle) * radius,
-			Y = index,
-			Z = Ghost.Current.Z + math.sin(angle) * radius,
+			X = -14 + step * 2,
+			Y = index * 4,
+			Z = 3 + index,
 		}
 	end
 	now += 0.1
 	heartbeat:Fire(0.1)
+end
+
+local function pause(samples)
+	for _ = 1, samples do
+		now += 0.1
+		heartbeat:Fire(0.1)
+	end
 end
 
 orbit(0)
@@ -133,21 +138,27 @@ Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
 
 orbitEvent = nil
 Traffic("HuntingState", {Hunting = true}):SendTo("ItemOrbit")
-for degrees = 0, 84, 12 do spiral(degrees) end
+for step = 0, 14 do flyPast(step) end
 expect(orbitEvent == nil,
-	"three spiralling paths with a changing radius must not be mistaken for a circular vortex")
+	"three straight fly-pasts must not be mistaken for a Ravager vortex")
 Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
 
 orbitEvent = nil
 Traffic("HuntingState", {Hunting = true}):SendTo("ItemOrbit")
 for degrees = 0, 84, 12 do orbit(degrees) end
+expect(orbitEvent == nil,
+	"three short curved paths must not satisfy the sustained XZ rotation threshold")
+Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
+
+orbitEvent = nil
+Traffic("HuntingState", {Hunting = true}):SendTo("ItemOrbit")
+for degrees = 0, 144, 12 do orbit(degrees) end
 expect(orbitEvent and orbitEvent.Count == 3,
 	"three distinct models circling the ghost's moving center should emit one Ravager event")
-expect(orbitEvent.Mode == "NearPerfect", "Ravager must require the near-circular classifier")
-expect(orbitEvent.Duration >= 0.5 and orbitEvent.Steps >= 5
-	and orbitEvent.Rotation >= math.rad(60)
-	and orbitEvent.MaximumRadiusVariation <= 0.18,
-	"the duration, step, rotation, and radius gates must all pass")
+expect(orbitEvent.Mode == "XZVortex", "Ravager must require the XZ vortex classifier")
+expect(orbitEvent.Duration >= 1 and orbitEvent.Steps >= 8
+	and orbitEvent.Rotation >= math.rad(120),
+	"the duration, step, and signed XZ rotation gates must all pass")
 expect(Verdict.Selected[1] == 13 and Verdict.Confidence[13] == 99,
 	"the three-model orbit should support Ravager at 99%")
 
@@ -156,18 +167,29 @@ expect(heartbeat:Count() == 0, "hunt end should immediately disable orbit sampli
 
 orbitEvent = nil
 Traffic("HuntingState", {Hunting = true}):SendTo("ItemOrbit")
-for degrees = 84, 0, -12 do orbit(degrees) end
+for degrees = 144, 0, -12 do orbit(degrees) end
 expect(orbitEvent and orbitEvent.Count == 3,
 	"clockwise and counter-clockwise model orbits should both qualify")
 Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
 
 orbitEvent = nil
 Traffic("HuntingState", {Hunting = true}):SendTo("ItemOrbit")
-for degrees = 0, 72, 6 do orbit(degrees) end
-expect(orbitEvent and orbitEvent.Mode == "NearPerfect" and orbitEvent.Count == 3,
-	"a slower near-circular vortex should qualify")
+for degrees = 0, 60, 12 do orbit(degrees) end
+pause(5)
+for degrees = 72, 144, 12 do orbit(degrees) end
+expect(orbitEvent and orbitEvent.Mode == "XZVortex" and orbitEvent.Count == 3,
+	"a short collision pause must not erase an otherwise sustained XZ vortex")
+Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
+
+orbitEvent = nil
+Traffic("HuntingState", {Hunting = true}):SendTo("ItemOrbit")
+for degrees = 0, 60, 12 do orbit(degrees) end
+pause(8)
+for degrees = 72, 144, 12 do orbit(degrees) end
+expect(orbitEvent == nil,
+	"a long interruption must split two incomplete arcs into separate episodes")
 Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
 
 tracker:Destroy()
 ravager:Destroy()
-print("ravager.spec: moving-center near-circular hunting-only vortex detection passed")
+print("ravager.spec: strict moving-center XZ vortex detection passed")

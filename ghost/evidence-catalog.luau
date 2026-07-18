@@ -266,7 +266,7 @@ local Profiles = {
 		note("Any complete seven-pair window that is flat, drifting, decrease-only, or a stable A/B with invalid absolute bases rules Phantom out unless a confirmed unique Phantom match is already locked.", SOURCE.Phantom, "user-observed", true, "RuleOut"),
 	})),
 	profile("Ravager", {"EMFLevel5", "GhostWriting", "SpiritBox"}, "user-observed", perks({
-		note("At least three distinct item or interactable models orbit the moving ghost in one direction for at least half a second.", SOURCE.Ravager, "user-observed", false, "Trait"),
+		note("At least three distinct item or interactable models sustain XZ rotation around the moving ghost in one direction.", SOURCE.Ravager, "user-observed", false, "Trait"),
 	}, {}, {
 		note("Ordinary throws and one moving object are not a vortex.", SOURCE.Ravager, "user-observed", false, "Caveat"),
 	})),

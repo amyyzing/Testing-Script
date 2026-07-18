@@ -8,13 +8,18 @@ return function(dependencies)
 	local scanRadius = tonumber(dependencies.ScanRadius) or 45
 	local minimumRadius = tonumber(dependencies.MinimumRadius) or 2.5
 	local maximumRadius = tonumber(dependencies.MaximumRadius) or 40
-	local radiusTolerance = tonumber(dependencies.RadiusTolerance) or 0.18
-	local minimumDuration = tonumber(dependencies.MinimumDuration) or 0.5
-	local minimumSteps = tonumber(dependencies.MinimumSteps) or 5
-	local minimumRotation = tonumber(dependencies.MinimumRotation) or math.rad(60)
+	local minimumDuration = tonumber(dependencies.MinimumDuration) or 1
+	local minimumSteps = tonumber(dependencies.MinimumSteps) or 8
+	local minimumRotation = tonumber(dependencies.MinimumRotation) or math.rad(120)
 	local minimumAngleStep = tonumber(dependencies.MinimumAngleStep) or math.rad(0.5)
 	local maximumAngleStep = tonumber(dependencies.MaximumAngleStep) or math.rad(100)
-	local activeWindow = tonumber(dependencies.ActiveWindow) or 0.3
+	local minimumMovement = tonumber(dependencies.MinimumMovement) or 0.08
+	local tangentialRatio = tonumber(dependencies.TangentialRatio) or 1.2
+	local maximumPause = tonumber(dependencies.MaximumPause) or 0.75
+	local maximumReverseSteps = tonumber(dependencies.MaximumReverseSteps) or 3
+	local maximumReverseRotation = tonumber(dependencies.MaximumReverseRotation)
+		or math.rad(30)
+	local maximumLinearSteps = tonumber(dependencies.MaximumLinearSteps) or 3
 	local requiredObjects = tonumber(dependencies.RequiredObjects) or 3
 	local Tracker = {
 		Kind = "dormant",
@@ -30,8 +35,8 @@ return function(dependencies)
 	}
 
 	local function distance(first, second)
-		local x, y, z = first.X - second.X, first.Y - second.Y, first.Z - second.Z
-		return math.sqrt(x * x + y * y + z * z)
+		local x, z = first.X - second.X, first.Z - second.Z
+		return math.sqrt(x * x + z * z)
 	end
 
 	local function ghostPosition()
@@ -67,16 +72,19 @@ return function(dependencies)
 		local x, z = current.X - center.X, current.Z - center.Z
 		local radius = math.sqrt(x * x + z * z)
 		Tracker.States[object] = {
+			WorldX = current.X,
+			WorldZ = current.Z,
 			X = x,
 			Z = z,
 			Angle = math.atan2(z, x),
 			Radius = radius,
-			MinRadius = radius,
-			MaxRadius = radius,
 			Time = now,
 			Direction = 0,
 			Rotation = 0,
 			Steps = 0,
+			ReverseSteps = 0,
+			ReverseRotation = 0,
+			LinearSteps = 0,
 			Assembly = assembly,
 		}
 	end
@@ -92,26 +100,50 @@ return function(dependencies)
 		local angle = math.atan2(z, x)
 		local elapsed = now - state.Time
 		local delta = math.atan2(math.sin(angle - state.Angle), math.cos(angle - state.Angle))
-		local direction = delta >= 0 and 1 or -1
-		local minimum = math.min(state.MinRadius, radius)
-		local maximum = math.max(state.MaxRadius, radius)
-		local meanRadius = (minimum + maximum) * 0.5
-		local variation = (maximum - minimum) / math.max(meanRadius, 0.001)
-		local invalid = elapsed <= 0 or elapsed > interval * 2.5
+		local worldX, worldZ = current.X - state.WorldX, current.Z - state.WorldZ
+		local worldMovement = math.sqrt(worldX * worldX + worldZ * worldZ)
+		local relativeX, relativeZ = x - state.X, z - state.Z
+		local priorRadius = math.max(state.Radius, 0.001)
+		local radial = math.abs((state.X * relativeX + state.Z * relativeZ) / priorRadius)
+		local tangential = math.abs((-state.Z * relativeX + state.X * relativeZ) / priorRadius)
+		local invalid = elapsed <= 0 or elapsed > maximumPause
 			or radius < minimumRadius or radius > maximumRadius
-			or variation > radiusTolerance
 			or math.abs(delta) > maximumAngleStep
-			or state.Direction ~= 0 and math.abs(delta) >= minimumAngleStep
-				and direction ~= state.Direction
 		if invalid then
 			resetState(object, current, assembly, center, now)
 			return
 		end
+		state.WorldX, state.WorldZ = current.X, current.Z
 		state.X, state.Z, state.Angle, state.Radius = x, z, angle, radius
-		state.MinRadius, state.MaxRadius, state.Time = minimum, maximum, now
+		state.Time = now
 		state.Assembly = assembly
-		if math.abs(delta) < minimumAngleStep then return end
+		if worldMovement < minimumMovement then
+			if state.LastProgress and now - state.LastProgress > maximumPause then
+				resetState(object, current, assembly, center, now)
+			end
+			return
+		end
+		if math.abs(delta) < minimumAngleStep
+			or tangential < radial * tangentialRatio then
+			state.LinearSteps += 1
+			if state.LinearSteps >= maximumLinearSteps then
+				resetState(object, current, assembly, center, now)
+			end
+			return
+		end
+
+		local direction = delta >= 0 and 1 or -1
+		if state.Direction ~= 0 and direction ~= state.Direction then
+			state.ReverseSteps += 1
+			state.ReverseRotation += math.abs(delta)
+			if state.ReverseSteps >= maximumReverseSteps
+				or state.ReverseRotation >= maximumReverseRotation then
+				resetState(object, current, assembly, center, now)
+			end
+			return
+		end
 		state.Direction = direction
+		state.ReverseSteps, state.ReverseRotation, state.LinearSteps = 0, 0, 0
 		state.Rotation += math.abs(delta)
 		state.Steps += 1
 		state.StartedAt = state.StartedAt or now - elapsed
@@ -163,7 +195,7 @@ return function(dependencies)
 		local assemblies = {[1] = {}, [-1] = {}}
 		for object, state in pairs(self.States) do
 			if state.Qualified and state.LastProgress
-				and now - state.LastProgress <= activeWindow
+				and now - state.LastProgress <= maximumPause
 				and not assemblies[state.Direction][state.Assembly] then
 				assemblies[state.Direction][state.Assembly] = true
 				table.insert(matches[state.Direction], {Object = object, State = state})
@@ -174,13 +206,11 @@ return function(dependencies)
 		if not matching then return end
 		local objects = {}
 		local duration, steps, rotation = math.huge, math.huge, math.huge
-		local maximumVariation = 0
 		for _, result in ipairs(matching) do
 			table.insert(objects, result.Object)
 			duration = math.min(duration, result.State.Duration)
 			steps = math.min(steps, result.State.Steps)
 			rotation = math.min(rotation, result.State.Rotation)
-			maximumVariation = math.max(maximumVariation, result.State.RadiusVariation)
 		end
 		self.Reported = true
 		Traffic("ItemOrbit", {
@@ -189,9 +219,8 @@ return function(dependencies)
 			Duration = duration,
 			Steps = steps,
 			Rotation = rotation,
-			MaximumRadiusVariation = maximumVariation,
 			Direction = matching[1].State.Direction,
-			Mode = "NearPerfect",
+			Mode = "XZVortex",
 			Time = now,
 		}):SendTo("Ravager")
 	end
