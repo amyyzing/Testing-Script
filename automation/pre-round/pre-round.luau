@@ -2016,7 +2016,6 @@ end
 	}
 end)()
 
-local setDoRoundEnabled = (function()
 	local DROPPED_ROOM_ITEMS = roundUtilities.DroppedRoomItems
 	local POWERED_ROOM_ITEMS = roundUtilities.PoweredRoomItems
 	local ROUND_HELD_ITEMS = roundUtilities.HeldItems
@@ -2870,1307 +2869,190 @@ local function openRoundExitDoor(generation)
 	return false, "ExitDoor did not open"
 end
 
-local function captureRoundRoomItems(room)
-	local items = workspace:FindFirstChild("Items")
-	if not items or not room then
-		return
+
+local function releaseRoundMovement()
+	for lock in pairs(doRoundState.facingLocks or {}) do
+		pcall(lock.Release, lock)
 	end
-	local candidatesByName = {}
-	for _, model in ipairs(items:GetChildren()) do
-		if model:IsA("Model") and not roundItemIsBurntCross(model) then
-			local attributeName = model:GetAttribute("ItemName")
-			if typeof(attributeName) == "string" and attributeName ~= "" then
-				local normalized = normalizeRoundItemName(attributeName)
-				local candidates = candidatesByName[normalized]
-				if not candidates then
-					candidates = {}
-					candidatesByName[normalized] = candidates
-				end
-				table.insert(candidates, model)
-			end
-		end
-	end
-	local now = os.clock()
-	for _, itemName in ipairs(DROPPED_ROOM_ITEMS) do
-		local normalized = normalizeRoundItemName(itemName)
-		local existing = doRoundState.roomItems[normalized]
-		if existing and roundWorldItemIsInsideRoom(existing, room) then
-			continue
-		end
-		local inside
-		local fallback
-		for _, model in ipairs(candidatesByName[normalized] or {}) do
-			if roundWorldItemIsInsideRoom(model, room) then
-				inside = model
-				break
-			end
-			local retryAt = doRoundState.maintenanceBackoff
-				and doRoundState.maintenanceBackoff[model]
-				or 0
-			if not fallback and now >= retryAt then
-				fallback = model
-			end
-		end
-		local existingRetryAt = existing and doRoundState.maintenanceBackoff
-			and doRoundState.maintenanceBackoff[existing]
-			or 0
-		local existingAvailable = existing and existing.Parent
-			and not roundItemIsBurntCross(existing)
-			and now >= existingRetryAt
-		doRoundState.roomItems[normalized] = inside
-			or (existingAvailable and existing)
-			or fallback
-			or getRoundEquippedItem(itemName)
-			or getRoundInventoryItem(itemName)
-	end
+	doRoundState.facingLocks = setmetatable({}, {__mode = "k"})
+	releasePlayerMovement(true)
 end
 
-local function findRoundWorldItemInRoom(itemName, room)
-	local items = workspace:FindFirstChild("Items")
-	if not items then
-		return nil
-	end
-	local normalized = normalizeRoundItemName(itemName)
-	for _, model in ipairs(items:GetChildren()) do
-		if model:IsA("Model")
-			and normalizeRoundItemName(model:GetAttribute("ItemName"))
-				== normalized
-			and not roundItemIsBurntCross(model)
-			and roundWorldItemIsInsideRoom(model, room) then
-			return model
-		end
-	end
-	return nil
-end
-
-local function roundItemEnabledObject(model)
-	if not model then
-		return nil
-	end
-	if model:GetAttribute("Enabled") ~= nil then
-		return model
-	end
-	for _, descendant in ipairs(model:GetDescendants()) do
-		if descendant:GetAttribute("Enabled") ~= nil then
-			return descendant
-		end
-	end
-	return nil
-end
-
-local function countRoundInventorySlots()
-	local count = 0
-	local seen = setmetatable({}, {__mode = "k"})
-	for _, container in ipairs({
-		player:FindFirstChild("ToolsHolder"),
-		player.Character,
-	}) do
-		if container then
-			for _, model in ipairs(container:GetChildren()) do
-				if model:IsA("Model")
-					and roundItemName(model) ~= nil
-					and not seen[model] then
-					seen[model] = true
-					count = count + 1
-				end
-			end
-		end
-	end
-	if count > 0 then
-		return math.min(count, 3)
-	end
-	for slotNumber = 1, 3 do
-		local value = player:GetAttribute("InvSlot" .. tostring(slotNumber))
-		if value ~= nil and value ~= false and tostring(value) ~= "" then
-			count = count + 1
-		end
-	end
-	return count
-end
-
-local function restoreRoundItemToRoom(model, room, generation)
-	if not model or not model.Parent or not room or roundItemIsBurntCross(model) then
-		return false
-	end
-	local events = Services.ReplicatedStorage:FindFirstChild("Events")
-	local pickup = events and events:FindFirstChild("RequestItemPickup")
-	local equip = events and events:FindFirstChild("RequestItemEquip")
-	local drop = events and events:FindFirstChild("RequestItemDrop")
-	if not pickup or not pickup:IsA("RemoteEvent")
-		or not equip or not equip:IsA("RemoteEvent")
-		or not drop or not drop:IsA("RemoteEvent") then
-		return false
-	end
-	local itemName = roundItemName(model)
-	if not itemName then
-		return false
-	end
-	local itemsFolder = workspace:FindFirstChild("Items")
-	local isWorldItem = itemsFolder and model:IsDescendantOf(itemsFolder)
-	if isWorldItem and roundWorldItemIsInsideRoom(model, room) then
-		return true
-	end
-	if not isWorldItem then
-		model = getRoundEquippedItem(itemName)
-			or getRoundInventoryItem(itemName)
-			or model
-		if not model.Parent or roundItemIsBurntCross(model) then
-			return false
-		end
-		local heldSlot = findRoundHotbarSlot(itemName)
-		if not heldSlot or not roundActionIsSafe(generation) then
-			return false
-		end
-		local teleported = teleportToRoomBoundingBoxCenter(
-			room,
-			roundTeleportOptions(generation)
+local function runPreRound(generation, hooks)
+	local identifiedGhost, identifiedScore, identifiedCertain =
+		hooks.CurrentIdentification()
+	if identifiedGhost then
+		hooks.Complete(
+			generation,
+			identifiedGhost,
+			identifiedScore,
+			identifiedCertain
 		)
-		if not teleported or not roundActionIsSafe(generation) then
-			return false
-		end
-		beginAutomationMutation(3)
-		doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
-		if not roundActionIsSafe(generation) then
-			return false
-		end
-		pcall(equip.FireServer, equip, "InvSlot" .. tostring(heldSlot))
-		doRoundWait(generation, 0.15)
-		if not roundActionIsSafe(generation) then
-			return false
-		end
-		doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
-		if not roundActionIsSafe(generation) then
-			return false
-		end
-		pcall(drop.FireServer, drop, "InvSlot" .. tostring(heldSlot))
-		doRoundWait(generation, 0.35)
-		beginAutomationMutation(3)
-		return findRoundWorldItemInRoom(itemName, room) ~= nil
+		return nil, "completed"
 	end
-	if countRoundInventorySlots() >= 3 then
-		return false
-	end
-	local approaches = roundApproachPositions(model, 3.5)
-	local movedNear = false
-	for _, approach in ipairs(approaches) do
-		if not roundActionIsSafe(generation) then
-			return false
-		end
-		movedNear = teleportNearRoundTarget(model, approach, generation)
-		if movedNear then
-			break
-		end
-	end
-	if not movedNear then
-		return false
-	end
-	if not roundActionIsSafe(generation) then
-		teleportToBaseCamp(roundTeleportOptions(generation))
-		return false
-	end
-	local root = player.Character
-		and player.Character:FindFirstChild("HumanoidRootPart")
-	local itemPosition = getInstanceWorldPosition(model)
-	if not root or not itemPosition
-		or (root.Position - itemPosition).Magnitude > ROUND_PICKUP_MAX_DISTANCE then
-		return false
-	end
-	beginAutomationMutation(4)
-	doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
-	if not roundActionIsSafe(generation) then
-		return false
-	end
-	local picked = pcall(pickup.FireServer, pickup, model)
-	if not picked then
-		return false
-	end
-	local deadline = os.clock() + 1.8
-	local slotNumber
+	setDoRoundStatus("Checking ghost room")
+	local ghost
+	local favouriteRoom
 	repeat
-		if not roundActionIsSafe(generation) then
-			teleportToBaseCamp(roundTeleportOptions(generation))
-			return false
-		end
-		slotNumber = findRoundHotbarSlot(itemName)
-		if slotNumber then
-			break
-		end
-		doRoundWait(generation, 0.05)
-	until os.clock() >= deadline
-	if not slotNumber or not roundActionIsSafe(generation) then
-		return false
-	end
-	local teleported = teleportToRoomBoundingBoxCenter(
-		room,
-		roundTeleportOptions(generation)
-	)
-	if not teleported or not roundActionIsSafe(generation) then
-		return false
-	end
-	doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
-	if not roundActionIsSafe(generation) then
-		return false
-	end
-	pcall(equip.FireServer, equip, "InvSlot" .. tostring(slotNumber))
-	doRoundWait(generation, 0.15)
-	if not roundActionIsSafe(generation) then
-		return false
-	end
-	doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
-	if not roundActionIsSafe(generation) then
-		return false
-	end
-	pcall(drop.FireServer, drop, "InvSlot" .. tostring(slotNumber))
-	doRoundWait(generation, 0.35)
-	beginAutomationMutation(3)
-	return findRoundWorldItemInRoom(itemName, room) ~= nil
-end
-
-local function maintainRoundRoomItems(room, generation)
-	local now = os.clock()
-	if doRoundState.itemsDirty ~= true
-		and now < (doRoundState.nextMaintenanceAt or 0) then
-		return
-	end
-	doRoundState.itemsDirty = false
-	doRoundState.nextMaintenanceAt = now + ROUND_MAINTENANCE_INTERVAL
-	captureRoundRoomItems(room)
-	for _, itemName in ipairs(DROPPED_ROOM_ITEMS) do
-		local normalized = normalizeRoundItemName(itemName)
-		local model = doRoundState.roomItems[normalized]
-		if model and model.Parent then
-			if roundItemIsBurntCross(model) then
-				doRoundState.roomItems[normalized] = nil
-				continue
-			end
-			local itemsFolder = workspace:FindFirstChild("Items")
-			local worldItem = itemsFolder
-				and model:IsDescendantOf(itemsFolder)
-			local insideRoom = worldItem
-				and roundWorldItemIsInsideRoom(model, room)
-			if not insideRoom then
-				doRoundState.outsideSince[model] =
-					doRoundState.outsideSince[model] or now
-				local retryAt = doRoundState.maintenanceBackoff[model] or 0
-				if now - doRoundState.outsideSince[model]
-						>= ROUND_ITEM_OUTSIDE_GRACE
-					and now >= retryAt then
-					setDoRoundStatus("Maintaining room items")
-					if restoreRoundItemToRoom(model, room, generation) then
-						doRoundState.outsideSince[model] = nil
-						doRoundState.maintenanceBackoff[model] = nil
-						doRoundState.itemsDirty = true
-					else
-						doRoundState.maintenanceBackoff[model] = now
-							+ ROUND_MAINTENANCE_RETRY_BACKOFF
-						doRoundState.outsideSince[model] = nil
-						doRoundState.roomItems[normalized] = nil
-						doRoundState.itemsDirty = true
-					end
-					return
-				end
-			else
-				doRoundState.outsideSince[model] = nil
-			end
-			if insideRoom and POWERED_ROOM_ITEMS[normalized] then
-				local enabledObject = roundItemEnabledObject(model)
-				if enabledObject then
-					local enabled = enabledObject:GetAttribute("Enabled") == true
-					local power = doRoundState.itemPower[enabledObject]
-					if not power then
-						power = {
-							Last = enabled,
-							LastChangedAt = now,
-							Transitions = {},
-						}
-						power.Connection = enabledObject
-							:GetAttributeChangedSignal("Enabled")
-							:Connect(function()
-								if not doRoundState.enabled
-									or not enabledObject.Parent then
-									return
-								end
-								local changedAt = os.clock()
-								local changed = enabledObject:GetAttribute("Enabled") == true
-								if power.Last ~= changed then
-									power.Last = changed
-									power.LastChangedAt = changedAt
-									table.insert(power.Transitions, changedAt)
-									doRoundState.itemsDirty = true
-								end
-							end)
-						doRoundState.itemPower[enabledObject] = power
-					elseif power.Last ~= enabled then
-						power.Last = enabled
-						power.LastChangedAt = now
-						table.insert(power.Transitions, now)
-					end
-					for index = #power.Transitions, 1, -1 do
-						if now - power.Transitions[index] > 3 then
-							table.remove(power.Transitions, index)
-						end
-					end
-					local flickering = #power.Transitions >= 3
-					if not enabled and not flickering
-						and now - power.LastChangedAt >= 3
-						and now >= (power.RetryAt or 0) then
-						setDoRoundStatus("Maintaining room items")
-						local approaches = roundApproachPositions(model, 4)
-						for _, approach in ipairs(approaches) do
-							if not roundActionIsSafe(generation) then
-								return
-							end
-							local teleported = teleportNearRoundTarget(model, approach, generation)
-							if teleported then
-								if not roundActionIsSafe(generation) then
-									teleportToBaseCamp(roundTeleportOptions(generation))
-									return
-								end
-								local root = player.Character
-									and player.Character:FindFirstChild(
-										"HumanoidRootPart"
-									)
-								local itemPosition = getInstanceWorldPosition(model)
-								if not root or not itemPosition
-									or (root.Position - itemPosition).Magnitude > 10 then
-									power.RetryAt = now
-										+ ROUND_MAINTENANCE_RETRY_BACKOFF
-									return
-								end
-								local events = Services.ReplicatedStorage:FindFirstChild("Events")
-								local toggle = events and events:FindFirstChild("ToggleItemState")
-								if toggle and toggle:IsA("RemoteEvent") then
-									beginAutomationMutation(2.5)
-									doRoundWait(
-										generation,
-										ROUND_REMOTE_SAFETY_DELAY
-									)
-									if not roundActionIsSafe(generation) then
-										return
-									end
-									local fired = pcall(toggle.FireServer, toggle, model)
-									if fired then
-										power.LastChangedAt = now
-										power.RetryAt = now + 2
-									else
-										power.RetryAt = now
-											+ ROUND_MAINTENANCE_RETRY_BACKOFF
-									end
-								end
-								break
-							end
-						end
-						return
-					end
-				end
-			end
-		end
-	end
-end
-
-local function journalSelectionMatchesFinalState(ghostName)
-	local ghostTypes = perkTrackerState.findJournalGhostTypes()
-	if not ghostTypes then
-		return false
-	end
-	for _, profile in ipairs(GHOST_PROFILES) do
-		local frame = ghostTypes:FindFirstChild(profile.Name)
-		if not frame or not frame:IsA("Frame") then
-			return false
-		end
-		local expected = perkTrackerState.expectedJournalState(
-			profile.Name,
-			ghostName
+		ghost = getGhostModel()
+		local rooms = findRoomsFolder()
+		favouriteRoom = findFavouriteRoom(
+			rooms,
+			ghost and ghost:GetAttribute("FavoriteRoom") or nil
 		)
-		local actual = perkTrackerState.readJournalRowState(frame)
-		if expected ~= nil and actual ~= expected then
-			return false
+		if not favouriteRoom then
+			doRoundWait(generation, 0.2)
 		end
-		if expected == nil and actual == true then
-			return false
-		end
+	until favouriteRoom and ghost
+	doRoundState.lastFavouriteRoom = favouriteRoom
+	doRoundState.roundMap = workspace:FindFirstChild("Map")
+	doRoundState.roundGhost = ghost
+	if not doRoundState.roundMap then
+		error("Map was not found", 0)
 	end
-	return perkTrackerState.lastJournalSelectedGhost == ghostName
-end
 
-local function selectRoundJournalGhost(ghostName, generation)
-	if not ghostName or string.find(tostring(ghostName), "/", 1, true) then
-		return false
-	end
+	hooks.WaitForHuntEnd(generation)
 	if not doRoundOperationActive(generation) then
-		return false
+		return nil, "cancelled"
 	end
-	-- Sync the complete Verdict state: one selected row, every RuledOut row
-	-- crossed out, and unknown rows untouched. The real click path updates the
-	-- Journal controller before its EvidenceMarkedInJournal remote is sent.
-	local deadline = os.clock() + 8
-	repeat
-		if not doRoundOperationActive(generation) then
-			return false
-		end
-		if perkTrackerState.journalMutationBusy ~= true then
-			local syncedCall, synced = pcall(
-				perkTrackerState.syncJournal,
-				ghostName
-			)
-			if syncedCall and synced == true
-				and journalSelectionMatchesFinalState(ghostName) then
-				doRoundWait(generation, ROUND_JOURNAL_SETTLE_SECONDS)
-				if journalSelectionMatchesFinalState(ghostName) then
-					return true
-				end
-			end
-		end
-		task.wait(0.05)
-	until not doRoundOperationActive(generation)
-		or os.clock() >= deadline
-	return false
-end
-
-	local setEnabled
-	local function cancelRoundTask(fieldName)
-		local thread = doRoundState[fieldName]
-		doRoundState[fieldName] = nil
-		if thread and thread ~= coroutine.running() then
-			pcall(task.cancel, thread)
-		end
+	identifiedGhost, identifiedScore, identifiedCertain =
+		hooks.CurrentIdentification()
+	if identifiedGhost then
+		hooks.Complete(
+			generation,
+			identifiedGhost,
+			identifiedScore,
+			identifiedCertain
+		)
+		return nil, "completed"
 	end
-	local function releaseRoundMovement()
-		for lock in pairs(doRoundState.facingLocks or {}) do
-			pcall(lock.Release, lock)
-		end
-		doRoundState.facingLocks = setmetatable({}, {__mode = "k"})
-		releasePlayerMovement(true)
-	end
-
-local function waitForRoundHuntEnd(generation)
-	local escaped = false
-	local escapeFailures = 0
-	local nextEscapeAttemptAt = 0
-	while doRoundOperationActive(generation) do
-		if workspace:FindFirstChild("Map") ~= doRoundState.roundMap then
-			error("the round map changed", 0)
-		end
-		local currentGhost = getGhostModel()
-		if currentGhost and currentGhost ~= doRoundState.roundGhost then
-			error("the round ghost changed", 0)
-		end
-		if currentGhost and currentGhost:GetAttribute("Hunting") ~= true then
-			break
-		end
-		doRoundState.questionsActive = false
-		setDoRoundStatus(currentGhost and "Hunt escape" or "Waiting for ghost")
-		if not escaped and os.clock() >= nextEscapeAttemptAt then
-			local teleported = teleportToBaseCamp(
-				roundTeleportOptions(generation)
-			)
-			-- Confirm the same Base Camp containment used by completion. A moved
-			-- root whose room state has not settled yet must be retried.
-			escaped = teleported == true and playerIsInsideRoundBaseCamp()
-			if not escaped then
-				escapeFailures = escapeFailures + 1
-				nextEscapeAttemptAt = os.clock() + math.min(
-					ROUND_BASE_CAMP_RETRY_MAX,
-					ROUND_BASE_CAMP_RETRY_MIN
-						* (2 ^ math.min(escapeFailures - 1, 3))
-				)
-			end
-		end
-		doRoundWait(generation, 0.15)
-	end
-	if escaped then
-		doRoundWait(generation, 0.65)
-	end
-	return escaped
-end
-
-local function requestRoundReturnToLobby(generation, ghostName)
-	local events = Services.ReplicatedStorage:FindFirstChild("Events")
-	local remote = events and events:FindFirstChild("RequestReturnToLobby")
-	if not remote or not remote:IsA("RemoteEvent") then
-		return false, "RequestReturnToLobby RemoteEvent was not found"
-	end
-	local lastTeleportState
-	local connected, teleportConnection = pcall(function()
-		return player.OnTeleport:Connect(function(state)
-			lastTeleportState = state
-		end)
-	end)
-	if not connected then teleportConnection = nil end
-	local function disconnectTeleportListener()
-		if teleportConnection and teleportConnection.Connected then
-			teleportConnection:Disconnect()
-		end
-	end
-	local completed, returned, returnReason = xpcall(function()
-		local queueWarningShown = false
-		local basePositionPrepared = false
-		local roundStartedAt = doRoundState.exitOpenedAt
-			or doRoundState.startedAt
-			or os.clock()
-		local earliestReturnAt = roundStartedAt + ROUND_MINIMUM_LEAVE_AGE
-		while doRoundOperationActive(generation) do
-			if (not basePositionPrepared or not playerIsInsideRoundBaseCamp())
-				and not returnRoundToBase(generation) then
-				return false, "Do-Round cancelled before the Base Camp return"
-			end
-			basePositionPrepared = true
-			if not playerIsInsideRoundBaseCamp() then
-				doRoundWait(generation, 0.1)
-				continue
-			end
-			local leaveWait = earliestReturnAt - os.clock()
-			if leaveWait > 0 then
-				setDoRoundStatus("Waiting safely until 0:30")
-				doRoundWait(generation, math.min(0.25, leaveWait))
-				continue
-			end
-			if lastTeleportState == Enum.TeleportState.Failed then
-				setDoRoundStatus("Lobby return failed; retrying")
-				lastTeleportState = nil
-			else
-				setDoRoundStatus("Returning to lobby")
-			end
-			if not journalSelectionMatchesFinalState(ghostName) then
-				return false, "the final Journal state was lost before lobby return"
-			end
-			doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
-			-- Displacement during the safety delay invalidates this attempt. Hunt
-			-- state is deliberately irrelevant once identification is confident.
-			if not playerIsInsideRoundBaseCamp() then
-				continue
-			end
-			local preparedCall, prepared, prepareFailure = pcall(
-				prepareTeleport,
-				"ReturnToLobby"
-			)
-			if (not preparedCall or prepared == false)
-				and not queueWarningShown
-				and presenter and presenter.Notify then
-				queueWarningShown = true
-				presenter:Notify(
-					not preparedCall
-						and ("return teleport preparation failed: " .. tostring(prepared))
-						or tostring(prepareFailure
-							or "return teleport execution was not prepared")
-				)
-			end
-			pcall(remote.FireServer, remote)
-			-- Started/InProgress is not a terminal success signal. Teleport can still
-			-- fail after either state, so retain ownership and retry every four
-			-- seconds until this runtime is actually replaced or the user cancels.
-			local nextFireAt = os.clock() + ROUND_LOBBY_RETRY_SECONDS
-			while doRoundOperationActive(generation)
-				and os.clock() < nextFireAt do
-				task.wait(math.min(0.05, math.max(0, nextFireAt - os.clock())))
-			end
-			-- If the server rejected this attempt, generate another settled root
-			-- position update before the next four-second retry.
-			basePositionPrepared = false
-		end
-		return false, "Do-Round cancelled before returning to the lobby"
-	end, debug.traceback)
-	disconnectTeleportListener()
-	if not completed then
-		if not doRoundOperationActive(generation) then
-			return false, "Do-Round cancelled before returning to the lobby"
-		end
-		return false,
-			tostring(returned):match("^[^\n]+") or "Lobby return failed"
-	end
-	return returned, returnReason
-end
-
-local function chooseRoundTimeoutFallback()
-	local guess = perkTrackerState.currentGhostGuess
-	local score = perkTrackerState.currentGhostGuessScore or 0
-	local timeoutCandidates = perkTrackerState.getRemainingCandidates(false)
-	if #timeoutCandidates == 0 then
-		-- Confirmed evidence is stronger than behavioral/perk rule-outs. If
-		-- those signals conflict, relax only the rule-outs while retaining the
-		-- evidence-compatible pool. This prevents a timed fallback from
-		-- reintroducing ghosts that cannot have the observed evidence.
-		timeoutCandidates = perkTrackerState.getRemainingCandidates(true)
-	end
-	if #timeoutCandidates == 0 then
-		for _, profile in ipairs(GHOST_PROFILES) do
-			if not perkTrackerState.isGhostRuledOut(profile.Name) then
-				table.insert(timeoutCandidates, profile.Name)
-			end
-		end
-	end
-	if #timeoutCandidates == 0 then
-		-- Contradictory rule-outs must not prevent a timed round from ending.
-		for _, profile in ipairs(GHOST_PROFILES) do
-			table.insert(timeoutCandidates, profile.Name)
-		end
-	end
-	if perkTrackerState.evidenceMode == "Mimicry" then
-		local included = {}
-		for _, name in ipairs(timeoutCandidates) do
-			included[name] = true
-		end
-		for name, detection in pairs(perkDetections) do
-			if detection.Persistent
-				and not perkTrackerState.isGhostRuledOut(name)
-				and not included[name] then
-				table.insert(timeoutCandidates, name)
-				included[name] = true
-			end
-		end
-	end
-	local fallback = GhostModule.SelectHighestConfidenceGuess({
-		Candidates = timeoutCandidates,
-		Detections = perkDetections,
-		CurrentGuess = guess,
-		CurrentScore = score,
-		ConfirmedEvidence = perkTrackerState.evidenceMode ~= "Mimicry"
-			and perkTrackerState.getConfirmedEvidence()
-			or nil,
-		OrbObserved = perkTrackerState.orbObserved == true,
-		RandomUnit = function()
-			return math.random()
-		end,
-		RandomIndex = function(count)
-			return math.random(count)
-		end,
-	})
-	if not fallback then
-		return nil, 0
-	end
-	local fallbackDetection = perkDetections[fallback]
-	local fallbackScore = fallbackDetection
-		and tonumber(fallbackDetection.Confidence)
-		or 0
-	if guess == fallback then
-		fallbackScore = math.max(fallbackScore, score)
-	end
-	return fallback, math.max(fallbackScore, 1)
-end
-
-local function finishRoundWithGhost(
-	ghostName,
-	confidence,
-	certain,
-	generation,
-	finalPhase
-)
-	if doRoundState.completionGhost then
-		ghostName = doRoundState.completionGhost
-		confidence = doRoundState.completionScore or confidence
-		certain = doRoundState.completionCertain == true
-	else
-		doRoundState.completionGhost = ghostName
-		doRoundState.completionScore = confidence
-		doRoundState.completionCertain = certain == true
-	end
-	-- Lock the final choice before any journal or tracker yield. Background
-	-- identification refreshes must not replace a low-confidence timeout choice
-	-- with the earlier multi-candidate label while completion is in progress.
-	perkTrackerState.journalForcedGhost = ghostName
-	perkTrackerState.currentGhostGuess = ghostName
-	perkTrackerState.currentGhostGuessScore = confidence
-	perkTrackerState.currentGhostGuessCertain = certain == true
-	if presenter and presenter.SetGhostIdentificationLock then
-		local _, tierName = GhostModule.ConfidenceTier(confidence)
-		presenter:SetGhostIdentificationLock(
-			ghostName,
-			tierName,
-			certain == true
+	setDoRoundStatus("Placing room items")
+	local setupCompleted, setupReason = hooks.PerformRoomItemSetup(generation)
+	if not setupCompleted and presenter and presenter.Notify then
+		presenter:Notify(
+			setupReason
+				or "Room item setup failed; continuing with available items"
 		)
 	end
-	setGhostIdentificationLabel(ghostName, confidence, certain == true)
-	setDoRoundStatus("Selecting ghost guess")
-	local selectedCall, selected = pcall(
-		selectRoundJournalGhost,
-		ghostName,
-		generation
-	)
-	if not selectedCall or selected ~= true then
-		return false, "the final ghost is not selected in the Journal yet"
-	end
-	if not doRoundOperationActive(generation) then
-		return false, "Do-Round cancelled before lobby return"
-	end
-	setDoRoundStatus("Identified; returning to Base Camp")
-	if not returnRoundToBase(generation) then
-		return false, "Do-Round cancelled before the Base Camp return"
-	end
-	local returned, returnReason = requestRoundReturnToLobby(
-		generation,
-		ghostName
-	)
-	if returned then
-		setEnabled(false, finalPhase)
-		return true
-	end
-	return false, returnReason
-end
-
-local function cancelDoRoundSetupWork()
-	if roomItemPlacementState.busy
-		and roomItemPlacementState.owner == "DoRound" then
-		roomItemPlacementState.generation =
-			roomItemPlacementState.generation + 1
-		roomItemPlacementState.busy = false
-		roomItemPlacementState.thread = nil
-		roomItemPlacementState.owner = nil
-		placeRoomItemsButton.Text = COPY.Controls.PlaceRoomItems
-		placeRoomItemsButton.BackgroundColor3 = COLORS.cardHover
-	end
-	doRoundState.questionsActive = false
-	releaseRoundMovement()
-end
-
-local function finishTimedRound(generation)
-	local fallback, fallbackScore = chooseRoundTimeoutFallback()
-	if not fallback then
-		return false, "no ghost profile was available for the timed guess"
-	end
-	return finishRoundWithGhost(
-		fallback,
-		fallbackScore,
-		false,
-		generation,
-		"Selected " .. fallback
-	)
-end
-
-local function currentConfidentRoundIdentification()
-	if doRoundState.completionClaimed then
-		return nil
-	end
-	local guess = perkTrackerState.currentGhostGuess
-	local score = perkTrackerState.currentGhostGuessScore or 0
-	local certain = perkTrackerState.currentGhostGuessCertain == true
-	local singleGuess = guess
-		and not string.find(guess, "/", 1, true)
-	local eligible = false
-	if singleGuess then
-		for _, candidate in ipairs(
-			perkTrackerState.getRemainingCandidates(certain)
-		) do
-			if candidate == guess then
-				eligible = true
-				break
-			end
-		end
-	end
-	if singleGuess and eligible and (certain or score >= 80) then
-		return guess, score, certain
-	end
-	return nil
-end
-
-local function completeIdentifiedRound(generation, guess, score, certain)
-	if not doRoundOperationActive(generation)
-		or doRoundState.completionClaimed then
-		return false
-	end
-	doRoundState.completionClaimed = true
-	-- Completion takes ownership before any setup worker can pick up an item.
-	-- The fresh generation invalidates all pre-round placement and door work.
-	doRoundState.generation = doRoundState.generation + 1
-	local completionGeneration = doRoundState.generation
-	cancelRoundTask("identificationThread")
-	cancelRoundTask("timeoutThread")
-	cancelDoRoundSetupWork()
-	while doRoundOperationActive(completionGeneration) do
-		local completedCall, completed, completionFailure = xpcall(
-			function()
-				return finishRoundWithGhost(
-					guess,
-					score,
-					certain,
-					completionGeneration,
-					"Identified " .. guess
-				)
-			end,
-			debug.traceback
-		)
-		if completedCall and completed then
-			return true
-		end
-		if not doRoundOperationActive(completionGeneration) then
-			return false
-		end
-		if presenter and presenter.Notify then
-			presenter:Notify(
-				tostring(completionFailure or completed):match("^[^\n]+")
-					or "Identified lobby return failed; retrying"
-			)
-		end
-		task.wait(0.5)
-	end
-	return false
-end
-
-local function performRoundRoomItemSetup(generation)
-	while roomItemPlacementState.busy
-		and doRoundOperationActive(generation) do
-		setDoRoundStatus("Waiting for room item setup")
-		doRoundWait(generation, 0.15)
-	end
-	if not doRoundOperationActive(generation) then
-		return false, "Do-Round cancelled"
-	end
-	local started, placementGeneration = placeItemsInFavouriteRoom("DoRound")
-	if not started then
-		return false, tostring(placementGeneration)
-	end
-	repeat
-		if roundIsHunting() then
-			setDoRoundStatus("Waiting for hunt")
-			waitForRoundHuntEnd(generation)
-		else
-			setDoRoundStatus("Placing room items")
-		end
-		doRoundWait(generation, 0.15)
-		local currentGhost = getGhostModel()
-		if not roundIdentityIsCurrent()
-			or (currentGhost and currentGhost ~= doRoundState.roundGhost) then
-			error("the round changed during room item setup", 0)
-		end
-	until roomItemPlacementState.lastCompletedGeneration >= placementGeneration
-	return roomItemPlacementState.lastResult ~= false,
-		roomItemPlacementState.lastError
-end
-
-local function resetRoundRoomItemTracking()
-	for _, power in pairs(doRoundState.itemPower or {}) do
-		if power.Connection and power.Connection.Connected then
-			power.Connection:Disconnect()
-		end
-	end
-	doRoundState.roomItems = {}
-	doRoundState.itemPower = setmetatable({}, {__mode = "k"})
-	doRoundState.outsideSince = setmetatable({}, {__mode = "k"})
-	doRoundState.maintenanceBackoff = setmetatable({}, {__mode = "k"})
+	hooks.CaptureRoomItems(favouriteRoom)
 	doRoundState.itemsDirty = true
-	doRoundState.nextMaintenanceAt = 0
-end
+	local missingRoomItems = {}
+	for _, itemName in ipairs(DROPPED_ROOM_ITEMS) do
+		local tracked = doRoundState.roomItems[
+			normalizeRoundItemName(itemName)
+		]
+		if not tracked or not tracked.Parent then
+			table.insert(missingRoomItems, itemName)
+		end
+	end
+	if #missingRoomItems > 0 and presenter and presenter.Notify then
+		presenter:Notify(
+			"Missing room items: "
+				.. table.concat(missingRoomItems, ", ")
+				.. "; continuing"
+		)
+	end
+	local missingHeldItems = {}
+	for _, itemName in ipairs(ROUND_HELD_ITEMS) do
+		local stored = getRoundEquippedItem(itemName)
+			or getRoundInventoryItem(itemName)
+		if not findRoundHotbarSlot(itemName) and not stored then
+			table.insert(missingHeldItems, itemName)
+		end
+	end
+	if #missingHeldItems > 0 and presenter and presenter.Notify then
+		presenter:Notify(
+			"Missing held items: "
+				.. table.concat(missingHeldItems, ", ")
+				.. "; continuing"
+		)
+	end
 
-local function runDoRound(generation)
-	local success, failure = xpcall(function()
-		local identifiedGhost, identifiedScore, identifiedCertain =
-			currentConfidentRoundIdentification()
-		if identifiedGhost then
-			completeIdentifiedRound(
-				generation,
-				identifiedGhost,
-				identifiedScore,
-				identifiedCertain
-			)
-			return
-		end
-		setDoRoundStatus("Checking ghost room")
-		local ghost
-		local favouriteRoom
-		repeat
-			ghost = getGhostModel()
-			local rooms = findRoomsFolder()
-			favouriteRoom = findFavouriteRoom(
-				rooms,
-				ghost and ghost:GetAttribute("FavoriteRoom") or nil
-			)
-			if not favouriteRoom then
-				doRoundWait(generation, 0.2)
+	local toolsDone = false
+	repeat
+		hooks.WaitForHuntEnd(generation)
+		local completed, reason = placeRoundToolsAtDoors(generation)
+		if completed then
+			toolsDone = true
+			if reason and presenter and presenter.Notify then
+				presenter:Notify(reason)
 			end
-		until favouriteRoom and ghost
-		doRoundState.lastFavouriteRoom = favouriteRoom
-		doRoundState.roundMap = workspace:FindFirstChild("Map")
-		doRoundState.roundGhost = ghost
-		if not doRoundState.roundMap then
-			error("Map was not found", 0)
+		elseif reason ~= "hunt started"
+			and reason ~= "ghost unavailable" then
+			error(reason or "door placeables failed", 0)
 		end
+	until toolsDone
 
-		waitForRoundHuntEnd(generation)
-		if not doRoundOperationActive(generation) then
-			return
-		end
-		identifiedGhost, identifiedScore, identifiedCertain =
-			currentConfidentRoundIdentification()
-		if identifiedGhost then
-			completeIdentifiedRound(
-				generation,
-				identifiedGhost,
-				identifiedScore,
-				identifiedCertain
-			)
-			return
-		end
-		setDoRoundStatus("Placing room items")
-		local setupCompleted, setupReason = performRoundRoomItemSetup(generation)
-		if not setupCompleted and presenter and presenter.Notify then
-			presenter:Notify(
-				setupReason
-					or "Room item setup failed; continuing with available items"
-			)
-		end
-		captureRoundRoomItems(favouriteRoom)
-		doRoundState.itemsDirty = true
-		local missingRoomItems = {}
-		for _, itemName in ipairs(DROPPED_ROOM_ITEMS) do
-			local tracked = doRoundState.roomItems[
-				normalizeRoundItemName(itemName)
-			]
-			if not tracked or not tracked.Parent then
-				table.insert(missingRoomItems, itemName)
-			end
-		end
-		if #missingRoomItems > 0 then
+	local exitOpened = false
+	local exitAttempts = 0
+	repeat
+		hooks.WaitForHuntEnd(generation)
+		setDoRoundStatus("Opening exit door")
+		local opened, reason = openRoundExitDoor(generation)
+		if opened then
+			exitOpened = true
+		elseif reason ~= "hunt started"
+			and reason ~= "ghost unavailable" then
+			exitAttempts += 1
 			if presenter and presenter.Notify then
 				presenter:Notify(
-					"Missing room items: "
-						.. table.concat(missingRoomItems, ", ")
-						.. "; continuing"
+					(reason or "Exit door failed")
+						.. "; retrying ("
+						.. tostring(exitAttempts)
+						.. "/3)"
 				)
 			end
-		end
-		local missingHeldItems = {}
-		for _, itemName in ipairs(ROUND_HELD_ITEMS) do
-			local stored = getRoundEquippedItem(itemName)
-				or getRoundInventoryItem(itemName)
-			if not findRoundHotbarSlot(itemName) and not stored then
-				table.insert(missingHeldItems, itemName)
-			end
-		end
-		if #missingHeldItems > 0 then
-			if presenter and presenter.Notify then
-				presenter:Notify(
-					"Missing held items: "
-						.. table.concat(missingHeldItems, ", ")
-						.. "; continuing"
-				)
-			end
-		end
-
-		local toolsDone = false
-		repeat
-			waitForRoundHuntEnd(generation)
-			local completed, reason = placeRoundToolsAtDoors(generation)
-			if completed then
-				toolsDone = true
-				if reason and presenter and presenter.Notify then
-					presenter:Notify(reason)
-				end
-			elseif reason ~= "hunt started"
-				and reason ~= "ghost unavailable" then
-				error(reason or "door placeables failed", 0)
-			end
-		until toolsDone
-
-		local exitOpened = false
-		local exitAttempts = 0
-		repeat
-			waitForRoundHuntEnd(generation)
-			setDoRoundStatus("Opening exit door")
-			local opened, reason = openRoundExitDoor(generation)
-			if opened then
-				exitOpened = true
-			elseif reason == "hunt started"
-				or reason == "ghost unavailable" then
-				-- Wait for the temporary interruption, then retry the exit door.
+			if exitAttempts >= 3 then
+				exitAttempts = 0
+				doRoundWait(generation, 1.5)
 			else
-				exitAttempts = exitAttempts + 1
-				if presenter and presenter.Notify then
-					presenter:Notify(
-						(reason or "Exit door failed")
-							.. "; retrying ("
-							.. tostring(exitAttempts)
-							.. "/3)"
-					)
-				end
-					if exitAttempts >= 3 then
-						-- Exit replication and door remotes can be transiently late. Do not
-						-- switch automation off at an arbitrary early timestamp; remain safe,
-						-- back off, and let identification/the three-minute watchdog retain
-						-- ownership of round completion.
-						exitAttempts = 0
-						doRoundWait(generation, 1.5)
-					else
-						doRoundWait(generation, 0.5)
-					end
-				end
-		until exitOpened
+				doRoundWait(generation, 0.5)
+			end
+		end
+	until exitOpened
 
-		waitForRoundHuntEnd(generation)
-		teleportToFavouriteRoom(roundTeleportOptions(generation))
-		doRoundState.questionsActive = true
-		while doRoundOperationActive(generation) do
-			ghost = getGhostModel()
-			if workspace:FindFirstChild("Map") ~= doRoundState.roundMap then
-				error("the round map changed", 0)
-			end
-			if not ghost then
-				waitForRoundHuntEnd(generation)
-				continue
-			end
-			if ghost ~= doRoundState.roundGhost then
-				error("the round ghost changed", 0)
-			end
-			local rooms = findRoomsFolder()
-			local currentFavourite = findFavouriteRoom(
-				rooms,
-				ghost and ghost:GetAttribute("FavoriteRoom") or nil
-			)
-			if currentFavourite and currentFavourite ~= favouriteRoom then
-				favouriteRoom = currentFavourite
-				doRoundState.lastFavouriteRoom = favouriteRoom
-				doRoundState.questionsActive = false
-				resetRoundRoomItemTracking()
-				setDoRoundStatus("Relocating room items")
-				local relocated, relocationReason =
-					performRoundRoomItemSetup(generation)
-				if not relocated and presenter and presenter.Notify then
-					presenter:Notify(
-						relocationReason
-							or "Room item relocation failed; continuing with available items"
-					)
-				end
-				captureRoundRoomItems(favouriteRoom)
-				doRoundState.itemsDirty = true
-				doRoundState.nextMaintenanceAt = 0
-				continue
-			end
-			if roundIsHunting() then
-				doRoundState.questionsActive = false
-				waitForRoundHuntEnd(generation)
-				if favouriteRoom then
-					teleportToRoomBoundingBoxCenter(
-						favouriteRoom,
-						roundTeleportOptions(generation)
-					)
-				end
-				doRoundState.questionsActive = true
-				continue
-			end
-
-			local character = player.Character
-			doRoundState.questionsActive = true
-			if favouriteRoom and character
-				and not instanceIsInsideRoom(character, favouriteRoom) then
-				setDoRoundStatus("Returning to ghost room")
-				teleportToRoomBoundingBoxCenter(
-					favouriteRoom,
-					roundTeleportOptions(generation)
-				)
-			else
-				setDoRoundStatus("Asking questions")
-			end
-			if favouriteRoom then
-				maintainRoundRoomItems(favouriteRoom, generation)
-			end
-			doRoundWait(generation, 0.35)
-		end
-	end, debug.traceback)
-	if not success and doRoundOperationActive(generation) then
-		local message = tostring(failure):match("^[^\n]+") or "Do-Round failed"
-		if presenter and presenter.Notify then
-			presenter:Notify(message)
-		end
-		if returnRoundToBase(generation) then
-			setEnabled(false, "Stopped")
-		end
-	end
-end
-
-local function startRoundIdentificationWatchdog(generation)
-	doRoundState.identificationThread = task.spawn(function()
-		while doRoundOperationActive(generation)
-			and not doRoundState.completionClaimed do
-			local guess, score, certain = currentConfidentRoundIdentification()
-			if guess then
-				completeIdentifiedRound(generation, guess, score, certain)
-				return
-			end
-			task.wait(0.1)
-		end
-		doRoundState.identificationThread = nil
-	end)
-end
-
-local function startRoundTimeoutWatchdog(generation)
-	doRoundState.timeoutThread = task.delay(180, function()
-		if not doRoundOperationActive(generation)
-			or doRoundState.completionClaimed then
-			return
-		end
-		doRoundState.completionClaimed = true
-		-- Invalidate every setup/maintenance operation immediately. The new
-		-- generation belongs exclusively to timed completion, so an active hunt
-		-- or a yielded placement routine cannot postpone the three-minute return.
-		doRoundState.generation = doRoundState.generation + 1
-		local completionGeneration = doRoundState.generation
-		doRoundState.timeoutThread = nil
-		cancelRoundTask("identificationThread")
-		cancelDoRoundSetupWork()
-		while doRoundOperationActive(completionGeneration) do
-			local completedCall, completed, completionFailure = xpcall(
-				function()
-					return finishTimedRound(completionGeneration)
-				end,
-				debug.traceback
-			)
-			if completedCall and completed then
-				return
-			end
-			if not doRoundOperationActive(completionGeneration) then
-				return
-			end
-			if presenter and presenter.Notify then
-				presenter:Notify(
-					tostring(completionFailure or completed):match("^[^\n]+")
-						or "Timed lobby return failed; retrying"
-				)
-			end
-			task.wait(0.5)
-		end
-	end)
-end
-
-setEnabled = function(enabled, finalPhase)
-	enabled = enabled == true
-	if doRoundState.enabled == enabled then
-		if not enabled then
-			cancelRoundTask("timeoutThread")
-			cancelRoundTask("identificationThread")
-			releaseRoundMovement()
-		end
-		if finalPhase then
-			setDoRoundStatus(finalPhase)
-		end
-		return enabled
-	end
-	doRoundState.generation = doRoundState.generation + 1
-	doRoundState.enabled = enabled
-	if enabled then
-		cancelRoundTask("timeoutThread")
-		cancelRoundTask("identificationThread")
-		perkTrackerState.journalForcedGhost = nil
-		if presenter and presenter.SetGhostIdentificationLock then
-			presenter:SetGhostIdentificationLock(nil)
-		end
-		for _, power in pairs(doRoundState.itemPower) do
-			if power.Connection and power.Connection.Connected then
-				power.Connection:Disconnect()
-			end
-		end
-		for _, connection in ipairs(doRoundState.automationConnections or {}) do
-			if connection.Connected then
-				connection:Disconnect()
-			end
-		end
-		doRoundState.startedAt = os.clock()
-		doRoundState.exitOpenedAt = nil
-		doRoundState.completionClaimed = false
-		doRoundState.completionGhost = nil
-		doRoundState.completionScore = nil
-		doRoundState.completionCertain = nil
-		doRoundState.lastElapsed = 0
-		doRoundState.phase = "Checking ghost room"
-		doRoundState.roundMap = nil
-		doRoundState.roundGhost = nil
-		doRoundState.usedDoorNames = {}
-		doRoundState.usedSaltDoorModels = setmetatable({}, {__mode = "k"})
-		doRoundState.usedSaltDoorNames = {}
-		doRoundState.usedHolyOilDoorModels = setmetatable({}, {__mode = "k"})
-		doRoundState.usedHolyOilDoorNames = {}
-		doRoundState.reservedDoorModels = setmetatable({}, {__mode = "k"})
-		doRoundState.reservedDoorNames = {}
-		doRoundState.completedDoorTools = {}
-		doRoundState.doorToolPlacements = {}
-		doRoundState.doorToolUses = {}
-		doRoundState.lastDoorName = nil
-		doRoundState.roomItems = {}
-		doRoundState.itemPower = setmetatable({}, {__mode = "k"})
-		doRoundState.outsideSince = setmetatable({}, {__mode = "k"})
-		doRoundState.maintenanceBackoff = setmetatable({}, {__mode = "k"})
-		doRoundState.itemsDirty = true
-		doRoundState.nextMaintenanceAt = 0
-		doRoundState.automationConnections = {}
-		local items = workspace:FindFirstChild("Items")
-		if items then
-			table.insert(
-				doRoundState.automationConnections,
-				items.ChildAdded:Connect(function()
-					if doRoundState.enabled then
-						doRoundState.itemsDirty = true
-					end
-				end)
-			)
-			table.insert(
-				doRoundState.automationConnections,
-				items.ChildRemoved:Connect(function()
-					if doRoundState.enabled then
-						doRoundState.itemsDirty = true
-					end
-				end)
-			)
-		end
-		doRoundState.autoSpiritBoxLease = true
-		doRoundState.questionsActive = false
-		refreshAutoSpiritBoxEnabled()
-		setDoRoundStatus(doRoundState.phase)
-		local generation = doRoundState.generation
-		startRoundIdentificationWatchdog(generation)
-		startRoundTimeoutWatchdog(generation)
-		doRoundState.thread = task.spawn(function()
-			runDoRound(generation)
-		end)
-	else
-		cancelRoundTask("timeoutThread")
-		cancelRoundTask("identificationThread")
-		if presenter and presenter.SetGhostIdentificationLock then
-			presenter:SetGhostIdentificationLock(nil)
-		end
-		for _, power in pairs(doRoundState.itemPower) do
-			if power.Connection and power.Connection.Connected then
-				power.Connection:Disconnect()
-			end
-		end
-		for _, connection in ipairs(doRoundState.automationConnections or {}) do
-			if connection.Connected then
-				connection:Disconnect()
-			end
-		end
-		doRoundState.automationConnections = {}
-		if doRoundState.startedAt then
-			doRoundState.lastElapsed = math.max(
-				0,
-				os.clock() - doRoundState.startedAt
-			)
-		end
-		if roomItemPlacementState.busy
-			and roomItemPlacementState.owner == "DoRound" then
-			roomItemPlacementState.generation =
-				roomItemPlacementState.generation + 1
-			roomItemPlacementState.busy = false
-			roomItemPlacementState.thread = nil
-			roomItemPlacementState.owner = nil
-			placeRoomItemsButton.Text = COPY.Controls.PlaceRoomItems
-			placeRoomItemsButton.BackgroundColor3 = COLORS.cardHover
-		end
-		releaseRoundMovement()
-		doRoundState.autoSpiritBoxLease = false
-		doRoundState.questionsActive = false
-		refreshAutoSpiritBoxEnabled()
-		doRoundState.thread = nil
-		doRoundState.completionClaimed = false
-		doRoundState.completionGhost = nil
-		doRoundState.completionScore = nil
-		doRoundState.completionCertain = nil
-		doRoundState.startedAt = nil
-		doRoundState.exitOpenedAt = nil
-		doRoundState.roundMap = nil
-		doRoundState.roundGhost = nil
-		setDoRoundStatus(finalPhase or "Off")
-	end
-	return doRoundState.enabled
-end
-	return setEnabled
-end)()
 	return {
-		SetEnabled = setDoRoundEnabled,
+		Ghost = ghost,
+		FavouriteRoom = favouriteRoom,
 	}
+end
+
+return {
+	Run = runPreRound,
+	DroppedRoomItems = DROPPED_ROOM_ITEMS,
+	PoweredRoomItems = POWERED_ROOM_ITEMS,
+	HeldItems = ROUND_HELD_ITEMS,
+	NormalizeItemName = normalizeRoundItemName,
+	ItemName = roundItemName,
+	ItemIsBurntCross = roundItemIsBurntCross,
+	GetInventoryItem = getRoundInventoryItem,
+	FindHotbarSlot = findRoundHotbarSlot,
+	GetEquippedItem = getRoundEquippedItem,
+	ApproachPositions = roundApproachPositions,
+	WorldItemIsInsideRoom = roundWorldItemIsInsideRoom,
+	IsHunting = roundIsHunting,
+	IdentityIsCurrent = roundIdentityIsCurrent,
+	ActionIsSafe = roundActionIsSafe,
+	UnsafeReason = roundUnsafeReason,
+	OperationActive = doRoundOperationActive,
+	Wait = doRoundWait,
+	BeginMutation = beginAutomationMutation,
+	TeleportNearTarget = teleportNearRoundTarget,
+	InstanceInsideAnyRoom = roundInstanceInsideAnyRoom,
+	PickupMaxDistance = ROUND_PICKUP_MAX_DISTANCE,
+	RemoteSafetyDelay = ROUND_REMOTE_SAFETY_DELAY,
+	ItemOutsideGrace = ROUND_ITEM_OUTSIDE_GRACE,
+	MaintenanceInterval = ROUND_MAINTENANCE_INTERVAL,
+	MaintenanceRetryBackoff = ROUND_MAINTENANCE_RETRY_BACKOFF,
+	LobbyRetrySeconds = ROUND_LOBBY_RETRY_SECONDS,
+	MinimumLeaveAge = ROUND_MINIMUM_LEAVE_AGE,
+	BaseCampSettleSeconds = ROUND_BASE_CAMP_SETTLE_SECONDS,
+	JournalSettleSeconds = ROUND_JOURNAL_SETTLE_SECONDS,
+	BaseCampRetryMin = ROUND_BASE_CAMP_RETRY_MIN,
+	BaseCampRetryMax = ROUND_BASE_CAMP_RETRY_MAX,
+	TeleportOptions = roundTeleportOptions,
+	PlayerIsInsideBaseCamp = playerIsInsideRoundBaseCamp,
+	ReturnToBase = returnRoundToBase,
+	ReleaseMovement = releaseRoundMovement,
+}
 end

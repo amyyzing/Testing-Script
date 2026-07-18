@@ -12,6 +12,18 @@ return function(dependencies)
 		dependencies.CreateRoomItemSetup,
 		"automation requires CreateRoomItemSetup"
 	)
+	local createPreRound = assert(
+		dependencies.CreatePreRound,
+		"automation requires CreatePreRound"
+	)
+	local createRound = assert(
+		dependencies.CreateRound,
+		"automation requires CreateRound"
+	)
+	local createPostRound = assert(
+		dependencies.CreatePostRound,
+		"automation requires CreatePostRound"
+	)
 	local runtimeIsActive = dependencies.RuntimeIsActive or function() return true end
 	local button = dependencies.Button
 	local enabledColor = dependencies.EnabledColor
@@ -326,6 +338,9 @@ return function(dependencies)
 	function presenter:SetGhostIdentificationLock() end
 
 	local legacy = createRoundAutomation({
+		CreatePreRound = createPreRound,
+		CreateRound = createRound,
+		CreatePostRound = createPostRound,
 		Services = Services,
 		Player = player,
 		RuntimeIsActive = runtimeIsActive,

@@ -36,6 +36,9 @@ local autoSpirit = {
 }
 local enabledChanges = {}
 local click = signal()
+local createPreRound = function() end
+local createRound = function() end
+local createPostRound = function() end
 local controller = createAutomation({
 	Services = {Workspace = {}, RunService = nil},
 	Player = {FindFirstChildOfClass = function() return nil end},
@@ -52,12 +55,19 @@ local controller = createAutomation({
 		ForceSelect = function() return true end,
 	},
 	Movement = movement,
+	CreatePreRound = createPreRound,
+	CreateRound = createRound,
+	CreatePostRound = createPostRound,
 	CreateRoomItemSetup = function(dependencies)
 		expect(dependencies.PerkTrackerState ~= nil,
 			"room setup must receive the legacy automation state")
 		return function() return true, 1 end
 	end,
 	CreateRoundAutomation = function(dependencies)
+		expect(dependencies.CreatePreRound == createPreRound
+			and dependencies.CreateRound == createRound
+			and dependencies.CreatePostRound == createPostRound,
+			"automation must forward all three game-round phases")
 		stateSeen = dependencies.State
 		perkStateSeen = dependencies.PerkTrackerState
 		expect(dependencies.TeleportToRoom == movement.TeleportToRoom,
