@@ -836,9 +836,18 @@ local function settleRoundDoorInteraction(target, maximumDistance, generation)
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local center = getInstanceWorldPosition(target)
+	local function isWithinRange(currentRoot, currentCenter)
+		if not currentRoot or not currentCenter then
+			return false
+		end
+		return Vector2.new(
+			currentRoot.Position.X - currentCenter.X,
+			currentRoot.Position.Z - currentCenter.Z
+		).Magnitude <= maximumDistance
+	end
 	if not character or not root or not humanoid or not center
 		or humanoid.Health <= 0
-		or (root.Position - center).Magnitude > maximumDistance then
+		or not isWithinRange(root, center) then
 		return false
 	end
 	-- Re-applying the current pivot produces a fresh replicated position update.
@@ -863,7 +872,7 @@ local function settleRoundDoorInteraction(target, maximumDistance, generation)
 		center = getInstanceWorldPosition(target)
 		if not root or not humanoid or humanoid.Health <= 0 or not center
 			or root.Anchored
-			or (root.Position - center).Magnitude > maximumDistance then
+			or not isWithinRange(root, center) then
 			return false
 		end
 		root.AssemblyLinearVelocity = Vector3.zero
@@ -2579,7 +2588,7 @@ local function placeRoundToolsAtDoors(generation)
 				return score(first) > score(second)
 			end)
 			local placed = false
-			local placementReason = "no safe, settled door-face position was found"
+			local placementReason = "no safe door-face position was found"
 			local dispatched = false
 			local observedUses
 			for _, approach in ipairs(approaches) do
@@ -2591,9 +2600,10 @@ local function placeRoundToolsAtDoors(generation)
 					approach,
 					generation
 				)
-				if teleported
-					and settleRoundDoorInteraction(door, 2, generation)
-					and facePlayerTowardRoundDoor(door) then
+				-- Preserve the working ordering: exact face teleport, immediate
+				-- DoorUnion-facing rotation, then preview/facing lock. The broader
+				-- interaction settle is only for close/open remotes, not placement.
+				if teleported and facePlayerTowardRoundDoor(door) then
 					placed, placementReason, dispatched, observedUses =
 						fireRoundPlaceable(toolName, door, generation)
 					if placed or dispatched then
