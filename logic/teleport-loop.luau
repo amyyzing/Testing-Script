@@ -22,6 +22,11 @@ return function(dependencies)
 		return self.Enabled
 	end
 
+	function controller:Destroy()
+		self:SetEnabled(false)
+		self.QueuedContext = nil
+	end
+
 	function controller:Queue(context)
 		if not self.Enabled then return false, "automation loop is disabled" end
 		if type(queue) ~= "function" then return false, "queue_on_teleport is unavailable" end
@@ -34,6 +39,11 @@ return function(dependencies)
 		local source = string.format([[
 local environment = (getgenv and getgenv()) or _G
 if environment.DemonologyLoopEnabled == false then return end
+local previous = environment.DemonologySession
+if previous and type(previous.Destroy) == "function" then
+	pcall(previous.Destroy, previous)
+end
+environment.DemonologySession = nil
 environment.DemonologyLoopEnabled = true
 local token = %q
 if environment.DemonologyHandoffToken == token then return end
@@ -54,9 +64,21 @@ environment.DemonologyAutoHandoff = {
 }
 if not game:IsLoaded() then game.Loaded:Wait() end
 task.wait(4)
+if environment.DemonologyLoopEnabled == false then return end
 local compiler = loadstring or load
 assert(type(compiler) == "function", "This executor does not provide loadstring")
-local source = game:HttpGet(%q .. "?v=" .. tostring(os.time()))
+local url = %q .. "?v=" .. tostring(os.time())
+local source, failure
+for attempt = 1, 3 do
+	local ok, result = pcall(game.HttpGet, game, url)
+	if ok and type(result) == "string" and result ~= "" then
+		source = result
+		break
+	end
+	failure = result
+	if attempt < 3 then task.wait(attempt) end
+end
+assert(source, "Demonology auto-loader download failed: " .. tostring(failure))
 local chunk, compileError = compiler(source, "@DemonologyAutoLoop")
 assert(chunk, compileError)
 chunk()

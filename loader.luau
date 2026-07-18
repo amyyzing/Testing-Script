@@ -2,6 +2,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local BASE_URL = "https://raw.githubusercontent.com/amyyzing/Testing-Script/refs/heads/main/"
 local VERSION = tostring(os.time())
+local BUNDLE_PATH = "dist/modules.luau"
 local environment = (getgenv and getgenv()) or _G
 local handoff = type(environment.DemonologyAutoHandoff) == "table"
 	and environment.DemonologyAutoHandoff or nil
@@ -18,18 +19,68 @@ local Services = {
 	CoreGui = game:GetService("CoreGui"),
 	Workspace = game:GetService("Workspace"),
 	HttpService = game:GetService("HttpService"),
+	VirtualUser = game:GetService("VirtualUser"),
 }
 local player = Services.Players.LocalPlayer
 
+local compiler = loadstring or load
+assert(type(compiler) == "function", "This executor does not provide loadstring")
+local function fetch(path)
+	local url = BASE_URL .. path .. "?v=" .. VERSION
+	local failure
+	for attempt = 1, 3 do
+		local ok, result = pcall(game.HttpGet, game, url)
+		if ok and type(result) == "string" and result ~= "" then return result end
+		failure = result
+		if attempt < 3 then task.wait(attempt) end
+	end
+	error(("Download failed for %s: %s"):format(path, tostring(failure)), 0)
+end
+
+local bundleAttempted = false
+local bundledSources
+local function loadBundle()
+	if bundleAttempted then return bundledSources end
+	bundleAttempted = true
+	local fetched, source = pcall(fetch, BUNDLE_PATH)
+	if not fetched then
+		warn("Demonology module bundle unavailable; using individual files: " .. tostring(source))
+		return nil
+	end
+	local chunk, compileError = compiler(source, "@" .. BUNDLE_PATH)
+	if not chunk then
+		warn("Demonology module bundle did not compile; using individual files: "
+			.. tostring(compileError))
+		return nil
+	end
+	local ok, result = xpcall(chunk, debug.traceback)
+	if not ok or type(result) ~= "table" then
+		warn("Demonology module bundle did not initialize; using individual files: "
+			.. tostring(result))
+		return nil
+	end
+	bundledSources = result
+	return bundledSources
+end
+
+local loadedModules = {}
+local NIL_MODULE = {}
 local function loadModule(path)
-	local source = game:HttpGet(BASE_URL .. path .. "?v=" .. VERSION)
+	local cached = loadedModules[path]
+	if cached ~= nil then return cached ~= NIL_MODULE and cached or nil end
+	local bundle = loadBundle()
+	local source = bundle and bundle[path]
+	if source then
+		bundle[path] = nil
+	else
+		source = fetch(path)
+	end
 	assert(type(source) == "string" and source ~= "", "Empty module: " .. path)
-	local compiler = loadstring or load
-	assert(type(compiler) == "function", "This executor does not provide loadstring")
 	local chunk, compileError = compiler(source, "@" .. path)
 	assert(chunk, ("Compilation failed for %s: %s"):format(path, tostring(compileError)))
 	local ok, result = xpcall(chunk, debug.traceback)
 	assert(ok, ("Initialization failed for %s:\n%s"):format(path, tostring(result)))
+	loadedModules[path] = result == nil and NIL_MODULE or result
 	return result
 end
 
@@ -119,6 +170,7 @@ local createMovement = loadModule("logic/movement.luau")
 local createLobbyAutomation = loadModule("logic/lobby-automation.luau")
 local createTeleportLoop = loadModule("logic/teleport-loop.luau")
 local createSettingsStore = loadModule("logic/settings-store.luau")
+local createAntiIdle = loadModule("logic/anti-idle.luau")
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
 local createBright = loadModule("logic/bright.luau")
 local createGhostESP = loadModule("logic/ghost-esp.luau")
@@ -160,7 +212,7 @@ if not table.find(LobbySettings.Difficulties, settings.Difficulty) then settings
 session.Settings, session.SettingsStore = settings, settingsStore
 local teleportLoop = createTeleportLoop({
 	Environment = environment,
-	LoaderUrl = BASE_URL .. "logic.luau",
+	LoaderUrl = BASE_URL .. "loader.luau",
 	ReadSettings = function() return settings end,
 })
 session.TeleportLoop = teleportLoop
@@ -169,6 +221,12 @@ local function remember(value)
 	table.insert(session.Trackers, value)
 	return value
 end
+
+session.AntiIdle = remember(createAntiIdle({
+	Player = player,
+	VirtualUser = Services.VirtualUser,
+	Workspace = Services.Workspace,
+}))
 
 local movement = createMovement({
 	Services = Services,
@@ -244,6 +302,9 @@ end
 function session:Destroy()
 	if self.Destroyed then return end
 	self.Destroyed = true
+	if self.TeleportLoop and type(self.TeleportLoop.Destroy) == "function" then
+		pcall(self.TeleportLoop.Destroy, self.TeleportLoop)
+	end
 	disconnectWaiting()
 	for index = #self.Trackers, 1, -1 do
 		local tracker = self.Trackers[index]
