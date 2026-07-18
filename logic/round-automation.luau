@@ -5,11 +5,9 @@ return function(dependencies: any)
 	local getGhostModel: any = assert(dependencies.GetGhostModel, "round-automation requires GetGhostModel")
 	local findRoomsFolder: any = assert(dependencies.FindRoomsFolder, "round-automation requires FindRoomsFolder")
 	local findFavouriteRoom: any = assert(dependencies.FindFavouriteRoom, "round-automation requires FindFavouriteRoom")
-	local findBaseCampRoom: any = assert(dependencies.FindBaseCampRoom, "round-automation requires FindBaseCampRoom")
 	local getInstanceWorldPosition: any = assert(dependencies.GetInstanceWorldPosition, "round-automation requires GetInstanceWorldPosition")
 	local getRoomBoundingParts: any = assert(dependencies.GetRoomBoundingParts, "round-automation requires GetRoomBoundingParts")
 	local pointIsInsidePart: any = assert(dependencies.PointIsInsidePart, "round-automation requires PointIsInsidePart")
-	local teleportation: any = assert(dependencies.Teleportation, "round-automation requires Teleportation")
 	local teleportToRoomBoundingBoxCenter: any = assert(dependencies.TeleportToRoom, "round-automation requires TeleportToRoom")
 	local teleportToBaseCamp: any = assert(dependencies.TeleportToBaseCamp, "round-automation requires TeleportToBaseCamp")
 	local teleportToFavouriteRoom: any = assert(dependencies.TeleportToFavouriteRoom, "round-automation requires TeleportToFavouriteRoom")
@@ -42,7 +40,6 @@ local DROPPED_ROOM_ITEMS = {
 	"Video Camera",
 	"Blacklight",
 	"EMF Reader",
-	"Spirit Book",
 	"Cross",
 	"Flower Pot",
 }
@@ -54,16 +51,16 @@ local POWERED_ROOM_ITEMS = {
 }
 local ROUND_HELD_ITEMS = {"Salt Canister", "Holy Oil"}
 local ROUND_DOOR_MAX_PLAYER_DISTANCE = 2
-local ROUND_DOOR_MIN_PLAYER_DISTANCE = 1.35
+local ROUND_DOOR_MIN_PLAYER_DISTANCE = 2
+local ROUND_DOOR_STAND_DISTANCE = 2
 local ROUND_PLACEMENT_MAX_PLAYER_DISTANCE = 2
 local ROUND_PICKUP_MAX_DISTANCE = 8
 local ROUND_REMOTE_SAFETY_DELAY = 0.1
 local ROUND_LOBBY_RETRY_SECONDS = 4
 local ROUND_MINIMUM_LEAVE_AGE = 30
-local ROUND_BASE_CAMP_SETTLE_SECONDS = 1.25
-local ROUND_JOURNAL_SETTLE_SECONDS = 0.35
--- Both retained placement tools are capped at three distinct-door placements.
-local ROUND_SALT_PLACEMENT_LIMIT = 3
+-- Salt consumes every available use. Distinct door identity, not an arbitrary
+-- count, is the only placement cap; Holy Oil is capped at three placements.
+local ROUND_SALT_PLACEMENT_LIMIT = math.huge
 local ROUND_HOLY_OIL_PLACEMENT_LIMIT = 3
 local ROUND_ROOM_HORIZONTAL_TOLERANCE = 0.75
 local ROUND_ROOM_VERTICAL_TOLERANCE = 0.6
@@ -80,13 +77,14 @@ local ROUND_CAMERA_FACING_DOT = 0.995
 local ROUND_WIDE_AXIS_DOT_MAX = 0.05
 local ROUND_PREVIEW_AXIS_DOT = 0.995
 local ROUND_PLACEMENT_SETTLE_SECONDS = 0.35
-local ROUND_PLACEMENT_SETTLE_PASSES = 5
+local ROUND_PLACEMENT_SETTLE_RENDER_PASSES = 5
 local ROUND_PLACEMENT_SETTLE_HEARTBEATS = 3
 local ROUND_PLACEMENT_PREVIEW_DRIFT = 0.12
 local ROUND_PLACEMENT_ROOT_DRIFT = 0.08
 local ROUND_PLACEMENT_DOOR_DRIFT = 0.05
 local ROUND_PLACEMENT_DISTANCE_DRIFT = 0.05
 local ROUND_PLACEMENT_CENTER_TOLERANCE = 0.35
+local roundDoorFacingLockSequence = 0
 local roundRoomMembershipCache = setmetatable({}, {__mode = "k"})
 local roundRoomOverlapParams = OverlapParams.new()
 roundRoomOverlapParams.FilterType = Enum.RaycastFilterType.Include
@@ -388,6 +386,26 @@ local function roundWorldItemIsInsideRoom(model, room)
 		and roundInstanceOverlapsRoom(model, room)
 end
 
+local function roundPositionInsideAnyRoom(position)
+	local rooms = findRoomsFolder()
+	if not rooms or not position then
+		return false
+	end
+	for _, room in ipairs(rooms:GetChildren()) do
+		for _, boundingPart in ipairs(getRoomBoundingParts(room)) do
+			if roundPointInsideRoomBound(
+				boundingPart,
+				position,
+				0.35,
+				0.25
+			) then
+				return true, room, boundingPart
+			end
+		end
+	end
+	return false
+end
+
 local function roundInstanceInsideAnyRoom(instance)
 	local rooms = findRoomsFolder()
 	if not rooms or not instance then
@@ -402,18 +420,8 @@ local function roundInstanceInsideAnyRoom(instance)
 end
 
 local function roundPlacementHasFloor(instance, maximumDrop)
-	local frame, size = roundTargetCFrame(instance)
-	local rooms = findRoomsFolder()
-	if not rooms or not frame or not size then
-		return false
-	end
-	local overlappingRooms = {}
-	for _, room in ipairs(rooms:GetChildren()) do
-		if roundInstanceOverlapsRoom(instance, room) then
-			table.insert(overlappingRooms, room)
-		end
-	end
-	if #overlappingRooms == 0 then
+	local position = getInstanceWorldPosition(instance)
+	if not position or not roundPositionInsideAnyRoom(position) then
 		return false
 	end
 	local excludes = {}
@@ -434,39 +442,43 @@ local function roundPlacementHasFloor(instance, maximumDrop)
 	pcall(function()
 		params.RespectCanCollide = true
 	end)
-	local samplePositions = {
-		frame.Position,
-		frame.Position + frame.RightVector * math.min(size.X * 0.35, 1),
-		frame.Position - frame.RightVector * math.min(size.X * 0.35, 1),
-		frame.Position + frame.LookVector * math.min(size.Z * 0.35, 1),
-		frame.Position - frame.LookVector * math.min(size.Z * 0.35, 1),
-	}
-	for _, position in ipairs(samplePositions) do
-		local result = workspace:Raycast(
-			position + Vector3.new(0, 0.75, 0),
-			Vector3.new(0, -(maximumDrop or 4), 0),
-			params
-		)
-		if result and result.Normal.Y >= 0.5 then
-			for _, room in ipairs(overlappingRooms) do
-				for _, boundingPart in ipairs(getRoomBoundingParts(room)) do
-					if roundPointInsideRoomBound(
-						boundingPart,
-						result.Position,
-						0.35,
-						0.25
-					) then
-						return true
-					end
-				end
-			end
-		end
-	end
-	return false
+	local result = workspace:Raycast(
+		position + Vector3.new(0, 0.75, 0),
+		Vector3.new(0, -(maximumDrop or 4), 0),
+		params
+	)
+	return result ~= nil
+		and result.Normal.Y >= 0.5
+		and roundPositionInsideAnyRoom(result.Position)
 end
 
 local function roundApproachPositions(target, distance)
-	return teleportation.ApproachPositions(target, distance)
+	local frame, size = roundTargetCFrame(target)
+	if not frame then
+		return {}, nil
+	end
+	local horizontalSize = size and math.max(size.X, size.Z) or 2
+	local offset = distance
+		or math.clamp(horizontalSize * 0.5 + 3.25, 4.25, 6.5)
+	local center = frame.Position
+	local right = Vector3.new(frame.RightVector.X, 0, frame.RightVector.Z)
+	local look = Vector3.new(frame.LookVector.X, 0, frame.LookVector.Z)
+	if right.Magnitude < 0.05 then
+		right = Vector3.new(1, 0, 0)
+	else
+		right = right.Unit
+	end
+	if look.Magnitude < 0.05 then
+		look = Vector3.new(0, 0, -1)
+	else
+		look = look.Unit
+	end
+	return {
+		center + look * offset,
+		center - look * offset,
+		center + right * offset,
+		center - right * offset,
+	}, center
 end
 
 local function horizontalUnit(vector, fallback)
@@ -539,16 +551,21 @@ local function roundDoorGeometry(target)
 		wideLength = size.Z
 		thickness = size.X
 	end
-	local maximumDistance = ROUND_DOOR_MAX_PLAYER_DISTANCE
-	local minimumDistance = math.clamp(
-		thickness * 0.5 + 1.05,
-		ROUND_DOOR_MIN_PLAYER_DISTANCE,
-		math.min(1.75, maximumDistance)
+	local maximumDistance = math.min(
+		thickness * 0.5 + ROUND_DOOR_STAND_DISTANCE,
+		ROUND_DOOR_MAX_PLAYER_DISTANCE
+	)
+	local minimumDistance = math.min(
+		math.max(
+			thickness * 0.5 + ROUND_DOOR_MIN_PLAYER_DISTANCE,
+			ROUND_DOOR_MIN_PLAYER_DISTANCE
+		),
+		ROUND_DOOR_MAX_PLAYER_DISTANCE
 	)
 	local standDistance = math.clamp(
-		thickness * 0.5 + 1.5,
+		thickness * 0.5 + ROUND_DOOR_STAND_DISTANCE,
 		minimumDistance,
-		math.min(1.85, maximumDistance)
+		maximumDistance
 	)
 	return {
 		Reference = reference,
@@ -600,19 +617,10 @@ local function roundDoorApproaches(target, placementDistance)
 			and {0, -0.2, 0.2}
 			or {0, -0.35, 0.35, -0.7, 0.7}) do
 			for _, normalAdjustment in ipairs({0, 0.2, -0.2}) do
-				-- Keep every ripple point inside the two-stud radius. Previously the
-				-- normal component was fixed at two studs, so every non-zero lateral
-				-- fallback was rejected by the final distance validator.
-				local radialMaximum = math.sqrt(math.max(
-					0.25,
-					ROUND_DOOR_MAX_PLAYER_DISTANCE ^ 2 - lateral ^ 2
-				))
-				local allowedMaximum = math.min(maximumDistance, radialMaximum)
-				local allowedMinimum = math.min(minimumDistance, allowedMaximum)
 				local distance = math.clamp(
 					standDistance + normalAdjustment,
-					allowedMinimum,
-					allowedMaximum
+					minimumDistance,
+					maximumDistance
 				)
 				table.insert(
 					positions,
@@ -638,7 +646,44 @@ local function roundDoorApproaches(target, placementDistance)
 end
 
 local function roomForRoundTarget(target, preferredPositions)
-	return teleportation.FindRoomForTarget(target, preferredPositions)
+	local rooms = findRoomsFolder()
+	if not rooms then
+		return nil
+	end
+	local targetPosition = getInstanceWorldPosition(target)
+	local distancePositions = preferredPositions
+	if not distancePositions or #distancePositions == 0 then
+		distancePositions = targetPosition and {targetPosition} or {}
+	end
+	local bestRoom
+	local bestInsideCount = -1
+	local bestDistance = math.huge
+	for _, room in ipairs(rooms:GetChildren()) do
+		local insideCount = 0
+		local distance = math.huge
+		for _, boundingPart in ipairs(getRoomBoundingParts(room)) do
+			for _, position in ipairs(preferredPositions or {}) do
+				if pointIsInsidePart(boundingPart, position) then
+					insideCount = insideCount + 1
+				end
+			end
+			for _, referencePosition in ipairs(distancePositions) do
+				local localPosition =
+					boundingPart.CFrame:PointToObjectSpace(referencePosition)
+				local half = boundingPart.Size * 0.5
+				local dx = math.max(math.abs(localPosition.X) - half.X, 0)
+				local dz = math.max(math.abs(localPosition.Z) - half.Z, 0)
+				distance = math.min(distance, math.sqrt(dx ^ 2 + dz ^ 2))
+			end
+		end
+		if insideCount > bestInsideCount
+			or (insideCount == bestInsideCount and distance < bestDistance) then
+			bestRoom = room
+			bestInsideCount = insideCount
+			bestDistance = distance
+		end
+	end
+	return bestRoom
 end
 
 local function teleportNearRoundTarget(target, preferredPosition, generation)
@@ -836,45 +881,15 @@ local function roundDoorClosedState(doorModel, doorContainer, stateCandidates)
 		and stateCandidates.DoorContainer == doorContainer
 		and stateCandidates.Objects
 		or collectRoundDoorStateCandidates(doorModel, doorContainer)
-	local sawClosed = false
 	for _, object in ipairs(candidates) do
-		if object.Parent then
-			local state = object:GetAttribute("DoorClosed")
-			if state == false then
-				return false
-			elseif state == true then
-				sawClosed = true
-			end
+		if object.Parent and object:GetAttribute("DoorClosed") == false then
+			return false
 		end
 	end
-	return sawClosed and true or nil
-end
-
-local function waitForKnownRoundDoorState(doorModel, generation, timeout)
-	local deadline = os.clock() + (timeout or 1)
-	repeat
-		if not roundActionIsSafe(generation) then
-			return nil, nil, nil, roundUnsafeReason(generation)
-		end
-		if not doorModel or not doorModel.Parent then
-			return nil, nil, nil, "door model disappeared"
-		end
-		local doorContainer = doorModel:FindFirstChild("Door") or doorModel
-		local stateCandidates = {
-			DoorContainer = doorContainer,
-			Objects = collectRoundDoorStateCandidates(doorModel, doorContainer),
-		}
-		local state = roundDoorClosedState(
-			doorModel,
-			doorContainer,
-			stateCandidates
-		)
-		if state ~= nil then
-			return state, doorContainer, stateCandidates
-		end
-		doRoundWait(generation, 0.05)
-	until os.clock() >= deadline
-	return nil, nil, nil, "DoorClosed state was unavailable"
+	-- Several doors do not publish DoorClosed while already closed. Geometry
+	-- stability remains mandatory below, so nil is accepted only after the
+	-- whole relevant door hierarchy contained no authoritative false value.
+	return true
 end
 
 local function waitForStableClosedDoor(doorModel, generation)
@@ -890,14 +905,12 @@ local function waitForStableClosedDoor(doorModel, generation)
 		local currentDoorContainer = doorModel:FindFirstChild("Door") or doorModel
 		if currentDoorContainer ~= doorContainer then
 			doorContainer = currentDoorContainer
+			stateCandidates = {
+				DoorContainer = doorContainer,
+				Objects = collectRoundDoorStateCandidates(doorModel, doorContainer),
+			}
 		end
-		-- Descendants and DoorClosed attributes may replicate after the container.
-		-- Refresh every poll instead of preserving an incomplete candidate set.
-		stateCandidates = {
-			DoorContainer = doorContainer,
-			Objects = collectRoundDoorStateCandidates(doorModel, doorContainer),
-		}
-		if roundDoorClosedState(doorModel, doorContainer, stateCandidates) ~= true then
+		if not roundDoorClosedState(doorModel, doorContainer, stateCandidates) then
 			stablePasses = 0
 			previous = nil
 		else
@@ -948,24 +961,7 @@ local function prepareRoundDoorForPlacement(doorModel, generation)
 	if not reference then
 		return nil, nil, "DoorModel.Door.DoorUnion was unavailable"
 	end
-	local closedState = roundDoorClosedState(
-		doorModel,
-		doorContainer,
-		stateCandidates
-	)
-	if closedState == nil then
-		local stateReason
-		closedState, doorContainer, stateCandidates, stateReason =
-			waitForKnownRoundDoorState(doorModel, generation, 1)
-		if closedState == nil then
-			return nil, nil, stateReason
-		end
-		reference = roundDoorReference(doorContainer)
-		if not reference then
-			return nil, nil, "DoorModel.Door.DoorUnion was unavailable"
-		end
-	end
-	if closedState == false then
+	if not roundDoorClosedState(doorModel, doorContainer, stateCandidates) then
 		local center = getInstanceWorldPosition(reference)
 		local root = player.Character
 			and player.Character:FindFirstChild("HumanoidRootPart")
@@ -1023,30 +1019,7 @@ local function prepareRoundDoorForPlacement(doorModel, generation)
 		local firedReference = reference
 		local firedFrame = reference and reference:IsA("BasePart")
 			and reference.CFrame
-		local beforeFireState = roundDoorClosedState(
-			doorModel,
-			doorContainer,
-			stateCandidates
-		)
-		if beforeFireState == nil then
-			local stateReason
-			beforeFireState, doorContainer, stateCandidates, stateReason =
-				waitForKnownRoundDoorState(doorModel, generation, 0.75)
-			if beforeFireState == nil then
-				return nil, nil, stateReason
-			end
-			reference = roundDoorReference(doorContainer)
-			root = player.Character
-				and player.Character:FindFirstChild("HumanoidRootPart")
-			center = getInstanceWorldPosition(reference)
-			if not root or not center or (root.Position - center).Magnitude > 10 then
-				return nil, nil, "moved outside door-closing range"
-			end
-		end
-		if beforeFireState == false then
-			firedReference = reference
-			firedFrame = reference and reference:IsA("BasePart")
-				and reference.CFrame
+		if not roundDoorClosedState(doorModel, doorContainer, stateCandidates) then
 			local fired = pcall(remote.FireServer, remote, doorContainer)
 			if not fired then
 				return nil, nil, "door close interaction failed"
@@ -1065,12 +1038,12 @@ local function prepareRoundDoorForPlacement(doorModel, generation)
 			local currentDoorContainer = doorModel:FindFirstChild("Door") or doorModel
 			if currentDoorContainer ~= doorContainer then
 				doorContainer = currentDoorContainer
+				stateCandidates = {
+					DoorContainer = doorContainer,
+					Objects = collectRoundDoorStateCandidates(doorModel, doorContainer),
+				}
 			end
-			stateCandidates = {
-				DoorContainer = doorContainer,
-				Objects = collectRoundDoorStateCandidates(doorModel, doorContainer),
-			}
-			if roundDoorClosedState(doorModel, doorContainer, stateCandidates) == true then
+			if roundDoorClosedState(doorModel, doorContainer, stateCandidates) then
 				break
 			end
 			if firedAt and not retried and os.clock() - firedAt >= 1.5 then
@@ -1090,27 +1063,19 @@ local function prepareRoundDoorForPlacement(doorModel, generation)
 				center = getInstanceWorldPosition(currentReference)
 				if not geometryMoved and root and center
 					and (root.Position - center).Magnitude <= 10
-					and roundDoorClosedState(
+					and not roundDoorClosedState(
 						doorModel,
 						doorContainer,
 						stateCandidates
-					) == false then
+					) then
 					beginAutomationMutation(1)
 					pcall(remote.FireServer, remote, doorContainer)
 				end
 			end
 			doRoundWait(generation, 0.05)
 		until os.clock() >= closeDeadline
-		if roundDoorClosedState(doorModel, doorContainer, stateCandidates) ~= true then
+		if not roundDoorClosedState(doorModel, doorContainer, stateCandidates) then
 			return nil, nil, "door did not close"
-		end
-		if firedAt then
-			-- Let the close animation and its collision geometry finish before the
-			-- placement-grade teleport recalculates the door's wide face.
-			doRoundWait(generation, 1)
-			if not roundActionIsSafe(generation) then
-				return nil, nil, roundUnsafeReason(generation)
-			end
 		end
 	end
 	-- Closing rotates some doors. Always discard the pre-close reference and
@@ -1238,23 +1203,18 @@ local function enforceRoundDoorCameraFacing(context)
 		) <= ROUND_WIDE_AXIS_DOT_MAX
 end
 
-local function beginRoundDoorFacingLock(target, generation)
-	local movementLease, movementReason = teleportation.Acquire({
-		IsActive = function()
-			return generation == nil or roundActionIsSafe(generation)
-		end,
-	})
-	if not movementLease then
-		return nil, movementReason or "player movement was unavailable"
-	end
+local function facePlayerTowardRoundDoor(target)
+	local context, geometry, root = roundDoorFacingContext(target)
+	return enforceRoundDoorFacing(context), geometry, root
+end
+
+local function beginRoundDoorFacingLock(target)
 	local context = roundDoorFacingContext(target)
 	if not context then
-		movementLease:Release()
 		return nil, "player could not face the door"
 	end
 	local camera = workspace.CurrentCamera
 	if not camera then
-		movementLease:Release()
 		return nil, "player camera was unavailable"
 	end
 	context.Camera = camera
@@ -1264,16 +1224,15 @@ local function beginRoundDoorFacingLock(target, generation)
 		OriginalCameraType = camera.CameraType,
 		Released = false,
 		Connections = {},
+		RenderStepName = nil,
 		HeartbeatPass = 0,
-		SimulationPass = 0,
-		MovementLease = movementLease,
+		RenderPass = 0,
 	}
 	doRoundState.facingLocks = doRoundState.facingLocks
 		or setmetatable({}, {__mode = "k"})
 	doRoundState.facingLocks[lock] = true
 	function lock:Enforce()
-		if self.Released
-			or (generation ~= nil and not roundActionIsSafe(generation)) then
+		if self.Released then
 			return false
 		end
 		local refreshed = roundDoorFacingContext(self.Context.Target)
@@ -1315,6 +1274,13 @@ local function beginRoundDoorFacingLock(target, generation)
 				connection:Disconnect()
 			end
 		end
+		if self.RenderStepName then
+			pcall(function()
+				Services.RunService:UnbindFromRenderStep(
+					self.RenderStepName
+				)
+			end)
+		end
 		local humanoid = self.Context.Humanoid
 		if humanoid.Parent
 			and player.Character == self.Context.Character then
@@ -1327,10 +1293,6 @@ local function beginRoundDoorFacingLock(target, generation)
 			pcall(function()
 				camera.CameraType = self.OriginalCameraType
 			end)
-		end
-		if self.MovementLease then
-			self.MovementLease:Release()
-			self.MovementLease = nil
 		end
 	end
 	local disabled = pcall(function()
@@ -1345,7 +1307,6 @@ local function beginRoundDoorFacingLock(target, generation)
 		return Services.RunService.Heartbeat:Connect(function()
 			if lock:Enforce() then
 				lock.HeartbeatPass = lock.HeartbeatPass + 1
-				lock.SimulationPass = lock.SimulationPass + 1
 			else
 				lock:Release()
 			end
@@ -1357,6 +1318,26 @@ local function beginRoundDoorFacingLock(target, generation)
 	if not heartbeatConnected then
 		lock:Release()
 		return nil, "player facing lock could not bind to simulation"
+	end
+	roundDoorFacingLockSequence = roundDoorFacingLockSequence + 1
+	lock.RenderStepName = "DemonologyDoorFacing_"
+		.. tostring(roundDoorFacingLockSequence)
+	local renderBound = pcall(function()
+		Services.RunService:BindToRenderStep(
+			lock.RenderStepName,
+			Enum.RenderPriority.Camera.Value + 1,
+			function()
+				if lock:Enforce() then
+					lock.RenderPass = lock.RenderPass + 1
+				else
+					lock:Release()
+				end
+			end
+		)
+	end)
+	if not renderBound then
+		lock:Release()
+		return nil, "player facing lock could not bind after the camera"
 	end
 	if not lock:Enforce() then
 		lock:Release()
@@ -1412,7 +1393,7 @@ local function waitForRoundPlacementXZDistance(toolName, generation)
 	local lastDistance
 	local stablePasses = 0
 	repeat
-		Services.RunService.Heartbeat:Wait()
+		Services.RunService.RenderStepped:Wait()
 		if not roundActionIsSafe(generation) then
 			return nil, roundUnsafeReason(generation)
 		end
@@ -1514,26 +1495,27 @@ local waitForRoundPreview: any = function(
 )
 	local deadline = os.clock() + 4.5
 	local stableSince
-	local stablePasses = 0
+	local stableRenderPasses = 0
 	local stableHeartbeatPass
-	local lastObservedPass = -1
+	local lastObservedRenderPass = -1
 	local baseline
 	repeat
-		Services.RunService.Heartbeat:Wait()
+		Services.RunService.RenderStepped:Wait()
 		if not roundActionIsSafe(generation) then
 			return false, roundUnsafeReason(generation)
 		end
 		if facingLock.Released then
 			return false, "player facing lock was released before placement settled"
 		end
-		local simulationPass = facingLock.SimulationPass
-		if simulationPass <= lastObservedPass then
+		local renderPass = facingLock.RenderPass
+		if renderPass <= lastObservedRenderPass then
 			continue
 		end
-		lastObservedPass = simulationPass
+		lastObservedRenderPass = renderPass
+		local enforced = facingLock:Enforce()
 		local aligned, previewPart, geometry, root, previewAxis =
 			placementPreviewIsAligned(toolName, target)
-		if aligned and previewPart and geometry and root then
+		if enforced and aligned and previewPart and geometry and root then
 			local snapshot = {
 				PreviewPosition = previewPart.Position,
 				PreviewAxis = previewAxis,
@@ -1556,7 +1538,7 @@ local waitForRoundPreview: any = function(
 						) >= 0.998))
 			if not remainedStable then
 				stableSince = nil
-				stablePasses = 0
+				stableRenderPasses = 0
 				stableHeartbeatPass = nil
 				baseline = nil
 			end
@@ -1565,17 +1547,17 @@ local waitForRoundPreview: any = function(
 				stableSince = os.clock()
 				stableHeartbeatPass = facingLock.HeartbeatPass
 			end
-			stablePasses = stablePasses + 1
-			if stablePasses >= ROUND_PLACEMENT_SETTLE_PASSES
+			stableRenderPasses = stableRenderPasses + 1
+			if stableRenderPasses >= ROUND_PLACEMENT_SETTLE_RENDER_PASSES
 				and facingLock.HeartbeatPass - stableHeartbeatPass
 					>= ROUND_PLACEMENT_SETTLE_HEARTBEATS
 				and os.clock() - stableSince
 					>= ROUND_PLACEMENT_SETTLE_SECONDS then
-				return true, nil
+				return true, nil, renderPass
 			end
 		else
 			stableSince = nil
-			stablePasses = 0
+			stableRenderPasses = 0
 			stableHeartbeatPass = nil
 			baseline = nil
 		end
@@ -1630,12 +1612,12 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 	local dispatchPreviewPosition
 	local dispatchAccepted = false
 	local dispatchFailure
-	local facingLock, facingReason = beginRoundDoorFacingLock(target, generation)
+	local facingLock, facingReason = beginRoundDoorFacingLock(target)
 	if not facingLock then
 		return false, facingReason
 	end
 	local guarded, guardedFailure = xpcall(function()
-		local aligned, alignReason = waitForRoundPreview(
+		local aligned, alignReason, settledRenderPass = waitForRoundPreview(
 			toolName,
 			target,
 			generation,
@@ -1653,7 +1635,8 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 		end
 		local previewAligned, previewPart =
 			placementPreviewIsAligned(toolName, target)
-		if not facingLock:Enforce()
+		if facingLock.RenderPass ~= settledRenderPass
+			or not facingLock:Enforce()
 			or not previewAligned
 			or not previewPart then
 			dispatchFailure =
@@ -1687,7 +1670,8 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 		targetFrame = roundTargetCFrame(target)
 		dispatchPreviewPosition = previewPart.Position
 		beginAutomationMutation(2.5)
-		if not facingLock:Enforce()
+		if facingLock.RenderPass ~= settledRenderPass
+			or not facingLock:Enforce()
 			or not placementPreviewIsAligned(toolName, target) then
 			dispatchFailure =
 				"player facing changed before placement dispatch"
@@ -1739,25 +1723,19 @@ local fireRoundPlaceable: any = function(toolName, target, generation)
 	local spawnConfirmed = false
 	local lastObservedUses = uses
 	repeat
-		local currentEquipped = getRoundEquippedItem(toolName)
-			or getRoundInventoryItem(toolName)
-			or equipped
-		local currentUses = currentEquipped
-			and tonumber(currentEquipped:GetAttribute("Uses"))
+		if not doRoundOperationActive(generation) then
+			return false, "Do-Round cancelled", true
+		end
+		if not roundActionIsSafe(generation) then
+			return false, roundUnsafeReason(generation), true
+		end
+		local currentEquipped = getRoundEquippedItem(toolName) or equipped
+		local currentUses = tonumber(currentEquipped:GetAttribute("Uses"))
 		if currentUses ~= nil then
 			lastObservedUses = currentUses
 		end
 		if uses ~= nil and currentUses ~= nil and currentUses < uses then
 			usesConfirmed = true
-		end
-		if not doRoundOperationActive(generation) then
-			return false, "Do-Round cancelled", true, lastObservedUses
-		end
-		if not roundActionIsSafe(generation) then
-			return false,
-				roundUnsafeReason(generation),
-				true,
-				lastObservedUses
 		end
 		placementFolder = workspace:FindFirstChild(folderName)
 		if placementFolder then
@@ -1857,10 +1835,10 @@ end
 		DoorGeometry = roundDoorGeometry,
 		DoorApproaches = roundDoorApproaches,
 		DoorIsClosed = roundDoorClosedState,
-		WaitForDoorState = waitForKnownRoundDoorState,
 		PrepareDoor = prepareRoundDoorForPlacement,
 		TeleportNearTarget = teleportNearRoundTarget,
 		TeleportToDoorFace = teleportToRoundDoorFace,
+		FacePlayerToDoor = facePlayerTowardRoundDoor,
 		Shuffle = shuffleRoundList,
 		IsHunting = roundIsHunting,
 		IdentityIsCurrent = roundIdentityIsCurrent,
@@ -1872,6 +1850,8 @@ end
 		PlacementXZDistance = waitForRoundPlacementXZDistance,
 		FirePlaceable = fireRoundPlaceable,
 		WorldItemIsInsideRoom = roundWorldItemIsInsideRoom,
+		InstanceInsideAnyRoom = roundInstanceInsideAnyRoom,
+		PlacementHasFloor = roundPlacementHasFloor,
 		PickupMaxDistance = ROUND_PICKUP_MAX_DISTANCE,
 		RemoteSafetyDelay = ROUND_REMOTE_SAFETY_DELAY,
 		LobbyRetrySeconds = ROUND_LOBBY_RETRY_SECONDS,
@@ -1905,10 +1885,10 @@ local setDoRoundEnabled = (function()
 	local roundDoorGeometry = roundUtilities.DoorGeometry
 	local roundDoorApproaches = roundUtilities.DoorApproaches
 	local roundDoorClosedState = roundUtilities.DoorIsClosed
-	local waitForKnownRoundDoorState = roundUtilities.WaitForDoorState
 	local prepareRoundDoorForPlacement = roundUtilities.PrepareDoor
 	local teleportNearRoundTarget = roundUtilities.TeleportNearTarget
 	local teleportToRoundDoorFace = roundUtilities.TeleportToDoorFace
+	local facePlayerTowardRoundDoor = roundUtilities.FacePlayerToDoor
 	local shuffleRoundList = roundUtilities.Shuffle
 	local roundIsHunting = roundUtilities.IsHunting
 	local roundIdentityIsCurrent = roundUtilities.IdentityIsCurrent
@@ -1942,64 +1922,33 @@ local setDoRoundEnabled = (function()
 	local function roundTeleportOptions(generation)
 		return {
 			ReleaseMovementOnCancel = true,
-			ForcePreferredPosition = true,
 			IsActive = function()
 				return doRoundOperationActive(generation)
 			end,
 		}
 	end
 	local function roundBaseCampRoom()
-		return findBaseCampRoom()
-	end
-	local function roundPlayerRoot()
-		local character = player.Character
-		local root = character
-			and character:FindFirstChild("HumanoidRootPart")
-		return root and root:IsA("BasePart") and root or nil
+		local rooms = findRoomsFolder()
+		if not rooms then
+			return nil
+		end
+		return rooms:FindFirstChild("Base Camp")
+			or rooms:FindFirstChild("BaseCamp")
+			or findFavouriteRoom(rooms, "Base Camp")
 	end
 	local function playerIsInsideRoundBaseCamp()
 		local room = roundBaseCampRoom()
-		local root = roundPlayerRoot()
+		local character = player.Character
 		return room ~= nil
-			and root ~= nil
-			and instanceIsInsideRoom(root, room)
-	end
-	local function waitForRoundBaseCampSettle(generation)
-		-- A local Model pivot can already be inside the room while the server still
-		-- sees the previous position. Release every automation movement override,
-		-- then require the replicated character root to remain inside continuously
-		-- before a return request is allowed to race the position update.
-		releasePlayerMovement(true)
-		local stableRoot
-		local stableSince
-		while doRoundOperationActive(generation) do
-			local root = roundPlayerRoot()
-			local humanoid = player.Character
-				and player.Character:FindFirstChildOfClass("Humanoid")
-			local stable = root ~= nil
-				and humanoid ~= nil
-				and humanoid.Health > 0
-				and root.Anchored == false
-				and playerIsInsideRoundBaseCamp()
-			if stable then
-				if stableRoot ~= root then
-					stableRoot = root
-					stableSince = os.clock()
-				elseif os.clock() - (stableSince or os.clock())
-					>= ROUND_BASE_CAMP_SETTLE_SECONDS then
-					return true
-				end
-			else
-				stableRoot = nil
-				stableSince = nil
-			end
-			Services.RunService.Heartbeat:Wait()
-		end
-		return false
+			and character ~= nil
+			and instanceIsInsideRoom(character, room)
 	end
 	local function returnRoundToBase(generation)
 		local failedAttempts = 0
 		while doRoundOperationActive(generation) do
+			if playerIsInsideRoundBaseCamp() then
+				return true
+			end
 			setDoRoundStatus("Returning to Base Camp")
 			local teleported = teleportToBaseCamp(
 				roundTeleportOptions(generation)
@@ -2007,8 +1956,7 @@ local setDoRoundEnabled = (function()
 			if teleported then
 				Services.RunService.Heartbeat:Wait()
 			end
-			if teleported and playerIsInsideRoundBaseCamp()
-				and waitForRoundBaseCampSettle(generation) then
+			if teleported and playerIsInsideRoundBaseCamp() then
 				return true
 			end
 			failedAttempts = failedAttempts + 1
@@ -2134,9 +2082,9 @@ local function roundDoorDistanceToRoom(doorModel, room)
 end
 
 local function acquireRoundHeldTool(itemName, generation)
-	local stored = getRoundEquippedItem(itemName)
+	if getRoundEquippedItem(itemName)
 		or getRoundInventoryItem(itemName)
-	if stored and (tonumber(stored:GetAttribute("Uses")) or 0) > 0 then
+		or findRoundHotbarSlot(itemName) then
 		return true
 	end
 	local itemsFolder = workspace:FindFirstChild("Items")
@@ -2148,7 +2096,7 @@ local function acquireRoundHeldTool(itemName, generation)
 	for _, model in ipairs(itemsFolder:GetChildren()) do
 		if model:IsA("Model")
 			and normalizeRoundItemName(roundItemName(model)) == normalized
-			and (tonumber(model:GetAttribute("Uses")) or 0) > 0 then
+			and tonumber(model:GetAttribute("Uses")) ~= 0 then
 			table.insert(candidates, model)
 		end
 	end
@@ -2198,10 +2146,9 @@ local function acquireRoundHeldTool(itemName, generation)
 					if pcall(pickup.FireServer, pickup, model) then
 						local deadline = os.clock() + 2
 						repeat
-							local pickedUp = getRoundEquippedItem(itemName)
+							if getRoundEquippedItem(itemName)
 								or getRoundInventoryItem(itemName)
-							if pickedUp
-								and (tonumber(pickedUp:GetAttribute("Uses")) or 0) > 0 then
+								or findRoundHotbarSlot(itemName) then
 								return true
 							end
 							doRoundWait(generation, 0.05)
@@ -2218,56 +2165,6 @@ local function acquireRoundHeldTool(itemName, generation)
 	return false, lastReason
 end
 
-local function dropRoundHeldTool(itemName, generation)
-	local held = getRoundEquippedItem(itemName)
-		or getRoundInventoryItem(itemName)
-	if not held then
-		return true
-	end
-	if not roundActionIsSafe(generation) then
-		return false, roundUnsafeReason(generation)
-	end
-	local slotNumber = findRoundHotbarSlot(itemName)
-	if not slotNumber then
-		return false, itemName .. " hotbar slot was unavailable for drop"
-	end
-	if not getRoundEquippedItem(itemName) then
-		local equipped, equipReason = equipRoundItem(itemName, 1.5, generation)
-		if not equipped then
-			return false, equipReason
-		end
-	end
-	local events = Services.ReplicatedStorage:FindFirstChild("Events")
-	local drop = events and events:FindFirstChild("RequestItemDrop")
-	if not drop or not drop:IsA("RemoteEvent") then
-		return false, "RequestItemDrop RemoteEvent was not found"
-	end
-	beginAutomationMutation(2)
-	doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
-	if not roundActionIsSafe(generation) then
-		return false, roundUnsafeReason(generation)
-	end
-	if not pcall(
-		drop.FireServer,
-		drop,
-		"InvSlot" .. tostring(slotNumber)
-	) then
-		return false, itemName .. " drop interaction failed"
-	end
-	local deadline = os.clock() + 1.5
-	repeat
-		if not getRoundEquippedItem(itemName)
-			and not getRoundInventoryItem(itemName) then
-			return true
-		end
-		if not roundActionIsSafe(generation) then
-			return false, roundUnsafeReason(generation)
-		end
-		task.wait(0.05)
-	until os.clock() >= deadline
-	return false, itemName .. " drop was not confirmed"
-end
-
 local function placeRoundToolsAtDoors(generation)
 	local rejectedDoors = setmetatable({}, {__mode = "k"})
 	local doorInstanceIds = setmetatable({}, {__mode = "k"})
@@ -2278,14 +2175,6 @@ local function placeRoundToolsAtDoors(generation)
 	local doorRetryPasses = {}
 	local warnings = {}
 	local warningKeys = {}
-	local function replaceEmptyTool(toolName, toolKey)
-		local dropped, dropReason = dropRoundHeldTool(toolName, generation)
-		if not dropped then
-			return false, dropReason
-		end
-		doRoundState.doorToolUses[toolKey] = nil
-		return acquireRoundHeldTool(toolName, generation)
-	end
 	local function doorInstanceKey(doorModel)
 		local id = doorInstanceIds[doorModel]
 		if not id then
@@ -2300,29 +2189,6 @@ local function placeRoundToolsAtDoors(generation)
 			warningKeys[key] = true
 			table.insert(warnings, message)
 		end
-	end
-	local function doorHasNearbyPlacement(doorModel, folderName)
-		local geometry = roundDoorGeometry(
-			doorModel:FindFirstChild("Door") or doorModel
-		)
-		local folder = workspace:FindFirstChild(folderName)
-		if not geometry or not folder then
-			return false
-		end
-		for _, placement in ipairs(folder:GetChildren()) do
-			local position = getInstanceWorldPosition(placement)
-			if position then
-				local offset = Vector3.new(
-					position.X - geometry.Center.X,
-					0,
-					position.Z - geometry.Center.Z
-				)
-				if offset.Magnitude <= 3 then
-					return true
-				end
-			end
-		end
-		return false
 	end
 	local function selectDoor(toolKey)
 		local doors = eligibleRoundDoors(false)
@@ -2351,8 +2217,7 @@ local function placeRoundToolsAtDoors(generation)
 					and not doRoundState.reservedDoorModels[doorModel]
 					and not doRoundState.usedSaltDoorModels[doorModel]
 					and (toolKey ~= "holy oil"
-						or (not doRoundState.usedHolyOilDoorModels[doorModel]
-							and not doorHasNearbyPlacement(doorModel, "HolyOil")))
+						or not doRoundState.usedHolyOilDoorModels[doorModel])
 				local nameEligible = requireUnusedName == 0
 					or (not doRoundState.reservedDoorNames[key]
 						and not doRoundState.usedSaltDoorNames[key]
@@ -2387,24 +2252,7 @@ local function placeRoundToolsAtDoors(generation)
 				end
 				local cachedUses = doRoundState.doorToolUses[toolKey]
 				if cachedUses ~= nil and cachedUses <= 0 then
-					local replaced, replaceReason = replaceEmptyTool(
-						toolName,
-						toolKey
-					)
-					if replaced then
-						continue
-					end
-					if replaceReason == "hunt started"
-						or replaceReason == "ghost unavailable"
-						or replaceReason == "Do-Round cancelled" then
-						return false, replaceReason
-					end
 					doRoundState.completedDoorTools[toolKey] = true
-					addWarning(
-						toolKey .. ":empty-replacement",
-						replaceReason
-							or (toolName .. " had no usable replacement")
-					)
 					break
 				end
 				local stored = getRoundEquippedItem(toolName)
@@ -2446,15 +2294,10 @@ local function placeRoundToolsAtDoors(generation)
 				end
 				equipFailures[toolKey] = (equipFailures[toolKey] or 0) + 1
 				if equipFailures[toolKey] >= 4 then
-					addWarning(
-						toolKey .. ":equip",
+					return false,
 						toolName
-							.. " is present but has not equipped yet: "
+							.. " remained present but could not be equipped after four retries: "
 							.. tostring(reason)
-					)
-					setDoRoundStatus("Retrying " .. toolName .. " equip")
-					doRoundWait(generation, 1)
-					continue
 				end
 				doRoundWait(generation, 0.25 * equipFailures[toolKey])
 				continue
@@ -2497,24 +2340,7 @@ local function placeRoundToolsAtDoors(generation)
 			missingUsesFailures[toolKey] = 0
 			doRoundState.doorToolUses[toolKey] = uses
 			if uses <= 0 then
-				local replaced, replaceReason = replaceEmptyTool(
-					toolName,
-					toolKey
-				)
-				if replaced then
-					continue
-				end
-				if replaceReason == "hunt started"
-					or replaceReason == "ghost unavailable"
-					or replaceReason == "Do-Round cancelled" then
-					return false, replaceReason
-				end
 				doRoundState.completedDoorTools[toolKey] = true
-				addWarning(
-					toolKey .. ":empty-replacement",
-					replaceReason
-						or (toolName .. " had no usable replacement")
-				)
 				break
 			end
 
@@ -2622,7 +2448,7 @@ local function placeRoundToolsAtDoors(generation)
 					approach,
 					generation
 				)
-				if teleported then
+				if teleported and facePlayerTowardRoundDoor(door) then
 					placed, placementReason, dispatched, observedUses =
 						fireRoundPlaceable(toolName, door, generation)
 					if placed or dispatched then
@@ -2633,30 +2459,24 @@ local function placeRoundToolsAtDoors(generation)
 
 			if observedUses ~= nil then
 				doRoundState.doorToolUses[toolKey] = observedUses
+				if observedUses <= 0 then
+					doRoundState.completedDoorTools[toolKey] = true
+				end
 			end
-			local consumedUse = dispatched
-				and observedUses ~= nil
-				and observedUses < uses
-			local placementAccepted = placed or consumedUse
-			if placementAccepted then
+			if placed then
 				doorRetryPasses[toolKey] = 0
 				doRoundState.reservedDoorModels[selectedDoor] = true
 				doRoundState.reservedDoorNames[selectedKey] = true
 				doRoundState.doorToolPlacements[toolKey] =
 					(doRoundState.doorToolPlacements[toolKey] or 0) + 1
+				doRoundState.usedDoorNames[selectedKey] = true
+				doRoundState.lastDoorName = selectedKey
 				if toolKey == "salt canister" then
 					doRoundState.usedSaltDoorModels[selectedDoor] = true
 					doRoundState.usedSaltDoorNames[selectedKey] = true
 				else
 					doRoundState.usedHolyOilDoorModels[selectedDoor] = true
 					doRoundState.usedHolyOilDoorNames[selectedKey] = true
-				end
-				if consumedUse and not placed then
-					addWarning(
-						toolKey .. ":spawn-unconfirmed:" .. selectedInstanceKey,
-						placementReason
-							or (toolName .. " consumed a use before its world pile could be confirmed")
-					)
 				end
 			elseif dispatched then
 				if placementReason == "hunt started"
@@ -2685,18 +2505,9 @@ local function placeRoundToolsAtDoors(generation)
 				>= placementLimit then
 				doRoundState.completedDoorTools[toolKey] = true
 			end
-			if not placementAccepted then
+			if not placed then
 				doRoundWait(generation, 0.2)
 			end
-		end
-		local dropped, dropReason = dropRoundHeldTool(toolName, generation)
-		if not dropped then
-			if dropReason == "hunt started"
-				or dropReason == "ghost unavailable"
-				or dropReason == "Do-Round cancelled" then
-				return false, dropReason
-			end
-			addWarning(toolKey .. ":drop", dropReason)
 		end
 	end
 	if not doRoundOperationActive(generation) then
@@ -2719,18 +2530,13 @@ local function openRoundExitDoor(generation)
 	if #exitDoors == 0 then
 		return false, "Workspace.Doors.ExitDoor was not found"
 	end
-	local lastStateReason
 	for _, exitModel in ipairs(exitDoors) do
-		local initialState, initialDoorContainer, _, stateReason =
-			waitForKnownRoundDoorState(exitModel, generation, 1)
-		if initialState == nil then
-			lastStateReason = stateReason
-			continue
-		end
-		if initialState == false then
+		local initialDoorContainer = exitModel:FindFirstChild("Door")
+			or exitModel
+		if not roundDoorClosedState(exitModel, initialDoorContainer) then
 			return markRoundStarted()
 		end
-		local doorContainer = initialDoorContainer
+		local doorContainer = exitModel:FindFirstChild("Door")
 		local doorReference = doorContainer
 			and (roundDoorReference(doorContainer) or doorContainer)
 		if doorContainer and doorReference then
@@ -2778,31 +2584,7 @@ local function openRoundExitDoor(generation)
 					return false, roundUnsafeReason(generation)
 				end
 				-- Doors.ExitDoor.DoorClosed is authoritative when present.
-				local beforeOpenState = roundDoorClosedState(
-					exitModel,
-					doorContainer
-				)
-				if beforeOpenState == nil then
-					local refreshedContainer
-					local refreshedStateReason
-					beforeOpenState, refreshedContainer, _, refreshedStateReason =
-						waitForKnownRoundDoorState(exitModel, generation, 0.75)
-					if beforeOpenState == nil then
-						lastStateReason = refreshedStateReason
-						continue
-					end
-					doorContainer = refreshedContainer
-					doorReference = roundDoorReference(doorContainer)
-					center = getInstanceWorldPosition(doorReference)
-					root = player.Character
-						and player.Character:FindFirstChild("HumanoidRootPart")
-					if not root or not center
-						or (root.Position - center).Magnitude > 10 then
-						lastStateReason = "moved outside exit-door interaction range"
-						continue
-					end
-				end
-				if beforeOpenState == false then
+				if not roundDoorClosedState(exitModel, doorContainer) then
 					return markRoundStarted()
 				end
 				setDoRoundStatus("Opening exit door")
@@ -2811,45 +2593,15 @@ local function openRoundExitDoor(generation)
 				if not roundActionIsSafe(generation) then
 					return false, roundUnsafeReason(generation)
 				end
-				-- The safety delay gives other actors time to change the door. Resolve
-				-- the authoritative tri-state again; never toggle an unknown or already
-				-- open exit door.
-				doorContainer = exitModel:FindFirstChild("Door") or exitModel
-				local finalClosedState = roundDoorClosedState(
-					exitModel,
-					doorContainer
-				)
-				if finalClosedState == nil then
-					local refreshedContainer
-					finalClosedState, refreshedContainer, _, lastStateReason =
-						waitForKnownRoundDoorState(exitModel, generation, 0.75)
-					doorContainer = refreshedContainer or doorContainer
-				end
-				if finalClosedState == false then
-					return markRoundStarted()
-				elseif finalClosedState ~= true then
-					continue
-				end
-				doorReference = roundDoorReference(doorContainer)
-				root = player.Character
-					and player.Character:FindFirstChild("HumanoidRootPart")
-				center = getInstanceWorldPosition(doorReference)
-				if not root or not center
-					or (root.Position - center).Magnitude > 10 then
-					lastStateReason = "moved outside exit-door interaction range"
-					continue
-				end
 				local fired = pcall(
 					remote.FireServer,
 					remote,
 					doorContainer
 				)
 				if fired then
-					-- Give the authoritative DoorClosed attribute and open animation time
-					-- to replicate before the outer routine considers another interaction.
-					local openDeadline = os.clock() + 2
+					local openDeadline = os.clock() + 0.45
 					repeat
-						if roundDoorClosedState(exitModel, doorContainer) == false then
+						if not roundDoorClosedState(exitModel, doorContainer) then
 							return markRoundStarted()
 						end
 						doRoundWait(generation, 0.05)
@@ -2858,7 +2610,7 @@ local function openRoundExitDoor(generation)
 			end
 		end
 	end
-	return false, lastStateReason or "ExitDoor did not open"
+	return false, "ExitDoor did not open"
 end
 
 local function captureRoundRoomItems(room)
@@ -2896,15 +2648,10 @@ local function captureRoundRoomItems(room)
 				break
 			end
 		end
-		local validExisting = existing
-		if not existing
-			or not existing.Parent
-			or roundItemIsBurntCross(existing) then
-			validExisting = nil
-		end
 		doRoundState.roomItems[normalized] = inside
-			or validExisting
 			or fallback
+			or (existing and existing.Parent and not roundItemIsBurntCross(existing)
+				and existing)
 			or getRoundEquippedItem(itemName)
 			or getRoundInventoryItem(itemName)
 	end
@@ -3250,38 +2997,6 @@ local function maintainRoundRoomItems(room, generation)
 	end
 end
 
-local function journalSelectionMatchesFinalState(ghostName)
-	local ghostTypes = perkTrackerState.findJournalGhostTypes()
-	local selectedFrame = ghostTypes and ghostTypes:FindFirstChild(ghostName)
-	if not selectedFrame or not selectedFrame:IsA("Frame")
-		or perkTrackerState.readJournalRowState(selectedFrame) ~= true
-		or perkTrackerState.lastJournalSelectedGhost ~= ghostName then
-		return false
-	end
-	local candidates = perkTrackerState.getRemainingCandidates(false)
-	local candidateSet = {[ghostName] = true}
-	for _, candidate in ipairs(candidates) do
-		candidateSet[candidate] = true
-	end
-	for _, profile in ipairs(GHOST_PROFILES) do
-		local name = profile.Name
-		if name ~= ghostName then
-			local frame = ghostTypes:FindFirstChild(name)
-			if not frame or not frame:IsA("Frame") then
-				return false
-			end
-			local expected = false
-			if candidateSet[name] then
-				expected = nil
-			end
-			if perkTrackerState.readJournalRowState(frame) ~= expected then
-				return false
-			end
-		end
-	end
-	return true
-end
-
 local function selectRoundJournalGhost(ghostName, generation)
 	if not ghostName or string.find(tostring(ghostName), "/", 1, true) then
 		return false
@@ -3289,26 +3004,35 @@ local function selectRoundJournalGhost(ghostName, generation)
 	if not doRoundOperationActive(generation) then
 		return false
 	end
-	-- Apply the complete final journal state before beginning the Base Camp return.
-	-- This includes every cross-out, the selected row, and the authoritative
-	-- EvidenceMarkedInJournal remote. A selected-row-only shortcut can leave the
-	-- game's GetSelectedGhost callback stale when RequestReturnToLobby is fired.
-	local deadline = os.clock() + 8
+	-- The server queries GetSelectedGhost, whose answer comes from the Journal
+	-- controller's local row table. EvidenceMarkedInJournal alone does not update
+	-- that table, so keep using the real click path until the intended row is the
+	-- only selected row. A cloning/busy Journal is a retry state, not success.
+	local deadline = os.clock() + 1.5
 	repeat
+		pcall(perkTrackerState.syncJournal, ghostName)
 		if not doRoundOperationActive(generation) then
 			return false
 		end
-		if perkTrackerState.journalMutationBusy ~= true then
-			local syncedCall, synced = pcall(
-				perkTrackerState.syncJournal,
-				ghostName
-			)
-			if syncedCall and synced == true
-				and journalSelectionMatchesFinalState(ghostName) then
-				doRoundWait(generation, ROUND_JOURNAL_SETTLE_SECONDS)
-				if journalSelectionMatchesFinalState(ghostName) then
-					return true
+		local ghostTypes = perkTrackerState.findJournalGhostTypes()
+		local frame = ghostTypes and ghostTypes:FindFirstChild(ghostName)
+		if perkTrackerState.journalMutationBusy ~= true
+			and frame and frame:IsA("Frame")
+			and perkTrackerState.readJournalRowState(frame) == true then
+			local conflictingSelection = false
+			for _, otherFrame in ipairs(ghostTypes:GetChildren()) do
+				if otherFrame ~= frame and otherFrame:IsA("Frame")
+					and perkTrackerState.readJournalRowState(otherFrame) == true then
+					conflictingSelection = true
+					pcall(
+						perkTrackerState.applyJournalRowState,
+						otherFrame,
+						nil
+					)
 				end
+			end
+			if not conflictingSelection then
+				return true
 			end
 		end
 		task.wait(0.05)
@@ -3330,7 +3054,7 @@ end
 			pcall(lock.Release, lock)
 		end
 		doRoundState.facingLocks = setmetatable({}, {__mode = "k"})
-		releasePlayerMovement(true)
+		releasePlayerMovement()
 	end
 
 local function waitForRoundHuntEnd(generation)
@@ -3394,17 +3118,15 @@ local function requestRoundReturnToLobby(generation, ghostName)
 	end
 	local completed, returned, returnReason = xpcall(function()
 		local queueWarningShown = false
-		local basePositionPrepared = false
 		local roundStartedAt = doRoundState.exitOpenedAt
 			or doRoundState.startedAt
 			or os.clock()
 		local earliestReturnAt = roundStartedAt + ROUND_MINIMUM_LEAVE_AGE
 		while doRoundOperationActive(generation) do
-			if (not basePositionPrepared or not playerIsInsideRoundBaseCamp())
+			if not playerIsInsideRoundBaseCamp()
 				and not returnRoundToBase(generation) then
 				return false, "Do-Round cancelled before the Base Camp return"
 			end
-			basePositionPrepared = true
 			if not playerIsInsideRoundBaseCamp() then
 				doRoundWait(generation, 0.1)
 				continue
@@ -3421,15 +3143,15 @@ local function requestRoundReturnToLobby(generation, ghostName)
 			else
 				setDoRoundStatus("Returning to lobby")
 			end
-			-- Completion prepares and verifies the journal before travelling to Base
-			-- Camp. Never repair it after a return request has already been sent.
-			if not journalSelectionMatchesFinalState(ghostName) then
-				return false, "the final Journal selection was lost before lobby return"
-			end
 			doRoundWait(generation, ROUND_REMOTE_SAFETY_DELAY)
 			-- Displacement during the safety delay invalidates this attempt. Hunt
 			-- state is deliberately irrelevant once identification is confident.
 			if not playerIsInsideRoundBaseCamp() then
+				continue
+			end
+			if not selectRoundJournalGhost(ghostName, generation) then
+				setDoRoundStatus("Selecting ghost guess")
+				doRoundWait(generation, 0.1)
 				continue
 			end
 			if not playerIsInsideRoundBaseCamp() then
@@ -3511,15 +3233,9 @@ local function chooseRoundTimeoutFallback()
 			end
 		end
 	end
-	local negativeConfidence = {}
-	for _, profile in ipairs(GHOST_PROFILES) do
-		negativeConfidence[profile.Name] =
-			perkTrackerState.getGhostNegativeConfidence(profile.Name)
-	end
 	local fallback = GhostModule.SelectHighestConfidenceGuess({
 		Candidates = timeoutCandidates,
 		Detections = perkDetections,
-		NegativeConfidence = negativeConfidence,
 		CurrentGuess = guess,
 		CurrentScore = score,
 		ConfirmedEvidence = perkTrackerState.evidenceMode ~= "Mimicry"
@@ -3578,9 +3294,6 @@ local function finishRoundWithGhost(
 		)
 	end
 	setGhostIdentificationLabel(ghostName, confidence, certain == true)
-	if not doRoundOperationActive(generation) then
-		return false, "Do-Round cancelled before lobby return"
-	end
 	setDoRoundStatus("Selecting ghost guess")
 	local selectedCall, selected = pcall(
 		selectRoundJournalGhost,
@@ -3588,11 +3301,10 @@ local function finishRoundWithGhost(
 		generation
 	)
 	if not selectedCall or selected ~= true then
-		return false, "the final Journal selection could not be verified"
+		return false, "the final ghost is not selected in the Journal yet"
 	end
-	setDoRoundStatus("Identified; returning to Base Camp")
-	if not returnRoundToBase(generation) then
-		return false, "Do-Round cancelled before the Base Camp return"
+	if not doRoundOperationActive(generation) then
+		return false, "Do-Round cancelled before lobby return"
 	end
 	local returned, returnReason = requestRoundReturnToLobby(
 		generation,
@@ -3643,12 +3355,7 @@ local function currentConfidentRoundIdentification()
 	local certain = perkTrackerState.currentGhostGuessCertain == true
 	local singleGuess = guess
 		and not string.find(guess, "/", 1, true)
-	-- Exact evidence is the authoritative source of truth even when a soft
-	-- behavioral contradiction or Skinwalker false Orb removes the same row
-	-- from the ordinary candidate filter.
-	local eligible = certain == true
-		and singleGuess ~= nil
-		and GhostModule.Find(singleGuess) ~= nil
+	local eligible = false
 	if singleGuess then
 		for _, candidate in ipairs(
 			perkTrackerState.getRemainingCandidates(certain)
@@ -3678,6 +3385,11 @@ local function completeIdentifiedRound(generation, guess, score, certain)
 	cancelRoundTask("identificationThread")
 	cancelRoundTask("timeoutThread")
 	cancelDoRoundSetupWork()
+	setDoRoundStatus("Identified; returning to Base Camp")
+	if not playerIsInsideRoundBaseCamp()
+		and not returnRoundToBase(completionGeneration) then
+		return false
+	end
 	while doRoundOperationActive(completionGeneration) do
 		local completedCall, completed, completionFailure = xpcall(
 			function()
@@ -3734,11 +3446,7 @@ local function runDoRound(generation)
 			if not favouriteRoom then
 				doRoundWait(generation, 0.2)
 			end
-		until (favouriteRoom and ghost)
-			or not doRoundOperationActive(generation)
-		if not doRoundOperationActive(generation) then
-			return
-		end
+		until favouriteRoom and ghost
 		doRoundState.lastFavouriteRoom = favouriteRoom
 		doRoundState.roundMap = workspace:FindFirstChild("Map")
 		doRoundState.roundGhost = ghost
@@ -3790,11 +3498,7 @@ local function runDoRound(generation)
 					setDoRoundStatus("Waiting for ghost")
 				end
 			until roomItemPlacementState.lastCompletedGeneration
-					>= placementGeneration
-				or not doRoundOperationActive(generation)
-			if not doRoundOperationActive(generation) then
-				return
-			end
+				>= placementGeneration
 			if roomItemPlacementState.lastResult == false
 				and presenter and presenter.Notify then
 				presenter:Notify(
@@ -3859,10 +3563,7 @@ local function runDoRound(generation)
 				and reason ~= "ghost unavailable" then
 				error(reason or "door placeables failed", 0)
 			end
-		until toolsDone or not doRoundOperationActive(generation)
-		if not doRoundOperationActive(generation) then
-			return
-		end
+		until toolsDone
 
 		local exitOpened = false
 		local exitAttempts = 0
@@ -3896,10 +3597,7 @@ local function runDoRound(generation)
 						doRoundWait(generation, 0.5)
 					end
 				end
-		until exitOpened or not doRoundOperationActive(generation)
-		if not doRoundOperationActive(generation) then
-			return
-		end
+		until exitOpened
 
 		waitForRoundHuntEnd(generation)
 		teleportToFavouriteRoom(roundTeleportOptions(generation))
@@ -4066,6 +3764,7 @@ setEnabled = function(enabled, finalPhase)
 		doRoundState.phase = "Checking ghost room"
 		doRoundState.roundMap = nil
 		doRoundState.roundGhost = nil
+		doRoundState.usedDoorNames = {}
 		doRoundState.usedSaltDoorModels = setmetatable({}, {__mode = "k"})
 		doRoundState.usedSaltDoorNames = {}
 		doRoundState.usedHolyOilDoorModels = setmetatable({}, {__mode = "k"})
@@ -4075,6 +3774,7 @@ setEnabled = function(enabled, finalPhase)
 		doRoundState.completedDoorTools = {}
 		doRoundState.doorToolPlacements = {}
 		doRoundState.doorToolUses = {}
+		doRoundState.lastDoorName = nil
 		doRoundState.roomItems = {}
 		doRoundState.itemPower = setmetatable({}, {__mode = "k"})
 		doRoundState.outsideSince = setmetatable({}, {__mode = "k"})

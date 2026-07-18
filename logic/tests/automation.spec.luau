@@ -26,7 +26,6 @@ local movement = {
 	GetRoomBoundingParts = function() return {} end,
 	PointIsInsidePart = function() return false end,
 	InstanceIsInsideRoom = function() return false end,
-	Teleportation = {},
 	TeleportToRoom = function() return true end,
 	TeleportToBaseCamp = function() return true end,
 	TeleportToFavouriteRoom = function() return true end,
@@ -50,14 +49,14 @@ local controller = createAutomation({
 	},
 	Movement = movement,
 	CreateRoomItemSetup = function(dependencies)
-		expect(dependencies.Teleportation == movement.Teleportation,
-			"room setup must share the legacy teleport coordinator")
+		expect(dependencies.PerkTrackerState ~= nil,
+			"room setup must receive the legacy automation state")
 		return function() return true, 1 end
 	end,
 	CreateRoundAutomation = function(dependencies)
 		stateSeen = dependencies.State
 		expect(dependencies.TeleportToRoom == movement.TeleportToRoom,
-			"round automation must use the shared full-containment room teleport")
+			"round automation must use the restored room teleport")
 		expect(dependencies.TeleportToBaseCamp == movement.TeleportToBaseCamp,
 			"round automation must use the shared legacy Base Camp teleport")
 		return {

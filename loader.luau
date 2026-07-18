@@ -112,7 +112,6 @@ local askSpiritBox = Remotes:Get("AskSpiritBoxFromUI")
 local createAutoSpiritBox = loadModule("logic/auto-spirit-box.luau")
 local createAutomation = loadModule("logic/automation.luau")
 local createRoundAutomation = loadModule("logic/round-automation.luau")
-local createTeleportation = loadModule("logic/teleportation.luau")
 local createRoomTeleport = loadModule("logic/room-teleport.luau")
 local createRoomItemSetup = loadModule("logic/room-item-setup.luau")
 local createMovement = loadModule("logic/movement.luau")
@@ -175,7 +174,6 @@ local movement = createMovement({
 	Player = player,
 	RuntimeIsActive = function() return not session.Destroyed end,
 	GetGhostModel = function() return Services.Workspace:FindFirstChild("Ghost") end,
-	CreateTeleportation = createTeleportation,
 	CreateRoomTeleport = createRoomTeleport,
 })
 local teleportToBaseCamp = movement.TeleportToBaseCamp

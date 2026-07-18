@@ -7,7 +7,6 @@ return function(dependencies)
 	local findFavouriteRoom = assert(dependencies.FindFavouriteRoom, "room-item-setup requires FindFavouriteRoom")
 	local getRoomBoundingParts = assert(dependencies.GetRoomBoundingParts, "room-item-setup requires GetRoomBoundingParts")
 	local instanceIsInsideRoom = assert(dependencies.InstanceIsInsideRoom, "room-item-setup requires InstanceIsInsideRoom")
-	local teleportation = assert(dependencies.Teleportation, "room-item-setup requires Teleportation")
 	local roomItemPlacementState = assert(dependencies.State, "room-item-setup requires State")
 	local perkTrackerState = assert(dependencies.PerkTrackerState, "room-item-setup requires PerkTrackerState")
 	local closed = false
@@ -17,6 +16,7 @@ return function(dependencies)
 		Controls = {PlaceRoomItems = "Place Room Items"},
 	}
 	local COLORS = dependencies.Colors or {accentDark = nil, cardHover = nil}
+
 perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 	if roomItemPlacementState.busy or closed then
 		return false, "room item setup is already running"
@@ -256,18 +256,6 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 			end
 			return false
 		end
-		local function itemRequiresPositiveUses(itemName)
-			local normalized = normalizeItemName(itemName)
-			return normalized == normalizeItemName("Salt Canister")
-				or normalized == normalizeItemName("Holy Oil")
-		end
-		local function itemHasRequiredUses(object, itemName)
-			if not itemRequiresPositiveUses(itemName) then
-				return true
-			end
-			return object ~= nil
-				and (tonumber(object:GetAttribute("Uses")) or 0) > 0
-		end
 		local function currentFavouriteRoom()
 			local ghost = getGhostModel()
 			return findFavouriteRoom(
@@ -331,8 +319,6 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 				itemName and normalizeItemName(itemName) or nil
 			local matchingItem
 			local matchingCount = 0
-			local rawMatchingItem
-			local rawMatchingCount = 0
 			local totalCount = 0
 			local function scanContainer(container)
 				if not container then
@@ -345,23 +331,18 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 						if requested
 							and normalizeItemName(name) == requested
 							and not itemIsConsumedCross(child) then
-							rawMatchingCount = rawMatchingCount + 1
-							rawMatchingItem = rawMatchingItem or child
-							if itemHasRequiredUses(child, itemName) then
-								matchingCount = matchingCount + 1
-								matchingItem = matchingItem or child
-							end
+							matchingCount = matchingCount + 1
+							matchingItem = matchingItem or child
 						end
 					end
 				end
 			end
 			scanContainer(player:FindFirstChild("ToolsHolder"))
 			scanContainer(player.Character)
-			return matchingItem,
-				matchingCount,
-				math.min(totalCount, inventorySlotCount),
-				rawMatchingItem,
-				rawMatchingCount
+			return matchingItem, matchingCount, math.min(
+				totalCount,
+				inventorySlotCount
+			)
 		end
 		local function objectMatchesSlotValue(object, slotValue)
 			if not object or not valueIsOccupied(slotValue) then
@@ -404,11 +385,8 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 			end
 			return false
 		end
-		local function storedInventorySlot(itemName, allowEmptyUses)
-			local storedItem, _, _, rawStoredItem = scanStoredInventory(itemName)
-			if allowEmptyUses then
-				storedItem = rawStoredItem
-			end
+		local function storedInventorySlot(itemName)
+			local storedItem = scanStoredInventory(itemName)
 			if not storedItem then
 				return nil
 			end
@@ -495,30 +473,16 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 			return nil
 		end
 		local function findInventorySlot(itemName)
-			if itemRequiresPositiveUses(itemName) then
-				return storedInventorySlot(itemName, false)
-			end
 			return findHotbarSlot(itemName)
-				or storedInventorySlot(itemName, false)
-		end
-		local function findRawInventorySlot(itemName)
-			return findHotbarSlot(itemName)
-				or storedInventorySlot(itemName, true)
+				or storedInventorySlot(itemName)
 		end
 		local function countInventoryItem(itemName)
 			local _, storedCount =
 				scanStoredInventory(itemName)
-			if itemRequiresPositiveUses(itemName) then
-				return storedCount
-			end
 			return math.max(
 				countHotbarItem(itemName),
 				storedCount
 			)
-		end
-		local function countRawInventoryItem(itemName)
-			local _, _, _, _, rawStoredCount = scanStoredInventory(itemName)
-			return math.max(countHotbarItem(itemName), rawStoredCount)
 		end
 		local function inventoryHasItem(itemName)
 			return countInventoryItem(itemName) > 0
@@ -593,8 +557,7 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 				if child:IsA("Model")
 					and typeof(candidateName) == "string"
 					and sameItemName(candidateName, itemName)
-					and not itemIsConsumedCross(child)
-					and itemHasRequiredUses(child, itemName) then
+					and not itemIsConsumedCross(child) then
 					return true, child
 				end
 			end
@@ -602,24 +565,60 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 		end
 		local function moveNearWorldItem(model)
 			assertOperationActive()
-			if not model or not model.Parent then
+			local character = player.Character
+			local root = character
+				and character:FindFirstChild("HumanoidRootPart")
+			local humanoid = character
+				and character:FindFirstChildOfClass("Humanoid")
+			if not model
+				or not model.Parent
+				or not character
+				or not root
+				or not humanoid then
 				return false
 			end
-			local preferred, center = teleportation.ApproachPositions(model, 3.5)
-			if not center or #preferred == 0 then
+			local originalAnchored = root.Anchored
+			local originalAutoRotate = humanoid.AutoRotate
+			local originalPlatformStand = humanoid.PlatformStand
+			humanoid.Sit = false
+			humanoid.PlatformStand = false
+			humanoid.AutoRotate = false
+			root.Anchored = true
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			local itemCFrame
+			if model:IsA("BasePart") then
+				itemCFrame = model.CFrame
+			else
+				local ok, pivot = pcall(function()
+					return model:GetPivot()
+				end)
+				itemCFrame = ok and pivot or nil
+			end
+			if not itemCFrame then
+				root.Anchored = originalAnchored
+				humanoid.PlatformStand = originalPlatformStand
+				humanoid.AutoRotate = originalAutoRotate
 				return false
 			end
-			local room = teleportation.FindRoomForTarget(model, preferred)
-			if not room then
+			assertOperationActive()
+			character:PivotTo(
+				itemCFrame * CFrame.new(0, 3.5, 0)
+			)
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			Services.RunService.Heartbeat:Wait()
+			if operationIsActive() then
+				root.Anchored = originalAnchored
+				humanoid.PlatformStand = originalPlatformStand
+				humanoid.AutoRotate = originalAutoRotate
+			else
+				root.Anchored = false
+				humanoid.PlatformStand = false
+				humanoid.AutoRotate = true
 				return false
 			end
-			local options = operationTeleportOptions()
-			options.PreferredPositions = preferred
-			options.TargetPosition = center
-			options.MaximumTargetDistance = 7.5
-			options.LookAtPosition = center
-			options.RequireStrict = true
-			return perkTrackerState.teleportToRoomBoundingBoxCenter(room, options)
+			return true
 		end
 		local function equipItem(slotNumber, returnToFavouriteRoom)
 			waitForNoHunt(returnToFavouriteRoom == true)
@@ -646,7 +645,7 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 			itemName,
 			returnToFavouriteRoom
 		)
-			local beforeCount = countRawInventoryItem(itemName)
+			local beforeCount = countInventoryItem(itemName)
 			local beforeSlotValue =
 				inventorySlotValue(slotNumber)
 			local favouriteRoom = returnToFavouriteRoom
@@ -657,7 +656,7 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 					or findWorldItemInRoom(itemName, favouriteRoom) ~= nil
 			end
 			for attempt = 1, 2 do
-				local currentSlot = findRawInventorySlot(itemName)
+				local currentSlot = findInventorySlot(itemName)
 				if not currentSlot then
 					if not favouriteRoom
 						or findWorldItemInRoom(itemName, favouriteRoom) then
@@ -681,8 +680,8 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 				local deadline = os.clock() + 1.65
 				repeat
 					assertOperationActive()
-					local leftInventory = countRawInventoryItem(itemName) < beforeCount
-						or countRawInventoryItem(itemName) == 0
+					local leftInventory = countInventoryItem(itemName) < beforeCount
+						or not inventoryHasItem(itemName)
 						or inventorySlotValue(slotNumber) ~= beforeSlotValue
 					local worldConfirmed = not favouriteRoom
 						or findWorldItemInRoom(itemName, favouriteRoom) ~= nil
@@ -692,20 +691,20 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 					guardedWait(0.05)
 				until os.clock() >= deadline
 				local _, occupiedCount = inventorySnapshot()
-				if countRawInventoryItem(itemName) < beforeCount
+				if countInventoryItem(itemName) < beforeCount
 					and (not favouriteRoom
 						or findWorldItemInRoom(itemName, favouriteRoom)) then
 					return true
 				end
 				if occupiedCount < inventorySlotCount
-					and countRawInventoryItem(itemName) == 0
+					and not inventoryHasItem(itemName)
 					and (not favouriteRoom
 						or findWorldItemInRoom(itemName, favouriteRoom)) then
 					return true
 				end
 				guardedWait(0.2)
 			end
-			return countRawInventoryItem(itemName) < beforeCount
+			return countInventoryItem(itemName) < beforeCount
 				and (not favouriteRoom
 					or findWorldItemInRoom(itemName, favouriteRoom) ~= nil)
 		end
@@ -717,7 +716,6 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 			[normalizeItemName("EMF Reader")] = true,
 			[normalizeItemName("Blacklight")] = true,
 			[normalizeItemName("Video Camera")] = true,
-			[normalizeItemName("Spirit Book")] = true,
 		}
 		local finalRetainedNames = {
 			[normalizeItemName("Salt Canister")] = true,
@@ -731,14 +729,12 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 			"EMF Reader",
 			"Blacklight",
 			"Video Camera",
-			"Spirit Book",
 		}
 		local optionalCoreNames = {
 			[normalizeItemName("Cross")] = true,
 			[normalizeItemName("EMF Reader")] = true,
 			[normalizeItemName("Blacklight")] = true,
 			[normalizeItemName("Video Camera")] = true,
-			[normalizeItemName("Spirit Book")] = true,
 		}
 		local finalOrder = {
 			{Name = "Salt Canister", Optional = true},
@@ -1281,7 +1277,7 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 				message = "Returned to Base Camp. Issues: "
 					.. table.concat(failedItems, ", ")
 			else
-				message = "The eight room items were placed; Salt Canister and Holy Oil were retained when available."
+				message = "The seven room items were placed; Salt Canister and Holy Oil were retained when available."
 			end
 			pcall(function()
 				game:GetService("StarterGui"):SetCore(
@@ -1302,6 +1298,7 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 	end)
 	return true, operationGeneration
 end
+
 
 	return perkTrackerState.placeItemsInFavouriteRoom
 end

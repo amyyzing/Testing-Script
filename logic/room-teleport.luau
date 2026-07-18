@@ -4,11 +4,11 @@ return function(dependencies)
 	local runtimeIsActive = assert(dependencies.RuntimeIsActive, "room-teleport requires RuntimeIsActive")
 	local getRoomBoundingParts = assert(dependencies.GetRoomBoundingParts, "room-teleport requires GetRoomBoundingParts")
 	local getGhostModel = assert(dependencies.GetGhostModel, "room-teleport requires GetGhostModel")
-	local teleportation = assert(dependencies.Teleportation, "room-teleport requires Teleportation")
 	local closed = false
 	local ghostProxyModel = nil
 	local perkTrackerState = {teleportSequence = 0}
-perkTrackerState.performRoomTeleport = function(room, options)
+
+perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	options = options or {}
 	local teleportSequence
 	local function teleportOwnsCharacter()
@@ -16,7 +16,7 @@ perkTrackerState.performRoomTeleport = function(room, options)
 			or perkTrackerState.teleportSequence == teleportSequence
 	end
 	local function teleportIsActive()
-		if closed or not runtimeIsActive() or not teleportOwnsCharacter() then
+		if not teleportOwnsCharacter() then
 			return false
 		end
 		if type(options.IsActive) ~= "function" then
@@ -42,9 +42,6 @@ perkTrackerState.performRoomTeleport = function(room, options)
 			break
 		end
 		task.wait(0.05)
-		if not teleportIsActive() then
-			return false, "teleport was cancelled"
-		end
 		boundingParts = getRoomBoundingParts(room)
 	end
 
@@ -90,14 +87,6 @@ perkTrackerState.performRoomTeleport = function(room, options)
 	local targetPosition = options.TargetPosition
 	local maximumTargetDistance = tonumber(options.MaximumTargetDistance)
 	local maximumPreferredDistance = tonumber(options.MaximumPreferredDistance)
-	local minimumOpenClearance = math.max(
-		0,
-		tonumber(options.MinimumOpenClearance) or 0
-	)
-	local strictSearchExpansion = math.max(
-		0,
-		tonumber(options.StrictSearchExpansion) or 0.05
-	)
 	local candidateValidator = options.CandidateValidator
 	local function candidatePassesCustomValidation(position)
 		if type(candidateValidator) ~= "function" then
@@ -115,15 +104,13 @@ perkTrackerState.performRoomTeleport = function(room, options)
 		overlapParams.RespectCanCollide = true
 	end)
 
-	local function safelyInsideBounds(position, boundingPart)
+	local function safelyInsideXZ(position, boundingPart)
 		local localPosition =
 			boundingPart.CFrame:PointToObjectSpace(position)
 		local half = boundingPart.Size * 0.5
 
 		return math.abs(localPosition.X)
 			<= math.max(0, half.X - horizontalInset)
-			and localPosition.Y >= -half.Y - 0.35
-			and localPosition.Y <= half.Y - 0.1
 			and math.abs(localPosition.Z)
 				<= math.max(0, half.Z - horizontalInset)
 	end
@@ -431,7 +418,7 @@ perkTrackerState.performRoomTeleport = function(room, options)
 		if not candidatePassesCustomValidation(candidate.Position) then
 			return false
 		end
-		if not safelyInsideBounds(
+		if not safelyInsideXZ(
 			candidate.Position,
 			candidate.BoundingPart
 		) then
@@ -467,7 +454,6 @@ perkTrackerState.performRoomTeleport = function(room, options)
 		candidate.StrictSafe = candidate.NormalY >= 0.62
 			and candidate.FlatSupportHits == #footprintOffsets
 			and candidate.BlockerCount == 0
-			and clearance >= minimumOpenClearance
 		candidate.Risk = calculateRisk(
 			bodyInspection,
 			footprintInspection,
@@ -516,9 +502,9 @@ perkTrackerState.performRoomTeleport = function(room, options)
 						result.Position
 					)
 				local bottomDistance = localFloor.Y + half.Y
-				if bottomDistance >= -0.6
+				if bottomDistance >= -1.5
 					and bottomDistance
-						<= boundingPart.Size.Y - 0.2 then
+						<= boundingPart.Size.Y + 1.5 then
 					local candidate = {
 						FloorPosition = result.Position,
 						Surface = instance,
@@ -568,9 +554,6 @@ perkTrackerState.performRoomTeleport = function(room, options)
 	-- Build the original adaptive coverage, but inspect it like a ripple:
 	-- exact center first, then each progressively farther center ring.
 	for _, boundingPart in ipairs(boundingParts) do
-		if not teleportIsActive() then
-			return false, "teleport was cancelled"
-		end
 		local usableX =
 			math.max(0, boundingPart.Size.X - horizontalInset * 2)
 		local usableZ =
@@ -638,9 +621,6 @@ perkTrackerState.performRoomTeleport = function(room, options)
 				)
 				if rippleOrder % 12 == 0 then
 					Services.RunService.Heartbeat:Wait()
-					if not teleportIsActive() then
-						return false, "teleport was cancelled"
-					end
 				end
 			end
 		end
@@ -721,12 +701,7 @@ perkTrackerState.performRoomTeleport = function(room, options)
 	local candidates = {}
 	local evaluated = setmetatable({}, {__mode = "k"})
 	local evaluationCount = 0
-	local evaluationCancelled = false
 	local function evaluateCandidate(candidate)
-		if not teleportIsActive() then
-			evaluationCancelled = true
-			return
-		end
 		if not candidate or evaluated[candidate] then
 			return
 		end
@@ -756,9 +731,6 @@ perkTrackerState.performRoomTeleport = function(room, options)
 		local completionRadius
 		for index, candidate in ipairs(pool) do
 			evaluateCandidate(candidate)
-			if evaluationCancelled then
-				return false
-			end
 			if candidate.StrictSafe and candidate.CoreBlockers == 0 then
 				strictCandidateCount = strictCandidateCount + 1
 				if strictCandidateCount >= 3 and not completionRadius then
@@ -767,8 +739,7 @@ perkTrackerState.performRoomTeleport = function(room, options)
 			end
 			if completionRadius
 				and index < #pool
-				and pool[index + 1].SearchDistance
-					> completionRadius + strictSearchExpansion then
+				and pool[index + 1].SearchDistance > completionRadius + 0.05 then
 				return true
 			end
 		end
@@ -780,10 +751,6 @@ perkTrackerState.performRoomTeleport = function(room, options)
 	-- the risk fallback truly is the safest assessed option.
 	for _, pool in ipairs(candidatePools) do
 		evaluatePool(pool)
-		if evaluationCancelled then
-			destroyBodyGeometryProbe()
-			return false, "teleport was cancelled"
-		end
 		if strictCandidateCount >= 3 then
 			break
 		end
@@ -795,9 +762,6 @@ perkTrackerState.performRoomTeleport = function(room, options)
 			"no grounded destination passed the detailed room checks"
 	end
 
-	local function comparisonBand(value, width)
-		return math.floor((tonumber(value) or 0) / width)
-	end
 	table.sort(candidates, function(left, right)
 		local leftCoreFree = left.CoreBlockers == 0
 		local rightCoreFree = right.CoreBlockers == 0
@@ -811,34 +775,17 @@ perkTrackerState.performRoomTeleport = function(room, options)
 			return left.StrictSafe
 		end
 		if left.StrictSafe then
-			if options.PreferClosestOpenSpace == true then
-				local leftPreferred = comparisonBand(left.PreferredDistance, 0.05)
-				local rightPreferred = comparisonBand(right.PreferredDistance, 0.05)
-				if leftPreferred ~= rightPreferred then
-					return leftPreferred < rightPreferred
-				end
+			if math.abs(left.PreferredDistance - right.PreferredDistance) > 0.05 then
+				return left.PreferredDistance < right.PreferredDistance
 			end
-			if options.PreferOpenSpace == true then
-				local leftClearance = comparisonBand(left.Clearance, 0.35)
-				local rightClearance = comparisonBand(right.Clearance, 0.35)
-				if leftClearance ~= rightClearance then
-					return leftClearance > rightClearance
-				end
+			local bottomDifference = math.abs(
+				left.BottomDistance - right.BottomDistance
+			)
+			if bottomDifference > 0.25 then
+				return left.BottomDistance < right.BottomDistance
 			end
-			local leftPreferred = comparisonBand(left.PreferredDistance, 0.05)
-			local rightPreferred = comparisonBand(right.PreferredDistance, 0.05)
-			if leftPreferred ~= rightPreferred then
-				return leftPreferred < rightPreferred
-			end
-			local leftBottom = comparisonBand(left.BottomDistance, 0.25)
-			local rightBottom = comparisonBand(right.BottomDistance, 0.25)
-			if leftBottom ~= rightBottom then
-				return leftBottom < rightBottom
-			end
-			local leftClearance = comparisonBand(left.Clearance, 0.1)
-			local rightClearance = comparisonBand(right.Clearance, 0.1)
-			if leftClearance ~= rightClearance then
-				return leftClearance > rightClearance
+			if math.abs(left.Clearance - right.Clearance) > 0.1 then
+				return left.Clearance > right.Clearance
 			end
 			return left.SampleOrder < right.SampleOrder
 		end
@@ -848,15 +795,11 @@ perkTrackerState.performRoomTeleport = function(room, options)
 		if left.BlockerCount ~= right.BlockerCount then
 			return left.BlockerCount < right.BlockerCount
 		end
-		local leftRisk = comparisonBand(left.Risk, 1)
-		local rightRisk = comparisonBand(right.Risk, 1)
-		if leftRisk ~= rightRisk then
-			return leftRisk < rightRisk
+		if math.abs(left.Risk - right.Risk) > 1 then
+			return left.Risk < right.Risk
 		end
-		local leftPreferred = comparisonBand(left.PreferredDistance, 0.05)
-		local rightPreferred = comparisonBand(right.PreferredDistance, 0.05)
-		if leftPreferred ~= rightPreferred then
-			return leftPreferred < rightPreferred
+		if math.abs(left.PreferredDistance - right.PreferredDistance) > 0.05 then
+			return left.PreferredDistance < right.PreferredDistance
 		end
 		if left.FlatSupportHits ~= right.FlatSupportHits then
 			return left.FlatSupportHits > right.FlatSupportHits
@@ -864,15 +807,14 @@ perkTrackerState.performRoomTeleport = function(room, options)
 		if left.SupportHits ~= right.SupportHits then
 			return left.SupportHits > right.SupportHits
 		end
-		local leftBottom = comparisonBand(left.BottomDistance, 0.25)
-		local rightBottom = comparisonBand(right.BottomDistance, 0.25)
-		if leftBottom ~= rightBottom then
-			return leftBottom < rightBottom
+		local bottomDifference = math.abs(
+			left.BottomDistance - right.BottomDistance
+		)
+		if bottomDifference > 0.25 then
+			return left.BottomDistance < right.BottomDistance
 		end
-		local leftClearance = comparisonBand(left.Clearance, 0.1)
-		local rightClearance = comparisonBand(right.Clearance, 0.1)
-		if leftClearance ~= rightClearance then
-			return leftClearance > rightClearance
+		if math.abs(left.Clearance - right.Clearance) > 0.1 then
+			return left.Clearance > right.Clearance
 		end
 		return left.SampleOrder < right.SampleOrder
 	end)
@@ -1007,7 +949,7 @@ perkTrackerState.performRoomTeleport = function(room, options)
 			settledFloorPosition
 		)
 		if not footprintInspection.CenterSupported
-			or not safelyInsideBounds(
+			or not safelyInsideXZ(
 				root.Position,
 				candidate.BoundingPart
 			) then
@@ -1029,7 +971,6 @@ perkTrackerState.performRoomTeleport = function(room, options)
 				== #footprintOffsets
 			and bodyInspection.BlockerCount == 0
 			and bodyInspection.CoreBlockers == 0
-			and clearance >= minimumOpenClearance
 
 		if requireStrict then
 			return settledStrict
@@ -1153,13 +1094,6 @@ perkTrackerState.performRoomTeleport = function(room, options)
 	root.Anchored = originalAnchored
 	humanoid.PlatformStand = originalPlatformStand
 	humanoid.AutoRotate = originalAutoRotate
-	-- Restore movement states before releasing the shared teleport lease. A
-	-- following teleport must never snapshot the temporary disabled values.
-	for state, enabled in pairs(disabledStates) do
-		pcall(function()
-			humanoid:SetStateEnabled(state, enabled)
-		end)
-	end
 
 	for _ = 1, 3 do
 		Services.RunService.Heartbeat:Wait()
@@ -1186,10 +1120,11 @@ perkTrackerState.performRoomTeleport = function(room, options)
 	return true, nil
 end
 
+
 	return function(room, options)
-		options = options or {}
-		return teleportation.RunExclusive(options, function()
-			return perkTrackerState.performRoomTeleport(room, options)
-		end)
+		if closed or not runtimeIsActive() then
+			return false, "teleport was cancelled"
+		end
+		return perkTrackerState.teleportToRoomBoundingBoxCenter(room, options)
 	end
 end
