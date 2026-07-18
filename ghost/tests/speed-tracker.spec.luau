@@ -82,6 +82,18 @@ now = 0.2
 speedChanged:Fire()
 expect(#salts == 2 and salts[2].afterSalt[#salts[2].afterSalt].s == 11,
 	"the same split should capture recovery to the pre-salt speed")
+local beforeNextSalt = #salts
+now = 0.3
+Traffic("SaltHit", {ContactId = 20}):SendTo("SpeedTracker")
+expect(#salts == beforeNextSalt + 1 and salts[#salts].completed == true,
+	"a second salt hit should finalize the prior section before hunt end")
+Traffic("SaltStateAfterHit", {
+	ContactId = 20,
+	State = "disturbed",
+}):SendTo("SpeedTracker")
+local nextSalt = salts[#salts]
+expect(nextSalt.beforeSalt[#nextSalt.beforeSalt] == nextSalt.afterSalt[1],
+	"consecutive salt sections should share their boundary sample")
 Humanoid.WalkSpeed = 12
 now = 1
 speedChanged:Fire()

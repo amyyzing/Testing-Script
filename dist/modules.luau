@@ -1056,6 +1056,7 @@ end
 	local Tracker = {
 		Kind = "active", Running = true,
 		hunting = nil, samples = {}, sampleMeta = {}, displayIndex = 0,
+		pendingSalts = {},
 	}
 
 	local function sample(source)
@@ -1084,6 +1085,20 @@ end
 		}):SendTo("Aswang")
 	end
 
+	local function finishSalt()
+		if not Tracker.beforeSalt then return end
+		if Tracker.saltState then
+			sendSalt(true)
+		elseif Tracker.contact then
+			Tracker.pendingSalts[Tracker.contact] = {
+				beforeSalt = Tracker.beforeSalt,
+				afterSalt = Tracker.afterSalt,
+			}
+		end
+		Tracker.beforeSalt, Tracker.afterSalt = nil, nil
+		Tracker.contact, Tracker.saltState = nil, nil
+	end
+
 	local function sendKill(completed)
 		if not Tracker.beforeKill then return end
 		Traffic("KillSpeed", {
@@ -1098,15 +1113,7 @@ end
 	local function hunting(value)
 		if Tracker.hunting == value then return end
 		if Tracker.hunting then
-			if Tracker.beforeSalt and not Tracker.saltState then
-				Tracker.pendingSalt = {
-					contact = Tracker.contact,
-					beforeSalt = Tracker.beforeSalt,
-					afterSalt = Tracker.afterSalt,
-				}
-			else
-				sendSalt(true)
-			end
+			finishSalt()
 			sendKill(true)
 			Traffic("HuntSpeedEnded", {Count = Tracker.displayIndex}):SendTo("SpeedArrayLog")
 		end
@@ -1128,8 +1135,14 @@ end
 		elseif signal == "SaltHit" and Tracker.hunting then
 			local transition = sample("salt")
 			if not transition then return end
+			local previousSection = Tracker.afterSalt
+				and table.clone(Tracker.afterSalt)
+			finishSalt()
 			Tracker.contact = payload.ContactId
-			Tracker.beforeSalt = table.clone(Tracker.samples)
+			-- The first contact compares against the hunt so far. Every later
+			-- contact compares against only the samples collected since the prior
+			-- contact, while sharing the new transition sample between sections.
+			Tracker.beforeSalt = previousSection or table.clone(Tracker.samples)
 			Tracker.afterSalt = {transition}
 			Traffic("HuntSpeedMarker", {
 				Index = Tracker.displayIndex,
@@ -1139,14 +1152,15 @@ end
 			if payload.ContactId == Tracker.contact then
 				Tracker.saltState = payload.State
 				sendSalt(false)
-			elseif Tracker.pendingSalt and payload.ContactId == Tracker.pendingSalt.contact then
+			elseif Tracker.pendingSalts[payload.ContactId] then
+				local pending = Tracker.pendingSalts[payload.ContactId]
 				Traffic("SaltSpeed", {
 					saltState = payload.State,
-					beforeSalt = Tracker.pendingSalt.beforeSalt,
-					afterSalt = Tracker.pendingSalt.afterSalt,
+					beforeSalt = pending.beforeSalt,
+					afterSalt = pending.afterSalt,
 					completed = true,
 				}):SendTo("Aswang")
-				Tracker.pendingSalt = nil
+				Tracker.pendingSalts[payload.ContactId] = nil
 			end
 		elseif signal == "PlayerKilled" and Tracker.hunting then
 			local transition = sample("kill")
@@ -1208,6 +1222,7 @@ end
 		self.Disconnect()
 		self.VisibilityConnection:Disconnect()
 		if self.SpeedConnection then self.SpeedConnection:Disconnect() end
+		table.clear(self.pendingSalts)
 	end
 
 	return Tracker
