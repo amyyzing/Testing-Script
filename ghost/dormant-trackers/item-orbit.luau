@@ -149,7 +149,6 @@ return function(dependencies)
 		state.StartedAt = state.StartedAt or now - elapsed
 		state.LastProgress = now
 		state.Duration = now - state.StartedAt
-		state.RadiusVariation = variation
 		state.Qualified = state.Duration >= minimumDuration
 			and state.Steps >= minimumSteps
 			and state.Rotation >= minimumRotation

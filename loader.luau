@@ -69,6 +69,15 @@ local function loadModule(path)
 	local cached = loadedModules[path]
 	if cached ~= nil then return cached ~= NIL_MODULE and cached or nil end
 	local bundle = loadBundle()
+	if bundle and bundle.__compiled == true then
+		local result = bundle[path]
+		if result ~= nil then
+			bundle[path] = nil
+			if result == bundle.__nil then result = nil end
+			loadedModules[path] = result == nil and NIL_MODULE or result
+			return result
+		end
+	end
 	local source = bundle and bundle[path]
 	if source then
 		bundle[path] = nil
@@ -450,6 +459,7 @@ local function startTrackers()
 			Traffic = Traffic,
 			Workspace = Services.Workspace,
 			RunService = Services.RunService,
+			FindRoom = movement.FindRoomAt,
 		}))
 		remember(createItemState({
 			Traffic = Traffic,
@@ -515,9 +525,9 @@ local function startTrackers()
 		remember(createKillCount({Traffic = Traffic, Players = Services.Players}))
 		local ghostRoom = remember(createGhostRoom({
 			Traffic = Traffic,
-			Workspace = Services.Workspace,
 			Ghost = ghost,
 			RunService = Services.RunService,
+			FindRoom = movement.FindRoomAt,
 		}))
 		remember(createFavouriteHuntRoom({
 			Traffic = Traffic,

@@ -49,6 +49,7 @@ return function(dependencies)
 		controller.ProxyModel = nil
 		controller.ProxyParts = {}
 		controller.ProxyDirty = false
+		controller.GhostPart = nil
 	end
 
 	local function configureProxyPart(part)
@@ -127,6 +128,7 @@ return function(dependencies)
 
 		local ghostPart = ghost.PrimaryPart or ghost:FindFirstChildWhichIsA("BasePart", true)
 		if not ghostPart then return false end
+		controller.GhostPart = ghostPart
 		controller.Billboard = new("BillboardGui", {
 			Name = "UntitledGhostBillboard",
 			Parent = guiParent,
@@ -250,7 +252,11 @@ return function(dependencies)
 
 	controller.RenderConnection = runService.RenderStepped:Connect(function()
 		if not controller.Enabled or dependencies.VisualFactory then return end
-		local ghostPart = ghost.PrimaryPart or ghost:FindFirstChildWhichIsA("BasePart", true)
+		local ghostPart = controller.GhostPart
+		if not ghostPart or not ghostPart:IsDescendantOf(ghost) then
+			ghostPart = ghost.PrimaryPart or ghost:FindFirstChildWhichIsA("BasePart", true)
+			controller.GhostPart = ghostPart
+		end
 		if not ghostPart then
 			destroyVisuals()
 		elseif controller.ProxyDirty or not controller.Billboard

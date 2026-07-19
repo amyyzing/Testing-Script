@@ -63,7 +63,7 @@ local teleportTracker = createItemTeleport({
 	Workspace = World,
 	RunService = {Heartbeat = heartbeat},
 	Clock = function() return now end,
-	RoomAt = function(point) return point.X < 10 and "RoomA" or "RoomB" end,
+	FindRoom = function(point) return point.X < 10 and "RoomA" or "RoomB" end,
 })
 
 item.Current = {X = 25, Y = 0, Z = 0}

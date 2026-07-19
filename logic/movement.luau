@@ -130,6 +130,26 @@ local function instanceIsInsideRoom(instance, room)
 	end
 	return false
 end
+local function findRoomAt(position, previousRoom)
+	local rooms = findRoomsFolder()
+	if not rooms then return nil end
+	if type(previousRoom) == "string" then
+		previousRoom = rooms:FindFirstChild(previousRoom)
+	end
+	if previousRoom and previousRoom.Parent == rooms then
+		for _, part in ipairs(getRoomBoundingParts(previousRoom)) do
+			if pointIsInsidePart(part, position) then return previousRoom end
+		end
+	end
+	for _, room in ipairs(rooms:GetChildren()) do
+		if room ~= previousRoom then
+			for _, part in ipairs(getRoomBoundingParts(room)) do
+				if pointIsInsidePart(part, position) then return room end
+			end
+		end
+	end
+	return nil
+end
 
 	local teleportControl = {}
 	local teleportToRoom = createRoomTeleport({
@@ -315,6 +335,7 @@ end
 		GetRoomBoundingParts = getRoomBoundingParts,
 		PointIsInsidePart = pointIsInsidePart,
 		InstanceIsInsideRoom = instanceIsInsideRoom,
+		FindRoomAt = findRoomAt,
 		TeleportToRoom = teleportToRoom,
 		TeleportToBaseCamp = perkTrackerState.teleportToBaseCamp,
 		CaptureBaseCampEscapePivot = captureBaseCampEscapePivot,
