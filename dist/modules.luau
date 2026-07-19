@@ -10193,6 +10193,8 @@ return function(dependencies)
 		Lists = table.clone(GHOSTS),
 		Selected = {},
 		RuledOut = {},
+		Unknown = {},
+		AbilityRuledOut = {},
 		Confidence = {},
 		NegativeConfidence = {},
 		Reasons = {},
@@ -10200,6 +10202,7 @@ return function(dependencies)
 		DisprovedEvidence = {},
 		JournalTouched = {},
 		JournalDirty = false,
+		JournalRevision = 0,
 	}
 	local indexes = {}
 	for index, name in ipairs(GHOSTS) do indexes[name] = index end
@@ -10299,6 +10302,10 @@ return function(dependencies)
 		return table.find(Verdict.RuledOut, index) ~= nil
 	end
 
+	local function abilityIsRuledOut(index)
+		return Verdict.AbilityRuledOut[index] == true
+	end
+
 	local function evidenceCompatible(index)
 		if type(EvidenceCatalog) ~= "table" then return true end
 		local ghost = GHOSTS[index]
@@ -10317,6 +10324,31 @@ return function(dependencies)
 			end
 		end
 		return true
+	end
+
+	local function refreshUnknown()
+		table.clear(Verdict.Unknown)
+		local selected = Verdict.Selected[1]
+		for index in ipairs(GHOSTS) do
+			if index ~= selected and not isRuledOut(index) then
+				table.insert(Verdict.Unknown, index)
+			end
+		end
+	end
+
+	local function refreshRuledOut()
+		table.clear(Verdict.RuledOut)
+		for index in ipairs(GHOSTS) do
+			if abilityIsRuledOut(index) or not evidenceCompatible(index) then
+				table.insert(Verdict.RuledOut, index)
+			end
+		end
+		refreshUnknown()
+	end
+
+	local function markJournalDirty()
+		Verdict.JournalRevision += 1
+		Verdict.JournalDirty = true
 	end
 
 	local function resolvedEvidenceIndex()
@@ -10363,26 +10395,17 @@ return function(dependencies)
 		end
 		local previous = Verdict.Selected[1]
 		if previous == bestIndex and not forceJournal then return end
-		Verdict.JournalDirty = true
-		if previous and previous ~= bestIndex then
-			if isRuledOut(previous) then
-				applyJournal(previous, false)
-			else
-				applyJournal(previous, nil)
-			end
-		end
 		if previous ~= bestIndex then table.clear(Verdict.Selected) end
 		if bestIndex then
 			Verdict.Selected[1] = bestIndex
-			local applied, controllerUpdated = applyJournal(bestIndex, true)
-			if not controllerUpdated and markJournal then pcall(markJournal, GHOSTS[bestIndex]) end
-			if not applied then Verdict.JournalDirty = true end
 		end
+		refreshUnknown()
+		markJournalDirty()
 	end
 
 	function Verdict:Support(ghost, confidence, reason)
 		local index = indexes[ghost]
-		if not index or isRuledOut(index) then return false end
+		if not index or abilityIsRuledOut(index) then return false end
 		confidence = tonumber(confidence) or 0
 		self.Confidence[index] = math.max(self.Confidence[index] or 0, confidence)
 		self.Reasons[index] = reason
@@ -10392,7 +10415,7 @@ return function(dependencies)
 
 	function Verdict:Negative(ghost, confidence, reason)
 		local index = indexes[ghost]
-		if not index or isRuledOut(index) then return false end
+		if not index or abilityIsRuledOut(index) then return false end
 		confidence = tonumber(confidence) or 0
 		self.NegativeConfidence[index] = math.max(self.NegativeConfidence[index] or 0, confidence)
 		self.Reasons[index] = reason
@@ -10404,14 +10427,10 @@ return function(dependencies)
 		local index = indexes[ghost]
 		if not index then return false end
 		if self.ForcedIndex == index or resolvedEvidenceIndex() == index then return false end
-		if not isRuledOut(index) then
-			table.insert(self.RuledOut, index)
-			table.sort(self.RuledOut)
-		end
+		self.AbilityRuledOut[index] = true
+		refreshRuledOut()
 		self.Confidence[index] = nil
 		self.Reasons[index] = reason
-		local applied = applyJournal(index, false)
-		self.JournalDirty = self.JournalDirty or not applied
 		selectBest(true)
 		return true
 	end
@@ -10440,9 +10459,9 @@ return function(dependencies)
 		end
 		local resolved = resolvedEvidenceIndex()
 		if resolved then
-			local ruledOutPosition = table.find(self.RuledOut, resolved)
-			if ruledOutPosition then table.remove(self.RuledOut, ruledOutPosition) end
+			self.AbilityRuledOut[resolved] = nil
 		end
+		refreshRuledOut()
 		if self.ForcedIndex and not evidenceCompatible(self.ForcedIndex) then
 			self.ForcedIndex = nil
 		end
@@ -10468,17 +10487,11 @@ return function(dependencies)
 		return index and not isRuledOut(index) and GHOSTS[index] or nil
 	end
 
-	function Verdict:ForceSelect(ghost, deferJournal)
+	function Verdict:ForceSelect(ghost)
 		local index = indexes[ghost]
 		if not index or isRuledOut(index) or not evidenceCompatible(index) then return false end
 		self.ForcedIndex = index
-		if deferJournal then
-			table.clear(self.Selected)
-			self.Selected[1] = index
-			self.JournalDirty = true
-		else
-			selectBest(true)
-		end
+		selectBest(true)
 		return self.Selected[1] == index
 	end
 
@@ -10505,8 +10518,9 @@ return function(dependencies)
 			return false
 		end
 		self.JournalMutationBusy = true
-		local completed, allApplied = pcall(function()
-			if forcedGhost and not self:ForceSelect(forcedGhost, true) then return false end
+		local completed, allApplied, synchronizedRevision = pcall(function()
+			if forcedGhost and not self:ForceSelect(forcedGhost) then return false end
+			local revision = self.JournalRevision
 			local selectedIndex = forcedGhost and indexes[forcedGhost] or self.Selected[1]
 			local appliedAll = true
 			-- Crossing another row can clear the Journal's current highlight. Apply
@@ -10527,18 +10541,22 @@ return function(dependencies)
 					pcall(markJournal, GHOSTS[selectedIndex])
 				end
 			end
-			return appliedAll
+			return appliedAll, revision
 		end)
 		self.JournalMutationBusy = false
 		allApplied = completed and allApplied == true
-		self.JournalDirty = not allApplied
-		return allApplied
+		local synchronized = allApplied
+			and self.JournalRevision == synchronizedRevision
+		self.JournalDirty = not synchronized
+		return synchronized
 	end
 
 	function Verdict:Reset()
 		for index in pairs(self.JournalTouched) do applyJournal(index, nil) end
 		table.clear(self.JournalTouched)
+		table.clear(self.AbilityRuledOut)
 		table.clear(self.RuledOut)
+		table.clear(self.Unknown)
 		table.clear(self.Selected)
 		table.clear(self.Confidence)
 		table.clear(self.NegativeConfidence)
@@ -10547,6 +10565,9 @@ return function(dependencies)
 		table.clear(self.DisprovedEvidence)
 		self.ForcedIndex = nil
 		self.JournalDirty = false
+		self.JournalMutationBusy = false
+		self.JournalRevision += 1
+		refreshUnknown()
 	end
 
 	function Verdict:Snapshot()
@@ -10554,6 +10575,7 @@ return function(dependencies)
 			Lists = table.clone(self.Lists),
 			Selected = table.clone(self.Selected),
 			["ruled-out"] = table.clone(self.RuledOut),
+			Unknown = table.clone(self.Unknown),
 			Confidence = table.clone(self.Confidence),
 			NegativeConfidence = table.clone(self.NegativeConfidence),
 			Reasons = table.clone(self.Reasons),
@@ -10575,6 +10597,7 @@ return function(dependencies)
 		end
 	end)
 
+	refreshRuledOut()
 	return Verdict
 end
 ]=],
