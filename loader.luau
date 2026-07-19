@@ -246,6 +246,7 @@ local movement = createMovement({
 	CreateRoomTeleport = createRoomTeleport,
 })
 local teleportToBaseCamp = movement.TeleportToBaseCamp
+movement.CaptureBaseCampEscapePivot()
 session.TeleportToBaseCamp = teleportToBaseCamp
 session.Bright = remember(createBright({
 	Lighting = Services.Lighting,
@@ -489,6 +490,8 @@ local function startTrackers()
 			Player = player,
 			Ghost = ghost,
 			TeleportToSafety = teleportToBaseCamp,
+			FastTeleportToSafety = movement.FastTeleportToBaseCamp,
+			CaptureSafetyPosition = movement.CaptureBaseCampEscapePivot,
 			Button = view.Buttons.HuntEscape,
 			EnabledColor = view.Colors.Accent,
 		}))
@@ -550,6 +553,8 @@ local function startTrackers()
 			Verdict = Verdict,
 			GhostModule = GhostCatalog,
 			Movement = movement,
+			FastTeleportToBaseCamp = movement.FastTeleportToBaseCamp,
+			CaptureBaseCampEscapePivot = movement.CaptureBaseCampEscapePivot,
 			CreateRoundAutomation = createRoundAutomation,
 			CreateRoundUtilities = createRoundUtilities,
 			CreatePreRound = createPreRound,

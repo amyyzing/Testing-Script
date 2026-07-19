@@ -18,6 +18,16 @@ local function signal()
 end
 
 local stateSeen, perkStateSeen, detectionsSeen
+local huntSignal = signal()
+local ghost = {Hunting = false}
+function ghost:GetAttribute(name)
+	return name == "Hunting" and self.Hunting or false
+end
+function ghost:GetAttributeChangedSignal(name)
+	expect(name == "Hunting", "automation should only bind the Hunting signal")
+	return huntSignal
+end
+local fastEscapes = 0
 local movement = {
 	FindRoomsFolder = function() end,
 	FindFavouriteRoom = function() end,
@@ -28,6 +38,10 @@ local movement = {
 	InstanceIsInsideRoom = function() return false end,
 	TeleportToRoom = function() return true end,
 	TeleportToBaseCamp = function() return true end,
+	FastTeleportToBaseCamp = function()
+		fastEscapes += 1
+		return true
+	end,
 	TeleportToFavouriteRoom = function() return true end,
 }
 local autoSpirit = {
@@ -55,7 +69,7 @@ local roundStarted = {
 local controller = createAutomation({
 	Services = {Workspace = {}, RunService = nil},
 	Player = {FindFirstChildOfClass = function() return nil end},
-	Ghost = {GetAttribute = function() return false end},
+	Ghost = ghost,
 	Verdict = {
 		Lists = {"Aswang", "Wraith"},
 		RuledOut = {},
@@ -68,6 +82,7 @@ local controller = createAutomation({
 		ForceSelect = function() return true end,
 	},
 	Movement = movement,
+	FastTeleportToBaseCamp = movement.FastTeleportToBaseCamp,
 	RoundStarted = roundStarted,
 	CreatePreRound = createPreRound,
 	CreateLaySalt = createLaySalt,
@@ -105,6 +120,8 @@ local controller = createAutomation({
 			"round automation must use the restored room teleport")
 		expect(dependencies.TeleportToBaseCamp == movement.TeleportToBaseCamp,
 			"round automation must use the shared legacy Base Camp teleport")
+		expect(dependencies.FastTeleportToBaseCamp == movement.FastTeleportToBaseCamp,
+			"round automation must receive the immediate cached hunt escape")
 		expect(dependencies.MarkRoundStarted(),
 			"round automation must be able to publish its confirmed exit opening")
 		return {
@@ -145,6 +162,10 @@ expect(perkStateSeen.currentGhostGuess == "Wraith"
 	"automation must treat unique evidence as Certain and expose confirmed evidence")
 expect(detectionsSeen.Wraith.NetConfidence == 35,
 	"timeout weighting should expose evidence-compatible net confidence")
+ghost.Hunting = true
+huntSignal:Fire()
+expect(fastEscapes == 1 and stateSeen.phase == "Hunt escape",
+	"automation must escape immediately from the Hunting attribute signal")
 
 controller:SetEnabled(false)
 expect(not controller.Enabled and not autoSpirit.Enabled,

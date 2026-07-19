@@ -5,6 +5,8 @@ return function(dependencies)
 		dependencies.TeleportToSafety,
 		"escape-hunt requires TeleportToSafety"
 	)
+	local fastTeleportToSafety = dependencies.FastTeleportToSafety
+	local captureSafetyPosition = dependencies.CaptureSafetyPosition
 	local controller = {Enabled = false, Escaped = false, Busy = false, Generation = 0}
 	local button = dependencies.Button
 	local disabledColor = button and button.BackgroundColor3
@@ -41,7 +43,13 @@ return function(dependencies)
 		controller.Busy = true
 		controller.Generation += 1
 		local generation = controller.Generation
-		local ok, moved = pcall(teleportToSafety)
+		local ok, moved
+		if type(fastTeleportToSafety) == "function" then
+			ok, moved = pcall(fastTeleportToSafety)
+		end
+		if not ok or moved ~= true then
+			ok, moved = pcall(teleportToSafety)
+		end
 		controller.Busy = false
 		if ok and moved ~= false then
 			controller.Escaped = true
@@ -62,6 +70,9 @@ return function(dependencies)
 	function controller:SetEnabled(enabled)
 		self.Enabled = enabled == true
 		if self.Enabled then
+			if type(captureSafetyPosition) == "function" then
+				pcall(captureSafetyPosition)
+			end
 			update()
 		else
 			self.Generation += 1

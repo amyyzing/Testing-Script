@@ -74,4 +74,30 @@ ghost:SetHunting(true)
 expect(character.Pivot == "original", "a hunt ending during teleport should restore after it returns")
 
 controller:Destroy()
+
+local fastEscapes = 0
+local fastController = createEscapeHunt({
+	Player = player,
+	Ghost = ghost,
+	FastTeleportToSafety = function()
+		fastEscapes += 1
+		character.Pivot = "cached-safe"
+		return true
+	end,
+	TeleportToSafety = function()
+		error("the full safety search should not run when the cached escape succeeds")
+	end,
+})
+endDuringTeleport = false
+ghost:SetHunting(false)
+character.Pivot = "second-original"
+fastController:SetEnabled(true)
+ghost:SetHunting(true)
+expect(fastEscapes == 1 and character.Pivot == "cached-safe",
+	"hunt start should use the immediate cached Base Camp escape first")
+ghost:SetHunting(false)
+expect(character.Pivot == "second-original",
+	"the cached escape must still restore the original position after the hunt")
+fastController:Destroy()
+
 print("escape-hunt.spec: toggle, one-shot escape, and restoration passed")

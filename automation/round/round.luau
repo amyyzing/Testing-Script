@@ -59,6 +59,7 @@ return function(package: any)
 		OperationActive = doRoundOperationActive,
 		SetStatus = setDoRoundStatus,
 		TeleportToBase = teleportToBaseCamp,
+		FastTeleportToBase = dependencies.FastTeleportToBaseCamp,
 		TeleportOptions = roundTeleportOptions,
 		PlayerInsideBase = playerIsInsideRoundBaseCamp,
 		Wait = doRoundWait,

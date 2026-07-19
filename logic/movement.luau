@@ -131,12 +131,14 @@ local function instanceIsInsideRoom(instance, room)
 	return false
 end
 
+	local teleportControl = {}
 	local teleportToRoom = createRoomTeleport({
 		Services = Services,
 		Player = player,
 		RuntimeIsActive = runtimeIsActive,
 		GetRoomBoundingParts = getRoomBoundingParts,
 		GetGhostModel = getGhostModel,
+		Control = teleportControl,
 	})
 	local perkTrackerState = {
 		teleportSequence = 0,
@@ -151,6 +153,18 @@ perkTrackerState.findBaseCampRoom = function()
 	return roomsFolder:FindFirstChild("Base Camp")
 		or roomsFolder:FindFirstChild("BaseCamp")
 		or findFavouriteRoom(roomsFolder, "Base Camp")
+end
+
+local baseCampEscapePivot
+local function rememberBaseCampEscapePivot(character)
+	if not character or type(character.GetPivot) ~= "function" then
+		return baseCampEscapePivot
+	end
+	local ok, pivot = pcall(character.GetPivot, character)
+	if ok and pivot ~= nil then
+		baseCampEscapePivot = pivot
+	end
+	return baseCampEscapePivot
 end
 
 perkTrackerState.teleportToBaseCamp = function(options)
@@ -215,6 +229,7 @@ perkTrackerState.teleportToBaseCamp = function(options)
 	-- already appears nearby. This gives the server a real position update before
 	-- RequestReturnToLobby checks whether everyone is in Base Camp.
 	if alreadyInside and options.ForcePreferredPosition ~= true then
+		rememberBaseCampEscapePivot(character)
 		return true, nil
 	end
 	local succeeded, teleported, reason = pcall(function()
@@ -223,7 +238,63 @@ perkTrackerState.teleportToBaseCamp = function(options)
 	if not succeeded then
 		return false, tostring(teleported):match("^[^\n]+")
 	end
+	if teleported and player.Character == character
+		and root and instanceIsInsideRoom(root, room) then
+		rememberBaseCampEscapePivot(character)
+	end
 	return teleported, reason
+end
+
+local function captureBaseCampEscapePivot()
+	local room = perkTrackerState.findBaseCampRoom()
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if room and character and root and instanceIsInsideRoom(root, room) then
+		rememberBaseCampEscapePivot(character)
+	end
+	return baseCampEscapePivot
+end
+
+local function fastTeleportToBaseCamp()
+	local room = perkTrackerState.findBaseCampRoom()
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local destination = baseCampEscapePivot or captureBaseCampEscapePivot()
+	if not room or not character or not root or not humanoid or not destination then
+		return false, "no cached Base Camp escape position"
+	end
+	if type(teleportControl.Cancel) == "function" then
+		teleportControl.Cancel()
+	end
+	local moved = pcall(function()
+		character:PivotTo(destination)
+		humanoid.Sit = false
+		humanoid.PlatformStand = false
+		humanoid.AutoRotate = true
+		root.Anchored = false
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+		for _, state in ipairs({
+			Enum.HumanoidStateType.FallingDown,
+			Enum.HumanoidStateType.Ragdoll,
+			Enum.HumanoidStateType.Freefall,
+		}) do
+			humanoid:SetStateEnabled(state, true)
+		end
+		humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+	end)
+	if not moved then
+		return false, "cached Base Camp pivot failed"
+	end
+	Services.RunService.Heartbeat:Wait()
+	if player.Character ~= character or not root.Parent then
+		return false, "character changed during hunt escape"
+	end
+	character:PivotTo(destination)
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+	return instanceIsInsideRoom(root, room), nil
 end
 perkTrackerState.teleportToFavouriteRoom = function(options)
 	local ghost = getGhostModel()
@@ -246,6 +317,8 @@ end
 		InstanceIsInsideRoom = instanceIsInsideRoom,
 		TeleportToRoom = teleportToRoom,
 		TeleportToBaseCamp = perkTrackerState.teleportToBaseCamp,
+		CaptureBaseCampEscapePivot = captureBaseCampEscapePivot,
+		FastTeleportToBaseCamp = fastTeleportToBaseCamp,
 		TeleportToFavouriteRoom = perkTrackerState.teleportToFavouriteRoom,
 	}
 end

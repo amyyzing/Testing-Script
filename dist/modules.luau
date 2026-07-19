@@ -1669,6 +1669,7 @@ end
 	local operationActive: any = assert(dependencies.OperationActive, "hunt-escape requires OperationActive")
 	local setStatus: any = assert(dependencies.SetStatus, "hunt-escape requires SetStatus")
 	local teleportToBase: any = assert(dependencies.TeleportToBase, "hunt-escape requires TeleportToBase")
+	local fastTeleportToBase: any = dependencies.FastTeleportToBase
 	local teleportOptions: any = assert(dependencies.TeleportOptions, "hunt-escape requires TeleportOptions")
 	local playerInsideBase: any = assert(dependencies.PlayerInsideBase, "hunt-escape requires PlayerInsideBase")
 	local wait: any = assert(dependencies.Wait, "hunt-escape requires Wait")
@@ -1691,8 +1692,13 @@ end
 			state.questionsActive = false
 			setStatus(ghost and "Hunt escape" or "Waiting for ghost")
 			if not escaped and os.clock() >= nextAttemptAt then
-				escaped = teleportToBase(teleportOptions(generation)) == true
-					and playerInsideBase()
+				if type(fastTeleportToBase) == "function" then
+					escaped = fastTeleportToBase() == true and playerInsideBase()
+				end
+				if not escaped then
+					escaped = teleportToBase(teleportOptions(generation)) == true
+						and playerInsideBase()
+				end
 				if not escaped then
 					failures += 1
 					nextAttemptAt = os.clock() + math.min(retryMax,
@@ -2259,6 +2265,7 @@ end
 		OperationActive = doRoundOperationActive,
 		SetStatus = setDoRoundStatus,
 		TeleportToBase = teleportToBaseCamp,
+		FastTeleportToBase = dependencies.FastTeleportToBaseCamp,
 		TeleportOptions = roundTeleportOptions,
 		PlayerInsideBase = playerIsInsideRoundBaseCamp,
 		Wait = doRoundWait,
@@ -11556,6 +11563,8 @@ end
 	local autoSpirit = dependencies.AutoSpirit
 	local onEnabledChanged = dependencies.OnEnabledChanged
 	local evidenceReady = dependencies.EvidenceReady or function() return true end
+	local fastTeleportToBaseCamp = dependencies.FastTeleportToBaseCamp
+	local captureBaseCampEscapePivot = dependencies.CaptureBaseCampEscapePivot
 	local confidenceNeeded = tonumber(dependencies.ConfidenceNeeded) or 80
 	local world = Services.Workspace
 	local stopped = false
@@ -11889,6 +11898,7 @@ end
 		PointIsInsidePart = movement.PointIsInsidePart,
 		TeleportToRoom = movement.TeleportToRoom,
 		TeleportToBaseCamp = movement.TeleportToBaseCamp,
+		FastTeleportToBaseCamp = fastTeleportToBaseCamp,
 		TeleportToFavouriteRoom = movement.TeleportToFavouriteRoom,
 		PlaceItemsInFavouriteRoom = placeItemsInFavouriteRoom,
 		InstanceIsInsideRoom = movement.InstanceIsInsideRoom,
@@ -11920,6 +11930,18 @@ end
 		State = doRoundState,
 		TeleportToBaseCamp = movement.TeleportToBaseCamp,
 	}
+	if type(ghost.GetAttributeChangedSignal) == "function" then
+		controller.HuntConnection = ghost:GetAttributeChangedSignal("Hunting"):Connect(function()
+			if stopped or doRoundState.enabled ~= true
+				or ghost:GetAttribute("Hunting") ~= true
+				or type(fastTeleportToBaseCamp) ~= "function" then
+				return
+			end
+			doRoundState.questionsActive = false
+			setDoRoundStatus("Hunt escape")
+			fastTeleportToBaseCamp()
+		end)
+	end
 	local lastEnabled = false
 
 	local function synchronizeEnabled()
@@ -11934,6 +11956,9 @@ end
 
 	function controller:SetEnabled(enabled)
 		if stopped then return false end
+		if enabled == true and type(captureBaseCampEscapePivot) == "function" then
+			pcall(captureBaseCampEscapePivot)
+		end
 		if enabled == true and doRoundState.enabled ~= true then
 			rawset(perkTrackerState, "currentGhostGuess", nil)
 			rawset(perkTrackerState, "currentGhostGuessScore", nil)
@@ -11955,6 +11980,7 @@ end
 		releasePlayerMovement(true)
 		if self.ButtonConnection then self.ButtonConnection:Disconnect() end
 		if self.RenderConnection then self.RenderConnection:Disconnect() end
+		if self.HuntConnection then self.HuntConnection:Disconnect() end
 	end
 
 	if button then
@@ -12114,6 +12140,8 @@ end
 		dependencies.TeleportToSafety,
 		"escape-hunt requires TeleportToSafety"
 	)
+	local fastTeleportToSafety = dependencies.FastTeleportToSafety
+	local captureSafetyPosition = dependencies.CaptureSafetyPosition
 	local controller = {Enabled = false, Escaped = false, Busy = false, Generation = 0}
 	local button = dependencies.Button
 	local disabledColor = button and button.BackgroundColor3
@@ -12150,7 +12178,13 @@ end
 		controller.Busy = true
 		controller.Generation += 1
 		local generation = controller.Generation
-		local ok, moved = pcall(teleportToSafety)
+		local ok, moved
+		if type(fastTeleportToSafety) == "function" then
+			ok, moved = pcall(fastTeleportToSafety)
+		end
+		if not ok or moved ~= true then
+			ok, moved = pcall(teleportToSafety)
+		end
 		controller.Busy = false
 		if ok and moved ~= false then
 			controller.Escaped = true
@@ -12171,6 +12205,9 @@ end
 	function controller:SetEnabled(enabled)
 		self.Enabled = enabled == true
 		if self.Enabled then
+			if type(captureSafetyPosition) == "function" then
+				pcall(captureSafetyPosition)
+			end
 			update()
 		else
 			self.Generation += 1
@@ -13403,12 +13440,14 @@ local function instanceIsInsideRoom(instance, room)
 	return false
 end
 
+	local teleportControl = {}
 	local teleportToRoom = createRoomTeleport({
 		Services = Services,
 		Player = player,
 		RuntimeIsActive = runtimeIsActive,
 		GetRoomBoundingParts = getRoomBoundingParts,
 		GetGhostModel = getGhostModel,
+		Control = teleportControl,
 	})
 	local perkTrackerState = {
 		teleportSequence = 0,
@@ -13423,6 +13462,18 @@ perkTrackerState.findBaseCampRoom = function()
 	return roomsFolder:FindFirstChild("Base Camp")
 		or roomsFolder:FindFirstChild("BaseCamp")
 		or findFavouriteRoom(roomsFolder, "Base Camp")
+end
+
+local baseCampEscapePivot
+local function rememberBaseCampEscapePivot(character)
+	if not character or type(character.GetPivot) ~= "function" then
+		return baseCampEscapePivot
+	end
+	local ok, pivot = pcall(character.GetPivot, character)
+	if ok and pivot ~= nil then
+		baseCampEscapePivot = pivot
+	end
+	return baseCampEscapePivot
 end
 
 perkTrackerState.teleportToBaseCamp = function(options)
@@ -13487,6 +13538,7 @@ perkTrackerState.teleportToBaseCamp = function(options)
 	-- already appears nearby. This gives the server a real position update before
 	-- RequestReturnToLobby checks whether everyone is in Base Camp.
 	if alreadyInside and options.ForcePreferredPosition ~= true then
+		rememberBaseCampEscapePivot(character)
 		return true, nil
 	end
 	local succeeded, teleported, reason = pcall(function()
@@ -13495,7 +13547,63 @@ perkTrackerState.teleportToBaseCamp = function(options)
 	if not succeeded then
 		return false, tostring(teleported):match("^[^\n]+")
 	end
+	if teleported and player.Character == character
+		and root and instanceIsInsideRoom(root, room) then
+		rememberBaseCampEscapePivot(character)
+	end
 	return teleported, reason
+end
+
+local function captureBaseCampEscapePivot()
+	local room = perkTrackerState.findBaseCampRoom()
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if room and character and root and instanceIsInsideRoom(root, room) then
+		rememberBaseCampEscapePivot(character)
+	end
+	return baseCampEscapePivot
+end
+
+local function fastTeleportToBaseCamp()
+	local room = perkTrackerState.findBaseCampRoom()
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local destination = baseCampEscapePivot or captureBaseCampEscapePivot()
+	if not room or not character or not root or not humanoid or not destination then
+		return false, "no cached Base Camp escape position"
+	end
+	if type(teleportControl.Cancel) == "function" then
+		teleportControl.Cancel()
+	end
+	local moved = pcall(function()
+		character:PivotTo(destination)
+		humanoid.Sit = false
+		humanoid.PlatformStand = false
+		humanoid.AutoRotate = true
+		root.Anchored = false
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+		for _, state in ipairs({
+			Enum.HumanoidStateType.FallingDown,
+			Enum.HumanoidStateType.Ragdoll,
+			Enum.HumanoidStateType.Freefall,
+		}) do
+			humanoid:SetStateEnabled(state, true)
+		end
+		humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+	end)
+	if not moved then
+		return false, "cached Base Camp pivot failed"
+	end
+	Services.RunService.Heartbeat:Wait()
+	if player.Character ~= character or not root.Parent then
+		return false, "character changed during hunt escape"
+	end
+	character:PivotTo(destination)
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+	return instanceIsInsideRoom(root, room), nil
 end
 perkTrackerState.teleportToFavouriteRoom = function(options)
 	local ghost = getGhostModel()
@@ -13518,6 +13626,8 @@ end
 		InstanceIsInsideRoom = instanceIsInsideRoom,
 		TeleportToRoom = teleportToRoom,
 		TeleportToBaseCamp = perkTrackerState.teleportToBaseCamp,
+		CaptureBaseCampEscapePivot = captureBaseCampEscapePivot,
+		FastTeleportToBaseCamp = fastTeleportToBaseCamp,
 		TeleportToFavouriteRoom = perkTrackerState.teleportToFavouriteRoom,
 	}
 end
@@ -14835,9 +14945,15 @@ end
 	local runtimeIsActive = assert(dependencies.RuntimeIsActive, "room-teleport requires RuntimeIsActive")
 	local getRoomBoundingParts = assert(dependencies.GetRoomBoundingParts, "room-teleport requires GetRoomBoundingParts")
 	local getGhostModel = assert(dependencies.GetGhostModel, "room-teleport requires GetGhostModel")
+	local control = dependencies.Control
 	local closed = false
 	local ghostProxyModel = nil
 	local perkTrackerState = {teleportSequence = 0}
+	if type(control) == "table" then
+		control.Cancel = function()
+			perkTrackerState.teleportSequence += 1
+		end
+	end
 
 perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	options = options or {}

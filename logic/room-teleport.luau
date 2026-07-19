@@ -4,9 +4,15 @@ return function(dependencies)
 	local runtimeIsActive = assert(dependencies.RuntimeIsActive, "room-teleport requires RuntimeIsActive")
 	local getRoomBoundingParts = assert(dependencies.GetRoomBoundingParts, "room-teleport requires GetRoomBoundingParts")
 	local getGhostModel = assert(dependencies.GetGhostModel, "room-teleport requires GetGhostModel")
+	local control = dependencies.Control
 	local closed = false
 	local ghostProxyModel = nil
 	local perkTrackerState = {teleportSequence = 0}
+	if type(control) == "table" then
+		control.Cancel = function()
+			perkTrackerState.teleportSequence += 1
+		end
+	end
 
 perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	options = options or {}

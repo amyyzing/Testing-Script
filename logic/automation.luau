@@ -56,6 +56,8 @@ return function(dependencies)
 	local autoSpirit = dependencies.AutoSpirit
 	local onEnabledChanged = dependencies.OnEnabledChanged
 	local evidenceReady = dependencies.EvidenceReady or function() return true end
+	local fastTeleportToBaseCamp = dependencies.FastTeleportToBaseCamp
+	local captureBaseCampEscapePivot = dependencies.CaptureBaseCampEscapePivot
 	local confidenceNeeded = tonumber(dependencies.ConfidenceNeeded) or 80
 	local world = Services.Workspace
 	local stopped = false
@@ -389,6 +391,7 @@ return function(dependencies)
 		PointIsInsidePart = movement.PointIsInsidePart,
 		TeleportToRoom = movement.TeleportToRoom,
 		TeleportToBaseCamp = movement.TeleportToBaseCamp,
+		FastTeleportToBaseCamp = fastTeleportToBaseCamp,
 		TeleportToFavouriteRoom = movement.TeleportToFavouriteRoom,
 		PlaceItemsInFavouriteRoom = placeItemsInFavouriteRoom,
 		InstanceIsInsideRoom = movement.InstanceIsInsideRoom,
@@ -420,6 +423,18 @@ return function(dependencies)
 		State = doRoundState,
 		TeleportToBaseCamp = movement.TeleportToBaseCamp,
 	}
+	if type(ghost.GetAttributeChangedSignal) == "function" then
+		controller.HuntConnection = ghost:GetAttributeChangedSignal("Hunting"):Connect(function()
+			if stopped or doRoundState.enabled ~= true
+				or ghost:GetAttribute("Hunting") ~= true
+				or type(fastTeleportToBaseCamp) ~= "function" then
+				return
+			end
+			doRoundState.questionsActive = false
+			setDoRoundStatus("Hunt escape")
+			fastTeleportToBaseCamp()
+		end)
+	end
 	local lastEnabled = false
 
 	local function synchronizeEnabled()
@@ -434,6 +449,9 @@ return function(dependencies)
 
 	function controller:SetEnabled(enabled)
 		if stopped then return false end
+		if enabled == true and type(captureBaseCampEscapePivot) == "function" then
+			pcall(captureBaseCampEscapePivot)
+		end
 		if enabled == true and doRoundState.enabled ~= true then
 			rawset(perkTrackerState, "currentGhostGuess", nil)
 			rawset(perkTrackerState, "currentGhostGuessScore", nil)
@@ -455,6 +473,7 @@ return function(dependencies)
 		releasePlayerMovement(true)
 		if self.ButtonConnection then self.ButtonConnection:Disconnect() end
 		if self.RenderConnection then self.RenderConnection:Disconnect() end
+		if self.HuntConnection then self.HuntConnection:Disconnect() end
 	end
 
 	if button then

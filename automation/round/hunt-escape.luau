@@ -5,6 +5,7 @@ return function(dependencies: any)
 	local operationActive: any = assert(dependencies.OperationActive, "hunt-escape requires OperationActive")
 	local setStatus: any = assert(dependencies.SetStatus, "hunt-escape requires SetStatus")
 	local teleportToBase: any = assert(dependencies.TeleportToBase, "hunt-escape requires TeleportToBase")
+	local fastTeleportToBase: any = dependencies.FastTeleportToBase
 	local teleportOptions: any = assert(dependencies.TeleportOptions, "hunt-escape requires TeleportOptions")
 	local playerInsideBase: any = assert(dependencies.PlayerInsideBase, "hunt-escape requires PlayerInsideBase")
 	local wait: any = assert(dependencies.Wait, "hunt-escape requires Wait")
@@ -27,8 +28,13 @@ return function(dependencies: any)
 			state.questionsActive = false
 			setStatus(ghost and "Hunt escape" or "Waiting for ghost")
 			if not escaped and os.clock() >= nextAttemptAt then
-				escaped = teleportToBase(teleportOptions(generation)) == true
-					and playerInsideBase()
+				if type(fastTeleportToBase) == "function" then
+					escaped = fastTeleportToBase() == true and playerInsideBase()
+				end
+				if not escaped then
+					escaped = teleportToBase(teleportOptions(generation)) == true
+						and playerInsideBase()
+				end
 				if not escaped then
 					failures += 1
 					nextAttemptAt = os.clock() + math.min(retryMax,
