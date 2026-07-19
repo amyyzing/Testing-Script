@@ -4429,20 +4429,79 @@ end
 	local Traffic = assert(dependencies.Traffic, "evidence-state requires Traffic")
 	local Player = assert(dependencies.Player, "evidence-state requires Player")
 	local RunService = dependencies.RunService
+	local Workspace = dependencies.Workspace
+	local ReplicatedStorage = dependencies.ReplicatedStorage
+	local Catalog = dependencies.EvidenceCatalog
+	local Verdict = dependencies.Verdict
 	local defer = dependencies.Defer or task and task.defer or function(callback) callback() end
 	local tracker = {
 		Connections = {},
 		ContainerConnections = {},
 		RowConnections = {},
 		Pending = {},
+		Journal = {},
+		Automatic = {},
+		Published = {},
+		Displays = {},
+		Details = {},
+		Metrics = {},
+		SubtitleBound = {},
+		HighestEMF = 1,
 		Destroyed = false,
 	}
+	local NIL = {}
 
 	local function connect(signal, callback, list)
 		if not signal then return nil end
 		local connection = signal:Connect(callback)
 		table.insert(list or tracker.Connections, connection)
 		return connection
+	end
+
+	local function normalize(evidence)
+		return Catalog and Catalog.NormalizeEvidence(evidence) or evidence
+	end
+
+	local function effectiveState(evidence)
+		if tracker.Automatic[evidence] then return true end
+		return tracker.Journal[evidence]
+	end
+
+	local function publishEvidence(evidence)
+		evidence = normalize(evidence)
+		if not evidence then return end
+		local state = effectiveState(evidence)
+		local stored = state == nil and NIL or state
+		if tracker.Published[evidence] == stored then return end
+		tracker.Published[evidence] = stored
+		Traffic("EvidenceState", {
+			Evidence = evidence,
+			State = state,
+			Source = tracker.Automatic[evidence] and "Automatic" or "Journal",
+		}):SendTo("Verdict", "EvidenceLog")
+	end
+
+	local function publishMetric(key, text, state)
+		local signature = tostring(text) .. "|" .. tostring(state)
+		if tracker.Metrics[key] == signature then return end
+		tracker.Metrics[key] = signature
+		Traffic("EvidenceMetric", {Key = key, Text = text, State = state})
+			:SendTo("EvidenceLog")
+	end
+
+	local function publishDetail(evidence, text)
+		if tracker.Details[evidence] == text then return end
+		tracker.Details[evidence] = text
+		Traffic("EvidenceDetail", {Evidence = evidence, Text = text})
+			:SendTo("EvidenceLog")
+	end
+
+	local function setAutomatic(evidence)
+		evidence = normalize(evidence)
+		if not evidence or tracker.Automatic[evidence] then return false end
+		tracker.Automatic[evidence] = true
+		publishEvidence(evidence)
+		return true
 	end
 
 	local function evidenceContainer()
@@ -4461,7 +4520,7 @@ end
 			container and container:FindFirstChild("CrossOut")
 	end
 
-	local function publish(row)
+	local function publishRow(row)
 		if tracker.Destroyed or not row or not row.Parent
 			or not tracker.RowConnections[row] then return end
 		local highlight, crossOut = controls(row)
@@ -4471,10 +4530,10 @@ end
 		elseif crossOut and crossOut.Visible then
 			state = false
 		end
-		Traffic("EvidenceState", {
-			Evidence = row.Name,
-			State = state,
-		}):SendTo("Verdict", "EvidenceLog")
+		local evidence = normalize(row.Name)
+		if not evidence then return end
+		tracker.Journal[evidence] = state
+		publishEvidence(evidence)
 	end
 
 	local function queuePublish(row)
@@ -4482,8 +4541,7 @@ end
 		tracker.Pending[row] = true
 		defer(function()
 			tracker.Pending[row] = nil
-			if tracker.Destroyed then return end
-			publish(row)
+			if not tracker.Destroyed then publishRow(row) end
 		end)
 	end
 
@@ -4524,10 +4582,206 @@ end
 		end, tracker.ContainerConnections)
 	end
 
+	local function spiritBookHasWriting(model)
+		if not model or not model:IsA("Model") then return false end
+		local itemName = string.lower(tostring(model:GetAttribute("ItemName") or ""))
+		local identified = itemName == "spirit book" or string.lower(model.Name) == "spirit book"
+		local canvas = model:FindFirstChild("Canvas", true)
+		local surface = canvas and canvas:FindFirstChild("SurfaceGui")
+		local frame = surface and surface:FindFirstChild("Frame")
+		local image = frame and frame:FindFirstChild("ImageLabel")
+		if image and image:IsA("ImageLabel") and image.Image ~= "" then return true end
+		if not identified then return false end
+		for _, descendant in ipairs(model:GetDescendants()) do
+			if descendant:IsA("Decal") and descendant.Texture ~= "" then return true end
+			if descendant:IsA("ImageLabel") and descendant.Image ~= ""
+				and descendant:FindFirstAncestor("Canvas") then return true end
+		end
+		return false
+	end
+
+	local function inspectWorldObject(object)
+		if not object or type(object.IsA) ~= "function" then return end
+		if object:IsA("BasePart") then
+			if object.Name == "GhostOrb" then setAutomatic("GhostOrb") end
+			if object.Name == "Handprint1" or object.Name == "Handprint2"
+				or object.Name == "Footprint" or object.Name == "Footprint1" then
+				local saltPiles = Workspace and Workspace:FindFirstChild("SaltPiles")
+				if not saltPiles or not object:IsDescendantOf(saltPiles) then
+					setAutomatic("Handprints")
+				end
+			end
+		end
+	end
+
+	local function inspectItemModel(model)
+		if not model:IsA("Model") then return end
+		if not tracker.Automatic.GhostWriting and spiritBookHasWriting(model) then
+			setAutomatic("GhostWriting")
+		end
+		if model:GetAttribute("ItemName") ~= "EMF Reader" then return end
+		local readingObject = model:FindFirstChild("ReadingLevel", true)
+		local level
+		if readingObject and (readingObject:IsA("NumberValue") or readingObject:IsA("IntValue")) then
+			level = readingObject.Value
+		else
+			level = model:GetAttribute("ReadingLevel")
+		end
+		if type(level) == "number" then
+			tracker.HighestEMF = math.max(tracker.HighestEMF,
+				math.clamp(math.floor(level + 0.5), 1, 5))
+		end
+	end
+
+	local function scanItems()
+		local checked = setmetatable({}, {__mode = "k"})
+		local worldItems = Workspace and Workspace:FindFirstChild("Items")
+		for _, container in ipairs({
+			worldItems,
+			Player:FindFirstChild("ToolsHolder"),
+			Player.Character,
+		}) do
+			if container then
+				for _, object in ipairs(container:GetDescendants()) do
+					if container == worldItems and object:IsA("BasePart")
+						and object.Name == "Flower_Petals" then
+						local color = object.Color
+						if color and color.R <= 0.03 and color.G <= 0.03 and color.B <= 0.03 then
+							setAutomatic("Wither")
+						end
+					end
+					if object:IsA("Model") and not checked[object] then
+						checked[object] = true
+						inspectItemModel(object)
+					end
+				end
+			end
+		end
+		if tracker.HighestEMF >= 5 then setAutomatic("EMFLevel5") end
+		publishDetail("EMFLevel5", "EMF-" .. tostring(tracker.HighestEMF))
+	end
+
+	local function scanTemperature()
+		local map = Workspace and Workspace:FindFirstChild("Map")
+		local rooms = map and map:FindFirstChild("Rooms")
+		if rooms then
+			for _, room in ipairs(rooms:GetChildren()) do
+				local temperature = room:GetAttribute("Temperature")
+				if type(temperature) == "number" then
+					tracker.LowestTemperature = math.min(
+						tracker.LowestTemperature or temperature, temperature)
+				end
+			end
+		end
+		if tracker.LowestTemperature then
+			if tracker.LowestTemperature < 0 then setAutomatic("FreezingTemperatures") end
+			publishDetail("FreezingTemperatures", "Lowest Temperature: "
+				.. string.format("%.1f°C", tracker.LowestTemperature))
+		end
+	end
+
+	local function publishDisplays()
+		if not Catalog or not Verdict then return end
+		local candidates = {}
+		for index, name in ipairs(Verdict.Lists) do
+			if not table.find(Verdict.RuledOut, index) and Verdict:IsCompatible(name) then
+				table.insert(candidates, name)
+			end
+		end
+		if #candidates == 0 then
+			for _, name in ipairs(Verdict.Lists) do
+				if Verdict:IsCompatible(name) then table.insert(candidates, name) end
+			end
+		end
+		for _, evidence in ipairs(Catalog.EvidenceOrder) do
+			local impossible = effectiveState(evidence) == nil
+			for _, ghostName in ipairs(candidates) do
+				if Catalog.SupportsEvidence(ghostName, evidence, {IncludeFalseEvidence = true}) then
+					impossible = false
+					break
+				end
+			end
+			if tracker.Displays[evidence] ~= impossible then
+				tracker.Displays[evidence] = impossible
+				Traffic("EvidenceDisplay", {Evidence = evidence, Impossible = impossible})
+					:SendTo("EvidenceLog")
+			end
+		end
+	end
+
+	local function publishRoundInfo(ghost)
+		local favourite = ghost and ghost:GetAttribute("FavoriteRoom")
+		publishMetric("FavouriteRoom", favourite and tostring(favourite) ~= ""
+			and "Favourite Room: " .. tostring(favourite) or "Favourite Room: ...")
+		local selected = Verdict and Verdict.Selected[1]
+		local ghostName = selected and Verdict.Lists[selected]
+		if not ghostName then
+			publishMetric("Ghost", "Ghost: Unknown (Idk)")
+			return
+		end
+		local resolved = Verdict.GetEvidenceResolvedGhost and Verdict:GetEvidenceResolvedGhost()
+		local score = math.max(0, (Verdict.Confidence[selected] or 0)
+			- (Verdict.NegativeConfidence[selected] or 0))
+		local tier = resolved == ghostName and "Certain"
+			or Catalog and select(2, Catalog.ConfidenceTier(score)) or "Idk"
+		publishMetric("Ghost", "Ghost: " .. ghostName .. " (" .. tier .. ")",
+			tier == "Certain" or tier == "Pretty Sure")
+	end
+
+	local function scanAutomatic()
+		if not Workspace then return end
+		local ghost = dependencies.Ghost or Workspace:FindFirstChild("Ghost")
+		if ghost and ghost:GetAttribute("InLaser") == true then setAutomatic("LaserProjector") end
+		scanItems()
+		scanTemperature()
+		publishDisplays()
+		publishRoundInfo(ghost)
+	end
+
+	local function rebuildVoiceIndex()
+		tracker.VoiceSubtitles = tracker.VoiceSubtitles or {}
+		table.clear(tracker.VoiceSubtitles)
+		local assets = ReplicatedStorage and ReplicatedStorage:FindFirstChild("Assets")
+		local voices = assets and assets:FindFirstChild("SpiritBoxVoices")
+		if not voices then return end
+		for _, object in ipairs(voices:GetDescendants()) do
+			if object:IsA("Sound") and type(object:GetAttribute("Subtitle")) == "string" then
+				local text = string.lower(object:GetAttribute("Subtitle")):gsub("%s+", "")
+				if text ~= "" then tracker.VoiceSubtitles[text] = true end
+			end
+		end
+	end
+
+	local function onSubtitle(text)
+		if type(text) ~= "string" then return end
+		if not tracker.VoiceSubtitles or next(tracker.VoiceSubtitles) == nil then
+			rebuildVoiceIndex()
+		end
+		local key = string.lower(text):gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", "")
+		if tracker.VoiceSubtitles and tracker.VoiceSubtitles[key] then
+			setAutomatic("SpiritBox")
+		end
+	end
+
+	local function bindSubtitle(connector)
+		if not connector or tracker.SubtitleBound[connector] then return end
+		local ok, connection = pcall(function()
+			if type(connector) == "function" then return connector(onSubtitle) end
+			return connector.Connect(onSubtitle)
+		end)
+		if ok and connection then
+			tracker.SubtitleBound[connector] = true
+			table.insert(tracker.Connections, connection)
+		end
+	end
+
 	function tracker:Refresh()
 		if self.Destroyed then return false end
 		local container = evidenceContainer()
 		if container then bindContainer(container) end
+		bindSubtitle(dependencies.ShowSubtitle)
+		bindSubtitle(dependencies.LocalShowSubtitle)
+		scanAutomatic()
 		return container ~= nil
 	end
 
@@ -4544,16 +4798,18 @@ end
 		table.clear(self.RowConnections)
 	end
 
+	if Workspace then
+		for _, object in ipairs(Workspace:GetDescendants()) do inspectWorldObject(object) end
+		connect(Workspace.DescendantAdded, inspectWorldObject)
+	end
 	tracker:Refresh()
 	if RunService and RunService.Heartbeat then
 		local elapsed = 0
 		connect(RunService.Heartbeat, function(delta)
-			if tracker.Container and tracker.Container.Parent then return end
 			elapsed += math.max(0, tonumber(delta) or 0)
-			if elapsed >= 0.5 then
-				elapsed = 0
-				tracker:Refresh()
-			end
+			if elapsed < 1 then return end
+			elapsed = 0
+			tracker:Refresh()
 		end)
 	end
 	return tracker
@@ -9932,7 +10188,7 @@ return function(dependencies)
 		if not index then return nil end
 		local selectedIndex = forcedGhost and indexes[forcedGhost] or self.Selected[1]
 		if index == selectedIndex then return true end
-		if isRuledOut(index) then return false end
+		if isRuledOut(index) or not evidenceCompatible(index) then return false end
 		return nil
 	end
 
@@ -11664,7 +11920,7 @@ end
 	local negativeColor = assert(dependencies.NegativeColor, "evidence-log requires NegativeColor")
 	local canvasSize = dependencies.CanvasSize or UDim2.fromOffset
 	local defer = dependencies.Defer or task.defer
-	local controller = {Rows = {}, States = {}}
+	local controller = {Rows = {}, States = {}, Details = {}, Displays = {}}
 
 	local function updateCanvas()
 		view.List.CanvasSize = canvasSize(0, view.Layout.AbsoluteContentSize.Y + 8)
@@ -11674,12 +11930,21 @@ end
 		local row = controller.Rows[evidence]
 		if not row then return end
 		local state = controller.States[evidence]
+		local impossible = controller.Displays[evidence] == true
 		local definition = catalog.Evidence[evidence]
 		local name = definition and (definition.DisplayName or definition.CurrentName) or evidence
+		local detail = controller.Details[evidence]
+		if detail then
+			row.Text = detail
+			row.TextColor3 = state == true and positiveColor
+				or (state == false or impossible) and negativeColor
+				or unknownColor
+			return
+		end
 		if state == true then
 			row.Text = name .. ": Yes"
 			row.TextColor3 = positiveColor
-		elseif state == false then
+		elseif state == false or impossible then
 			row.Text = name .. ": Impossible"
 			row.TextColor3 = negativeColor
 		else
@@ -11688,28 +11953,54 @@ end
 		end
 	end
 
-	for index, evidence in ipairs(catalog.EvidenceOrder) do
+	local function createRow(key, order)
 		local row = view.Template:Clone()
-		row.Name = "EvidenceRow" .. evidence
-		row.LayoutOrder = index
+		row.Name = "EvidenceRow" .. key
+		row.LayoutOrder = order
 		row.Visible = true
 		row.Parent = view.List
-		controller.Rows[evidence] = row
+		controller.Rows[key] = row
+		return row
+	end
+
+	for index, evidence in ipairs(catalog.EvidenceOrder) do
+		createRow(evidence, index)
 		render(evidence)
+	end
+	for index, key in ipairs({"FavouriteRoom", "Ghost"}) do
+		local row = createRow(key, #catalog.EvidenceOrder + index)
+		row.Text = key == "FavouriteRoom" and "Favourite Room: ..." or "Ghost: Unknown (Idk)"
+		row.TextColor3 = unknownColor
 	end
 	view.Empty.Visible = false
 	defer(updateCanvas)
 
 	controller.DisconnectTraffic = Traffic:Receive("EvidenceLog", function(signal, payload)
-		if signal ~= "EvidenceState" or type(payload) ~= "table" then return end
+		if type(payload) ~= "table" then return end
+		if signal == "EvidenceMetric" then
+			local row = controller.Rows[payload.Key]
+			if not row or type(payload.Text) ~= "string" then return end
+			row.Text = payload.Text
+			row.TextColor3 = payload.State == true and positiveColor
+				or payload.State == false and negativeColor or unknownColor
+			return
+		end
 		local evidence = catalog.NormalizeEvidence(payload.Evidence)
 		if not evidence or not controller.Rows[evidence] then return end
-		if payload.State == true then
-			controller.States[evidence] = true
-		elseif payload.State == false then
-			controller.States[evidence] = false
+		if signal == "EvidenceDetail" then
+			controller.Details[evidence] = payload.Text
+		elseif signal == "EvidenceDisplay" then
+			controller.Displays[evidence] = payload.Impossible == true
+		elseif signal == "EvidenceState" then
+			if payload.State == true then
+				controller.States[evidence] = true
+			elseif payload.State == false then
+				controller.States[evidence] = false
+			else
+				controller.States[evidence] = nil
+			end
 		else
-			controller.States[evidence] = nil
+			return
 		end
 		render(evidence)
 	end)
@@ -11723,6 +12014,8 @@ end
 		for _, row in pairs(self.Rows) do row:Destroy() end
 		table.clear(self.Rows)
 		table.clear(self.States)
+		table.clear(self.Details)
+		table.clear(self.Displays)
 	end
 
 	return controller

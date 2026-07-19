@@ -379,6 +379,13 @@ local function startTrackers()
 			Traffic = Traffic,
 			Player = player,
 			RunService = Services.RunService,
+			Workspace = Services.Workspace,
+			ReplicatedStorage = Services.ReplicatedStorage,
+			Ghost = ghost,
+			EvidenceCatalog = GhostCatalog,
+			Verdict = Verdict,
+			ShowSubtitle = Remotes:Get("ShowSubtitle"),
+			LocalShowSubtitle = Remotes:Get("LocalShowSubtitle"),
 		}))
 		remember(Aswang.new({Traffic = Traffic}))
 		remember(Demon.new({Traffic = Traffic}))

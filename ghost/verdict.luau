@@ -300,7 +300,7 @@ return function(dependencies)
 		if not index then return nil end
 		local selectedIndex = forcedGhost and indexes[forcedGhost] or self.Selected[1]
 		if index == selectedIndex then return true end
-		if isRuledOut(index) then return false end
+		if isRuledOut(index) or not evidenceCompatible(index) then return false end
 		return nil
 	end
 

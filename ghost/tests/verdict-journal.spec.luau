@@ -1,5 +1,6 @@
 local createTraffic = require("../traffic")
 local createVerdict = require("../verdict")
+local EvidenceCatalog = require("../evidence-catalog")
 
 local function expect(condition, message)
 	if not condition then error(message, 2) end
@@ -96,5 +97,22 @@ expect(retryStates.Aswang == true and retryStates.Banshee == false,
 	"the retry must select Aswang and cross out Banshee")
 expect(not retryVerdict.JournalDirty,
 	"a complete Journal retry should clear its dirty state")
+
+local evidenceTraffic = createTraffic()
+local evidenceStates = {}
+local evidenceVerdict = createVerdict({
+	Traffic = evidenceTraffic,
+	EvidenceCatalog = EvidenceCatalog,
+	ApplyJournalState = function(name, state)
+		evidenceStates[name] = state
+		return true, true
+	end,
+})
+evidenceTraffic("EvidenceState", {Evidence = "Ghost Orb", State = true}):SendTo("Verdict")
+expect(evidenceVerdict:SyncJournal() and evidenceStates.Keres == false,
+	"confirmed evidence should cross out incompatible ghosts in the Journal")
+evidenceTraffic("EvidenceState", {Evidence = "Ghost Orb", State = nil}):SendTo("Verdict")
+expect(evidenceVerdict:SyncJournal() and evidenceStates.Keres == nil,
+	"clearing evidence should restore ghosts crossed out only by evidence")
 
 print("verdict-journal.spec: rule-outs, selection lock, and unknown journal states passed")

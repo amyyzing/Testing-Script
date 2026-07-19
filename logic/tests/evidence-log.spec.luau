@@ -54,8 +54,8 @@ local controller = createEvidenceLog({
 	Defer = function(callback) callback() end,
 })
 
-expect(#entries == 2 and view.Empty.Visible == false,
-	"the legacy-style drawer should create one row for every evidence type")
+expect(#entries == 4 and view.Empty.Visible == false,
+	"the legacy-style drawer should create evidence, room, and ghost rows")
 expect(entries[1].Text == "Spirit Box: Unknown" and entries[1].TextColor3 == "unknown",
 	"evidence should begin unknown")
 
@@ -70,6 +70,11 @@ expect(entries[2].Text == "Ghost Orb: Impossible" and entries[2].TextColor3 == "
 Traffic("EvidenceState", {Evidence = "Ghost Orb", State = nil}):SendTo("EvidenceLog")
 expect(entries[2].Text == "Ghost Orb: Unknown" and entries[2].TextColor3 == "unknown",
 	"cleared evidence should return to Unknown")
+
+Traffic("EvidenceDetail", {Evidence = "Spirit Box", Text = "Spirit Box: Detected"}):SendTo("EvidenceLog")
+expect(entries[1].Text == "Spirit Box: Detected", "legacy evidence details should replace generic text")
+Traffic("EvidenceMetric", {Key = "FavouriteRoom", Text = "Favourite Room: Office"}):SendTo("EvidenceLog")
+expect(entries[3].Text == "Favourite Room: Office", "the drawer should show the favourite room")
 
 controller:Destroy()
 expect(entries[1].Destroyed and entries[2].Destroyed, "destroy should remove evidence rows")
