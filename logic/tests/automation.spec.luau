@@ -17,7 +17,7 @@ local function signal()
 	}
 end
 
-local stateSeen, perkStateSeen
+local stateSeen, perkStateSeen, detectionsSeen
 local movement = {
 	FindRoomsFolder = function() end,
 	FindFavouriteRoom = function() end,
@@ -37,8 +37,14 @@ local autoSpirit = {
 local enabledChanges = {}
 local click = signal()
 local createPreRound = function() end
+local createLaySalt = function() end
+local createPourHolyOil = function() end
 local createRound = function() end
 local createPostRound = function() end
+local createRoundUtilities = function() end
+local createHuntEscape = function() end
+local createItemGhostRoom = function() end
+local createMaintainItem = function() end
 local roundStartCalls = 0
 local roundStarted = {
 	Start = function()
@@ -64,8 +70,14 @@ local controller = createAutomation({
 	Movement = movement,
 	RoundStarted = roundStarted,
 	CreatePreRound = createPreRound,
+	CreateLaySalt = createLaySalt,
+	CreatePourHolyOil = createPourHolyOil,
 	CreateRound = createRound,
 	CreatePostRound = createPostRound,
+	CreateRoundUtilities = createRoundUtilities,
+	CreateHuntEscape = createHuntEscape,
+	CreateItemGhostRoom = createItemGhostRoom,
+	CreateMaintainItem = createMaintainItem,
 	CreateRoomItemSetup = function(dependencies)
 		expect(dependencies.PerkTrackerState ~= nil,
 			"room setup must receive the legacy automation state")
@@ -74,10 +86,21 @@ local controller = createAutomation({
 	CreateRoundAutomation = function(dependencies)
 		expect(dependencies.CreatePreRound == createPreRound
 			and dependencies.CreateRound == createRound
-			and dependencies.CreatePostRound == createPostRound,
+			and dependencies.CreatePostRound == createPostRound
+			and dependencies.CreateRoundUtilities == createRoundUtilities,
 			"automation must forward all three game-round phases")
+		expect(dependencies.CreateLaySalt == createLaySalt
+			and dependencies.CreatePourHolyOil == createPourHolyOil,
+			"automation must forward both split door-placeable modules")
+		expect(dependencies.CreateHuntEscape == createHuntEscape,
+			"automation must forward the split hunt escape module")
+		expect(dependencies.CreateItemGhostRoom == createItemGhostRoom,
+			"automation must forward the split room-item module")
+		expect(dependencies.CreateMaintainItem == createMaintainItem,
+			"automation must forward the split item-maintenance module")
 		stateSeen = dependencies.State
 		perkStateSeen = dependencies.PerkTrackerState
+		detectionsSeen = dependencies.PerkDetections
 		expect(dependencies.TeleportToRoom == movement.TeleportToRoom,
 			"round automation must use the restored room teleport")
 		expect(dependencies.TeleportToBaseCamp == movement.TeleportToBaseCamp,
@@ -101,6 +124,7 @@ local controller = createAutomation({
 		table.insert(enabledChanges, enabled)
 	end,
 	RuntimeIsActive = function() return true end,
+	EvidenceReady = function() return true end,
 })
 
 click:Fire()
@@ -119,6 +143,8 @@ expect(perkStateSeen.currentGhostGuess == "Wraith"
 	and perkStateSeen.currentGhostGuessCertain == true
 	and perkStateSeen.getConfirmedEvidence().GhostOrb == true,
 	"automation must treat unique evidence as Certain and expose confirmed evidence")
+expect(detectionsSeen.Wraith.NetConfidence == 35,
+	"timeout weighting should expose evidence-compatible net confidence")
 
 controller:SetEnabled(false)
 expect(not controller.Enabled and not autoSpirit.Enabled,

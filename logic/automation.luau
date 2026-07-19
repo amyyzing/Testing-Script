@@ -16,6 +16,14 @@ return function(dependencies)
 		dependencies.CreatePreRound,
 		"automation requires CreatePreRound"
 	)
+	local createLaySalt = assert(
+		dependencies.CreateLaySalt,
+		"automation requires CreateLaySalt"
+	)
+	local createPourHolyOil = assert(
+		dependencies.CreatePourHolyOil,
+		"automation requires CreatePourHolyOil"
+	)
 	local createRound = assert(
 		dependencies.CreateRound,
 		"automation requires CreateRound"
@@ -24,6 +32,22 @@ return function(dependencies)
 		dependencies.CreatePostRound,
 		"automation requires CreatePostRound"
 	)
+	local createRoundUtilities = assert(
+		dependencies.CreateRoundUtilities,
+		"automation requires CreateRoundUtilities"
+	)
+	local createHuntEscape = assert(
+		dependencies.CreateHuntEscape,
+		"automation requires CreateHuntEscape"
+	)
+	local createItemGhostRoom = assert(
+		dependencies.CreateItemGhostRoom,
+		"automation requires CreateItemGhostRoom"
+	)
+	local createMaintainItem = assert(
+		dependencies.CreateMaintainItem,
+		"automation requires CreateMaintainItem"
+	)
 	local roundStarted = dependencies.RoundStarted
 	local runtimeIsActive = dependencies.RuntimeIsActive or function() return true end
 	local button = dependencies.Button
@@ -31,6 +55,7 @@ return function(dependencies)
 	local disabledColor = button and button.BackgroundColor3
 	local autoSpirit = dependencies.AutoSpirit
 	local onEnabledChanged = dependencies.OnEnabledChanged
+	local evidenceReady = dependencies.EvidenceReady or function() return true end
 	local confidenceNeeded = tonumber(dependencies.ConfidenceNeeded) or 80
 	local world = Services.Workspace
 	local stopped = false
@@ -199,6 +224,10 @@ return function(dependencies)
 				if key == "Confidence" then
 					return tonumber(Verdict.Confidence[index]) or 0
 				end
+				if key == "NetConfidence" then
+					return math.max(0, (tonumber(Verdict.Confidence[index]) or 0)
+						- (tonumber(Verdict.NegativeConfidence[index]) or 0))
+				end
 				return nil
 			end,
 		})
@@ -340,8 +369,14 @@ return function(dependencies)
 
 	local legacy = createRoundAutomation({
 		CreatePreRound = createPreRound,
+		CreateLaySalt = createLaySalt,
+		CreatePourHolyOil = createPourHolyOil,
 		CreateRound = createRound,
 		CreatePostRound = createPostRound,
+		CreateRoundUtilities = createRoundUtilities,
+		CreateHuntEscape = createHuntEscape,
+		CreateItemGhostRoom = createItemGhostRoom,
+		CreateMaintainItem = createMaintainItem,
 		Services = Services,
 		Player = player,
 		RuntimeIsActive = runtimeIsActive,
@@ -372,6 +407,7 @@ return function(dependencies)
 		SetGhostIdentificationLabel = function() end,
 		ReleasePlayerMovement = releasePlayerMovement,
 		PrepareTeleport = dependencies.PrepareReturn,
+		EvidenceReady = evidenceReady,
 		RequestItemUnequip = dependencies.RequestItemUnequip,
 		MarkRoundStarted = function()
 			return roundStarted and roundStarted.Start

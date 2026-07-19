@@ -16,6 +16,7 @@ return function(package: any)
 	local setGhostIdentificationLabel: any = assert(dependencies.SetGhostIdentificationLabel, "post-round requires SetGhostIdentificationLabel")
 	local setDoRoundStatus: any = assert(dependencies.SetDoRoundStatus, "post-round requires SetDoRoundStatus")
 	local prepareTeleport: any = dependencies.PrepareTeleport
+	local evidenceReady: any = dependencies.EvidenceReady or function() return true end
 	if type(prepareTeleport) ~= "function" then
 		prepareTeleport = function() return true end
 	end
@@ -252,7 +253,10 @@ local function chooseRoundTimeoutFallback()
 	end
 	local fallbackDetection = perkDetections[fallback]
 	local fallbackScore = fallbackDetection
-		and tonumber(fallbackDetection.Confidence)
+		and tonumber(
+			fallbackDetection.NetConfidence
+				or fallbackDetection.Confidence
+		)
 		or 0
 	if guess == fallback then
 		fallbackScore = math.max(fallbackScore, score)
@@ -335,6 +339,9 @@ local function cancelDoRoundSetupWork()
 end
 
 local function finishTimedRound(generation)
+	if not evidenceReady() then
+		return false, "waiting for evidence to settle before the final guess"
+	end
 	local fallback, fallbackScore = chooseRoundTimeoutFallback()
 	if not fallback then
 		return false, "no ghost profile was available for the timed guess"
@@ -352,6 +359,7 @@ local function currentConfidentRoundIdentification()
 	if doRoundState.completionClaimed then
 		return nil
 	end
+	if not evidenceReady() then return nil end
 	local guess = perkTrackerState.currentGhostGuess
 	local score = perkTrackerState.currentGhostGuessScore or 0
 	local certain = perkTrackerState.currentGhostGuessCertain == true

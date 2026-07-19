@@ -20,6 +20,8 @@ return function(dependencies)
 		Metrics = {},
 		SubtitleBound = {},
 		HighestEMF = 1,
+		ScanCount = 0,
+		LastEvidenceChangedAt = os.clock(),
 		Destroyed = false,
 	}
 	local NIL = {}
@@ -47,6 +49,7 @@ return function(dependencies)
 		local stored = state == nil and NIL or state
 		if tracker.Published[evidence] == stored then return end
 		tracker.Published[evidence] = stored
+		tracker.LastEvidenceChangedAt = os.clock()
 		Traffic("EvidenceState", {
 			Evidence = evidence,
 			State = state,
@@ -309,6 +312,7 @@ return function(dependencies)
 		scanTemperature()
 		publishDisplays()
 		publishRoundInfo(ghost)
+		tracker.ScanCount += 1
 	end
 
 	local function rebuildVoiceIndex()
@@ -356,6 +360,11 @@ return function(dependencies)
 		bindSubtitle(dependencies.LocalShowSubtitle)
 		scanAutomatic()
 		return container ~= nil
+	end
+
+	function tracker:IsSettled(seconds)
+		return self.ScanCount >= 2
+			and os.clock() - self.LastEvidenceChangedAt >= (tonumber(seconds) or 2)
 	end
 
 	function tracker:Destroy()

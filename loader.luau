@@ -164,8 +164,14 @@ local askSpiritBox = Remotes:Get("AskSpiritBoxFromUI")
 local createAutoSpiritBox = loadModule("logic/auto-spirit-box.luau")
 local createAutomation = loadModule("logic/automation.luau")
 local createRoundAutomation = loadModule("automation/game-round.luau")
+local createRoundUtilities = loadModule("automation/shared/round-utilities.luau")
 local createPreRound = loadModule("automation/pre-round/pre-round.luau")
+local createLaySalt = loadModule("automation/pre-round/lay-salt.luau")
+local createPourHolyOil = loadModule("automation/pre-round/pour-holy-oil.luau")
 local createRound = loadModule("automation/round/round.luau")
+local createRoundHuntEscape = loadModule("automation/round/hunt-escape.luau")
+local createRoundItemGhostRoom = loadModule("automation/round/item-ghost-room.luau")
+local createRoundMaintainItem = loadModule("automation/round/maintain-item.luau")
 local createPostRound = loadModule("automation/post-round/post-round.luau")
 local createRoomTeleport = loadModule("logic/room-teleport.luau")
 local createRoomItemSetup = loadModule("logic/room-item-setup.luau")
@@ -375,7 +381,7 @@ local function startTrackers()
 			PositiveColor = view.Colors.Positive,
 			NegativeColor = view.Colors.Danger,
 		}))
-		remember(createEvidenceState({
+		local evidenceState = remember(createEvidenceState({
 			Traffic = Traffic,
 			Player = player,
 			RunService = Services.RunService,
@@ -545,11 +551,18 @@ local function startTrackers()
 			GhostModule = GhostCatalog,
 			Movement = movement,
 			CreateRoundAutomation = createRoundAutomation,
+			CreateRoundUtilities = createRoundUtilities,
 			CreatePreRound = createPreRound,
+			CreateLaySalt = createLaySalt,
+			CreatePourHolyOil = createPourHolyOil,
 			CreateRound = createRound,
+			CreateHuntEscape = createRoundHuntEscape,
+			CreateItemGhostRoom = createRoundItemGhostRoom,
+			CreateMaintainItem = createRoundMaintainItem,
 			CreatePostRound = createPostRound,
 			CreateRoomItemSetup = createRoomItemSetup,
 			RoundStarted = session.RoundStarted,
+			EvidenceReady = function() return evidenceState:IsSettled(2) end,
 			Button = view.Buttons.Automation,
 			EnabledColor = view.Colors.Accent,
 			AutoSpirit = session.AutoSpirit,

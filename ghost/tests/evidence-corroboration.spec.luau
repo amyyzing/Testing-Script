@@ -91,4 +91,16 @@ expect(exactVerdict.Lists[exactVerdict.Selected[1]] == "Spirit"
 	and table.find(exactVerdict.RuledOut, 19) == nil,
 	"a later conflicting trait must not cross out a ghost confirmed by complete evidence")
 
+local timeoutChoice = EvidenceCatalog.SelectHighestConfidenceGuess({
+	Candidates = {"Keres", "Banshee"},
+	ConfirmedEvidence = {GhostOrb = true},
+	Detections = {
+		Keres = {NetConfidence = 99},
+		Banshee = {NetConfidence = 35},
+	},
+	RandomIndex = function() return 1 end,
+})
+expect(timeoutChoice == "Banshee",
+	"the timed random fallback must remove evidence-incompatible ghosts before ranking")
+
 print("evidence-corroboration.spec: evidence gates trait selection and Journal choice")
