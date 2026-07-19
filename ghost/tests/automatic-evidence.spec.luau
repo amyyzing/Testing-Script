@@ -26,12 +26,21 @@ local function instance(className, name, attributes, properties)
 	value.ClassName = className
 	value.Name = name
 	value.Attributes = attributes or {}
+	value.AttributeSignals = {}
 	value.Children = value.Children or {}
 	function value:IsA(wanted)
 		return self.ClassName == wanted
 			or wanted == "BasePart" and (self.ClassName == "Part" or self.ClassName == "MeshPart")
 	end
 	function value:GetAttribute(key) return self.Attributes[key] end
+	function value:GetAttributeChangedSignal(key)
+		self.AttributeSignals[key] = self.AttributeSignals[key] or signal()
+		return self.AttributeSignals[key]
+	end
+	function value:SetAttribute(key, nextValue)
+		self.Attributes[key] = nextValue
+		if self.AttributeSignals[key] then self.AttributeSignals[key]:Fire() end
+	end
 	function value:GetChildren() return table.clone(self.Children) end
 	function value:GetDescendants()
 		local result = {}
@@ -89,14 +98,18 @@ end
 
 local world = instance("Workspace", "Workspace")
 world.DescendantAdded = signal()
-local ghost = world:Add(instance("Model", "Ghost", {InLaser = true, FavoriteRoom = "Office"}))
+local ghost = world:Add(instance("Model", "Ghost", {
+	InLaser = true,
+	FavoriteRoom = "Office",
+	LastEMF5Time = 0,
+}))
 local map = world:Add(instance("Folder", "Map"))
 local rooms = map:Add(instance("Folder", "Rooms"))
 rooms:Add(instance("Folder", "Office", {Temperature = -0.4}))
 world:Add(instance("Part", "GhostOrb"))
 world:Add(instance("Part", "Handprint1"))
 local items = world:Add(instance("Folder", "Items"))
-items:Add(instance("Model", "Reader", {ItemName = "EMF Reader", ReadingLevel = 5}))
+items:Add(instance("Model", "Reader", {ItemName = "EMF Reader", ReadingLevel = 4}))
 items:Add(instance("Part", "Flower_Petals", {}, {
 	Color = {R = 0.01, G = 0.01, B = 0.01},
 }))
@@ -155,6 +168,10 @@ local tracker = createEvidenceState({
 	Verdict = Verdict,
 	ShowSubtitle = subtitle,
 })
+
+expect(not found.EMFLevel5, "EMF-5 should remain unknown before LastEMF5Time changes")
+ghost:SetAttribute("LastEMF5Time", 12.5)
+expect(found.EMFLevel5, "LastEMF5Time should confirm EMF-5 immediately")
 
 for _, evidence in ipairs({
 	"EMFLevel5", "GhostWriting", "FreezingTemperatures", "GhostOrb",
