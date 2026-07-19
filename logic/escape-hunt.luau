@@ -41,7 +41,7 @@ return function(dependencies)
 		controller.Busy = true
 		controller.Generation += 1
 		local generation = controller.Generation
-		local ok, moved = pcall(teleportToSafety, original)
+		local ok, moved = pcall(teleportToSafety)
 		controller.Busy = false
 		if ok and moved ~= false then
 			controller.Escaped = true

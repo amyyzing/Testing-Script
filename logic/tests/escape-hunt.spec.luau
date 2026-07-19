@@ -43,7 +43,8 @@ local controller = createEscapeHunt({
 	Ghost = ghost,
 	Button = button,
 	EnabledColor = "on",
-	TeleportToSafety = function()
+	TeleportToSafety = function(options)
+		expect(options == nil or type(options) == "table", "safety teleport must receive options, not the saved pivot")
 		escaped += 1
 		character.Pivot = "safe"
 		if endDuringTeleport then ghost:SetHunting(false) end

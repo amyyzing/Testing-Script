@@ -177,6 +177,7 @@ local createAntiIdle = loadModule("logic/anti-idle.luau")
 local createEscapeHunt = loadModule("logic/escape-hunt.luau")
 local createBright = loadModule("logic/bright.luau")
 local createGhostESP = loadModule("logic/ghost-esp.luau")
+local createGhostRoomBillboard = loadModule("logic/ghost-room-billboard.luau")
 local createGhostPatternLog = loadModule("logic/ghost-pattern-log.luau")
 local createEvidenceLog = loadModule("logic/evidence-log.luau")
 
@@ -486,6 +487,13 @@ local function startTrackers()
 			Button = view.Buttons.GhostESP,
 			EnabledColor = view.Colors.Accent,
 			Red = view.Colors.Danger,
+		}))
+		remember(createGhostRoomBillboard({
+			Ghost = ghost,
+			Workspace = Services.Workspace,
+			RunService = Services.RunService,
+			GuiParent = view.Gui.Parent,
+			Accent = view.Colors.Accent,
 		}))
 		remember(createSpeedTracker({Traffic = Traffic, Ghost = ghost}))
 		remember(createKillCount({Traffic = Traffic, Players = Services.Players}))
