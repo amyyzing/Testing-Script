@@ -102,14 +102,21 @@ return function(dependencies)
 		end
 		local row = findJournalRow(GHOSTS[index])
 		if not row then return false end
-		if readJournalRowState(row) == state then return true, true end
+		local current = readJournalRowState(row)
+		if current == state then return true, true end
 		for _ = 1, 3 do
+			local previous = current
 			if not triggerJournalClick(row) then break end
-			wait(0.03)
-			if readJournalRowState(row) == state then
+			local deadline = os.clock() + 0.25
+			repeat
+				wait(0.02)
+				current = readJournalRowState(row)
+			until current == state or current ~= previous or os.clock() >= deadline
+			if current == state then
 				Verdict.JournalTouched[index] = true
 				return true, true
 			end
+			if current == previous then break end
 		end
 		return false, false
 	end
@@ -287,11 +294,17 @@ return function(dependencies)
 		return index and not isRuledOut(index) and GHOSTS[index] or nil
 	end
 
-	function Verdict:ForceSelect(ghost)
+	function Verdict:ForceSelect(ghost, deferJournal)
 		local index = indexes[ghost]
 		if not index or isRuledOut(index) or not evidenceCompatible(index) then return false end
 		self.ForcedIndex = index
-		selectBest(true)
+		if deferJournal then
+			table.clear(self.Selected)
+			self.Selected[1] = index
+			self.JournalDirty = true
+		else
+			selectBest(true)
+		end
 		return self.Selected[1] == index
 	end
 
@@ -313,15 +326,37 @@ return function(dependencies)
 	end
 
 	function Verdict:SyncJournal(forcedGhost)
-		if forcedGhost and not self:ForceSelect(forcedGhost) then return false end
-		local allApplied = true
-		for index in ipairs(GHOSTS) do
-			local expected = self:ExpectedJournalState(GHOSTS[index], forcedGhost)
-			if expected ~= nil or self.JournalTouched[index] then
-				local applied = applyJournal(index, expected)
-				allApplied = applied and allApplied
-			end
+		if self.JournalMutationBusy then
+			self.JournalDirty = true
+			return false
 		end
+		self.JournalMutationBusy = true
+		local completed, allApplied = pcall(function()
+			if forcedGhost and not self:ForceSelect(forcedGhost, true) then return false end
+			local selectedIndex = forcedGhost and indexes[forcedGhost] or self.Selected[1]
+			local appliedAll = true
+			-- Crossing another row can clear the Journal's current highlight. Apply
+			-- every cross-out/clear first, then select the one winner last.
+			for index in ipairs(GHOSTS) do
+				if index ~= selectedIndex then
+					local expected = self:ExpectedJournalState(GHOSTS[index], forcedGhost)
+					if expected ~= nil or self.JournalTouched[index] then
+						local applied = applyJournal(index, expected)
+						appliedAll = applied and appliedAll
+					end
+				end
+			end
+			if selectedIndex then
+				local applied, controllerUpdated = applyJournal(selectedIndex, true)
+				appliedAll = applied and appliedAll
+				if applied and not controllerUpdated and markJournal then
+					pcall(markJournal, GHOSTS[selectedIndex])
+				end
+			end
+			return appliedAll
+		end)
+		self.JournalMutationBusy = false
+		allApplied = completed and allApplied == true
 		self.JournalDirty = not allApplied
 		return allApplied
 	end

@@ -115,4 +115,33 @@ evidenceTraffic("EvidenceState", {Evidence = "Ghost Orb", State = nil}):SendTo("
 expect(evidenceVerdict:SyncJournal() and evidenceStates.Keres == nil,
 	"clearing evidence should restore ghosts crossed out only by evidence")
 
+local exactTraffic = createTraffic()
+local exactOrder = {}
+local exactStates = {}
+local exactVerdict = createVerdict({
+	Traffic = exactTraffic,
+	EvidenceCatalog = EvidenceCatalog,
+	ApplyJournalState = function(name, state)
+		exactStates[name] = state
+		table.insert(exactOrder, name .. ":" .. tostring(state))
+		return true, true
+	end,
+})
+for _, evidence in ipairs({"GhostWriting", "GhostOrb", "LaserProjector"}) do
+	exactTraffic("EvidenceState", {Evidence = evidence, State = true}):SendTo("Verdict")
+end
+expect(exactVerdict:GetEvidenceResolvedGhost() == "Wendigo",
+	"Inscription, Ghost Orb, and Laser should resolve only Wendigo")
+table.clear(exactOrder)
+expect(exactVerdict:SyncJournal("Wendigo"),
+	"the exact three-evidence ghost should synchronize once")
+expect(exactOrder[#exactOrder] == "Wendigo:true" and exactStates.Wendigo == true,
+	"all ruled-out rows must be handled before selecting Wendigo last")
+local selectedRows = 0
+for _, state in pairs(exactStates) do
+	if state == true then selectedRows += 1 end
+end
+expect(selectedRows == 1,
+	"the exact evidence sync must leave only Wendigo selected")
+
 print("verdict-journal.spec: rule-outs, selection lock, and unknown journal states passed")
