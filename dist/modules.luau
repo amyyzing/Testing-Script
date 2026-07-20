@@ -10397,6 +10397,17 @@ return function(dependencies)
 		refreshUnknown()
 	end
 
+	local function soleRemainingIndex()
+		local remaining
+		for index in ipairs(GHOSTS) do
+			if not isRuledOut(index) then
+				if remaining then return nil end
+				remaining = index
+			end
+		end
+		return remaining
+	end
+
 	local function markJournalDirty()
 		Verdict.JournalRevision += 1
 		Verdict.JournalDirty = true
@@ -10443,6 +10454,7 @@ return function(dependencies)
 					bestScore = currentScore
 				end
 			end
+			bestIndex = bestIndex or soleRemainingIndex()
 		end
 		local previous = Verdict.Selected[1]
 		if previous == bestIndex and not forceJournal then return end
@@ -10534,7 +10546,7 @@ return function(dependencies)
 	end
 
 	function Verdict:GetEvidenceResolvedGhost()
-		local index = resolvedEvidenceIndex()
+		local index = resolvedEvidenceIndex() or soleRemainingIndex()
 		return index and not isRuledOut(index) and GHOSTS[index] or nil
 	end
 

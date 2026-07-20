@@ -91,6 +91,27 @@ expect(exactVerdict.Lists[exactVerdict.Selected[1]] == "Spirit"
 	and table.find(exactVerdict.RuledOut, 19) == nil,
 	"a later conflicting trait must not cross out a ghost confirmed by complete evidence")
 
+local survivorTraffic = createTraffic()
+local survivorVerdict = createVerdict({
+	Traffic = survivorTraffic,
+	EvidenceCatalog = EvidenceCatalog,
+	ApplyJournalState = function() return true, true end,
+})
+for evidence, state in pairs({
+	SpiritBox = true,
+	LaserProjector = true,
+	FreezingTemperatures = false,
+	EMFLevel5 = false,
+}) do
+	survivorTraffic("EvidenceState", {Evidence = evidence, State = state}):SendTo("Verdict")
+end
+local survivor = survivorVerdict:Snapshot()
+expect(survivor.Lists[survivor.Selected[1]] == "Entity"
+	and survivorVerdict:GetEvidenceResolvedGhost() == "Entity"
+	and #survivor["ruled-out"] == 24
+	and #survivor.Unknown == 0,
+	"the only evidence-compatible survivor must be selected immediately")
+
 local timeoutChoice = EvidenceCatalog.SelectHighestConfidenceGuess({
 	Candidates = {"Keres", "Banshee"},
 	ConfirmedEvidence = {GhostOrb = true},
