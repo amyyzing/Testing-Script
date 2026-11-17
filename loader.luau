@@ -230,6 +230,7 @@ local inLobby = Services.Workspace:FindFirstChild("Ghost") == nil
 if not table.find(LobbySettings.JobSiteNames(player), settings.JobSite)
 	or (inLobby and not LobbySettings.IsJobSiteUnlocked(player, settings.JobSite)) then
 	settings.JobSite = LobbySettings.ReadSelectedJobSite(player) or ""
+	if inLobby and not LobbySettings.IsJobSiteUnlocked(player, settings.JobSite) then settings.JobSite = "" end
 	if settings.JobSite == "" then
 		for _, name in ipairs(LobbySettings.JobSiteNames(player)) do
 			if LobbySettings.IsJobSiteUnlocked(player, name) then settings.JobSite = name break end
