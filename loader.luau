@@ -362,7 +362,10 @@ if not initialGhost and arrivalContext ~= "AttemptStart" then
 		LobbySettings = LobbySettings,
 		Settings = settings,
 		View = session.LobbyView,
-		PrepareTeleport = function(context) return teleportLoop:Queue(context) end,
+		PrepareTeleport = function(context)
+			session.RoundTuning:Capture()
+			return teleportLoop:Queue(context)
+		end,
 		OnEnabledChanged = function(enabled) teleportLoop:SetEnabled(enabled) end,
 		OnSettingsChanged = function()
 			settingsStore:Save(settings)
