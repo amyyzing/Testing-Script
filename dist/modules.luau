@@ -11181,8 +11181,8 @@ function Aesthetic.Create(dependencies)
 
 	local patternDrawer = makeDrawer(
 		"PatternDrawer",
-		"UNIQUE GHOST PATTERNS",
-		"No unique patterns observed.",
+		"GHOST LOG",
+		"No observations yet.",
 		"L\nO\nG\nS",
 		-54
 	)
@@ -13073,7 +13073,7 @@ return function(dependencies)
 	local eventColor = dependencies.EventColor or positiveColor
 	local canvasSize = dependencies.CanvasSize or UDim2.fromOffset
 	local defer = dependencies.Defer or task.defer
-	local controller = {Seen = {}, Entries = {}, Count = 0, Disconnects = {}, KillRows = {}}
+	local controller = {Seen = {}, Entries = {}, Count = 0, Disconnects = {}, KillRows = {}, RuledOut = {}}
 
 	local function updateCanvas()
 		view.List.CanvasSize = canvasSize(0, view.Layout.AbsoluteContentSize.Y + 8)
@@ -13106,25 +13106,20 @@ return function(dependencies)
 		if signal ~= "Support" and signal ~= "Negative" and signal ~= "RuleOut" then return end
 		payload = type(payload) == "table" and payload or {}
 		local ghost = tostring(payload.Ghost or "Unknown")
-		local reason = tostring(payload.Reason or "pattern observed")
+		if controller.RuledOut[ghost] then return end
+		if signal == "RuleOut" then controller.RuledOut[ghost] = true end
 		local positive = signal == "Support"
-		local heading = signal == "RuleOut" and "RULED OUT" or positive and "SUPPORT" or "NEGATIVE"
-		local strength = signal == "RuleOut" and "" or string.format("  [score %d/100]", tonumber(payload.Confidence) or 0)
-		add(string.format("%s  %s%s\n%s", heading, ghost, strength, reason),
-			positive and positiveColor or negativeColor, table.concat({signal, ghost, reason}, "|"))
+		local heading = signal == "RuleOut" and "RULED OUT" or positive and "SUPPORT" or "AGAINST"
+		add(heading .. "  " .. ghost, positive and positiveColor or negativeColor, "verdict|" .. ghost)
 	end
 
 	local function recordTracker(signal, payload)
 		payload = type(payload) == "table" and payload or {}
 		if signal == "SaltHit" then
-			add(string.format("TRACK  SALT HIT  #%s\nhunting: %s",
-				tostring(payload.ContactId or "?"), tostring(payload.Hunting == true)), eventColor)
+			add(payload.Hunting and "SALT HIT (HUNT)" or "SALT HIT", eventColor)
 		elseif signal == "PlayerKilled" then
 			local id = tostring(payload.userId or "?")
-			controller.KillRows[id] = add(
-				"TRACK  PLAYER KILLED\nuserId: " .. id .. " | waiting for speed",
-				eventColor
-			)
+			controller.KillRows[id] = add("PLAYER KILLED", eventColor)
 		end
 	end
 
@@ -13151,60 +13146,63 @@ return function(dependencies)
 			controller.KillRows[id] = entry
 		end
 		entry.Text = string.format(
-			"TRACK  PLAYER KILLED\nuserId: %s | speed: %s -> %s%s",
-			id,
-			before and string.format("%.3f", before) or "?",
-			current and string.format("%.3f", current) or "?",
-			payload.completed and " (completed)" or ""
+			"KILL SPEED  %s -> %s",
+			before and string.format("%.2f", before) or "?",
+			current and string.format("%.2f", current) or "?"
 		)
 		defer(updateCanvas)
 	end
 
-	local function recordTemperature(signal, payload)
-		if signal ~= "RoomTemperatureProgress" then return end
-		add(string.format("TRACK  SHADOW TEMPERATURE\n%s | %.2f C | %d/%d | net cooling: %.4f C/s\n%s",
-			tostring(payload.RoomName or "Waiting for room"), tonumber(payload.Temperature) or 0,
-			tonumber(payload.Count) or 0, tonumber(payload.Required) or 7, tonumber(payload.Average) or 0,
-			tostring(payload.Status or "Collecting temperature changes")), eventColor, "temperature")
+	local function number(value, format)
+		return type(value) == "number" and string.format(format or "%.2f", value) or "?"
 	end
 
-	local function number(value)
-		return type(value) == "number" and string.format("%.3f", value) or "unknown"
+	local function recordTemperature(signal, payload)
+		if signal ~= "RoomTemperatureProgress" then return end
+		local reading = number(payload.Temperature) .. " �C"
+		if (payload.Count or 0) > 0 then
+			reading ..= " | " .. number(-(payload.Average or 0), "%+.3f") .. " �C/s"
+		end
+		add("SHADOW TEMP  " .. reading, eventColor, "temperature")
 	end
 
 	local function recordSpeed(signal, payload)
 		payload = type(payload) == "table" and payload or {}
 		if signal == "GhostSpeedObserved" then
-			local scale = dependencies.ReadScale and dependencies.ReadScale() or {}
-			add(string.format("TRACK  GHOST SPEED\n%s | %s | speed: %s | Energy: %s\nMap: x%s | custom: x%s | %s",
-				payload.Hunting and "Hunting" or "Not hunting", payload.Visible and "Visible" or "Invisible",
-				number(payload.Speed), number(payload.AverageEnergy), number(scale.MapMultiplier), number(scale.CustomMultiplier),
-				scale.Known and "Scale confirmed" or "Scale unconfirmed; absolute-speed verdicts waiting"), eventColor, "speed")
+			local heading = payload.Hunting and "HUNT SPEED" or "IDLE SPEED"
+			add(heading .. "  " .. number(payload.Speed), eventColor, "speed")
 		elseif signal == "HuntSpeedReset" then
-			add("TRACK  PHANTOM / ONI / DULLAHAN\nWaiting for visible/invisible pairs: 0/7", eventColor, "pairs")
+			add("BLINK SPEED  0/14", eventColor, "pairs")
 		elseif signal == "HuntSpeedSample" then
 			local point = payload.Point or {}
-			add(string.format("TRACK  PHANTOM / ONI / DULLAHAN\n%d/14 visibility samples | %s speed: %s",
-				tonumber(payload.Index) or 0, point.v and "Visible" or "Invisible", number(point.s)), eventColor, "pairs")
+			local visibility = point.v and "visible" or "hidden"
+			add(string.format("BLINK SPEED  %d/14 | %s %s", payload.Index or 0,
+				visibility, number(point.s)), eventColor, "pairs")
 		elseif signal == "SpeedFilterResult" then
-			add(string.format("TRACK  PHANTOM / ONI / DULLAHAN\n7/7 pairs | %s | base: %s | %s",
-				payload.Identical and "Flat speed" or "Changing speed", number(payload.BaseSpeed),
-				payload.ScaleKnown and "Scale confirmed; checking perk behavior" or "Scale unconfirmed; Oni waiting"), eventColor, "pairs")
-		elseif signal == "HuntSpeedEnded" then
-			add(string.format("TRACK  HUNT WINDOW\nEnded after %d visibility samples; incomplete windows stay inconclusive",
-				tonumber(payload.Count) or 0), eventColor, "hunt-end")
+			local trend = payload.Identical and "steady" or "changing"
+			local scale = payload.ScaleKnown and "" or " | scale unknown"
+			add("BLINK SPEED  14/14 | " .. trend .. scale, eventColor, "pairs")
+		elseif signal == "HuntSpeedEnded" and (payload.Count or 0) < 14 then
+			add(string.format("BLINK SPEED  %d/14 | incomplete", payload.Count or 0), eventColor, "pairs")
 		elseif signal == "WretchEnergySnapshot" then
-			add(string.format("TRACK  WRETCH\nTransition %s | %s | Energy: %s | waiting for stable speed",
-				tostring(payload.Transition or "?"), payload.Hunting and "Hunting" or "Not hunting", number(payload.AverageEnergy)), eventColor, "wretch")
+			add("WRETCH  " .. number(payload.AverageEnergy, "%.0f") .. "% Energy | sampling", eventColor, "wretch")
 		elseif signal == "WretchSpeedResult" then
-			add(string.format("TRACK  WRETCH\nEnergy: %s | speed: %s | candidate expected: %s\n%s",
-				number(payload.AverageEnergy), number(payload.Speed), number(payload.ExpectedSpeed),
-				not payload.Stable and "Unstable speed; trial ignored" or not payload.Hunting and "Non-hunting baseline; waiting for hunt"
-				or not payload.ScaleKnown and "Scale unconfirmed; waiting for three distinct Energy levels"
-				or payload.Matched and "Curve match; waiting for corroboration" or "Curve mismatch; waiting for corroboration"), eventColor, "wretch")
+			local status
+			if not payload.Stable then
+				status = "unstable"
+			elseif not payload.Hunting then
+				status = "idle"
+			elseif not payload.ScaleKnown then
+				status = "scale unknown"
+			else
+				status = payload.Matched and "match" or "mismatch"
+			end
+			add(string.format("WRETCH  %s%% Energy | %s | %s",
+				number(payload.AverageEnergy, "%.0f"), number(payload.Speed), status), eventColor, "wretch")
 		elseif signal == "FootstepProgress" then
-			add(string.format("TRACK  UMBRA FOOTSTEPS\n%d/3 audible native-footstep samples | %s",
-				tonumber(payload.Samples) or 0, (tonumber(payload.Samples) or 0)>=3 and "Audible native footsteps contradict Umbra" or payload.Hunting and "Listening during hunt; silence is inconclusive" or "Waiting for hunt"), eventColor, "footsteps")
+			local samples = payload.Samples or 0
+			local status = samples >= 3 and "heard" or payload.Hunting and "listening" or "waiting"
+			add("UMBRA FOOTSTEPS  " .. status, eventColor, "footsteps")
 		end
 	end
 

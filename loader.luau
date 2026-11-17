@@ -437,7 +437,6 @@ local function startTrackers()
 		remember(createGhostPatternLog({
 			Traffic = Traffic,
 			View = view.PatternDrawer,
-			ReadScale = function() return session.RoundTuning:GetScale() end,
 			PositiveColor = view.Colors.Positive,
 			NegativeColor = view.Colors.Danger,
 			EventColor = view.Colors.Muted,

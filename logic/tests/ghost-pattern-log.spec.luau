@@ -48,67 +48,42 @@ Traffic("Support", payload):SendTo("Verdict")
 expect(controller.Count == 1 and #entries == 1, "identical patterns should be logged once")
 expect(entries[1].TextColor3 == "green" and view.Empty.Visible == false,
 	"support should create a positive row and hide the empty message")
-Traffic("Support", {Ghost = "Aswang", Confidence = 50, Reason = payload.Reason}):SendTo("Verdict")
-expect(controller.Count == 1 and #entries == 1
-	and string.find(entries[1].Text, "[score 50/100]", 1, true),
-	"a repeated pattern should update its confidence without adding another row")
+Traffic("Support", {Ghost = "Aswang", Confidence = 50, Reason = "another observation"}):SendTo("Verdict")
+expect(controller.Count == 1 and entries[1].Text == "SUPPORT  Aswang",
+	"support should show one verdict without scores or details")
 Traffic("RuleOut", payload):SendTo("Verdict")
-expect(controller.Count == 2 and entries[2].TextColor3 == "red",
-	"a negative result should be a distinct log")
-expect(entries[2].Text:find("RULED OUT",1,true) and not entries[2].Text:find("%%"), "an exclusion must never look like an identification percentage")
-Traffic("Negative", {Ghost = "Entity", Confidence = 50, Reason = "no Smoke Holder"}):SendTo("Verdict")
-expect(controller.Count == 3 and entries[3].TextColor3 == "red"
-	and string.find(entries[3].Text, "NEGATIVE", 1, true),
-	"a soft negative should be logged without becoming a rule-out")
-Traffic("SaltHit", {ContactId = 7, Hunting = true}):SendTo("SpeedTracker")
-expect(controller.Count == 4 and entries[4].TextColor3 == "blue"
-	and string.find(entries[4].Text, "SALT HIT", 1, true),
-	"salt contacts should create tracker rows")
+Traffic("Support", payload):SendTo("Verdict")
+expect(controller.Count == 1 and entries[1].Text == "RULED OUT  Aswang" and entries[1].TextColor3 == "red",
+	"exclusion should replace support without a percentage")
+Traffic("Negative", {Ghost = "Entity"}):SendTo("Verdict")
+expect(entries[2].Text == "AGAINST  Entity", "soft evidence should stay distinct from exclusions")
+Traffic("SaltHit", {Hunting = true}):SendTo("SpeedTracker")
+expect(entries[3].Text == "SALT HIT (HUNT)", "salt should show hunt context")
 Traffic("PlayerKilled", {userId = 42}):SendTo("SpeedTracker")
-expect(controller.Count == 5 and string.find(entries[5].Text, "PLAYER KILLED", 1, true),
-	"unique player kills should create tracker rows")
 Traffic("KillSpeed", {
 	userId = 42,
-	baselineKill = {s = 22, v = false},
-	beforeKill = {{s = 22, v = false}, {s = 24, v = false}, {s = 24, v = false}},
-	afterKill = {{s = 24, v = false}, {s = 24, v = false}},
+	baselineKill = {s = 22},
+	afterKill = {{s = 24}},
 }):SendTo("Aswang")
-expect(controller.Count == 5 and string.find(entries[5].Text, "22.000 -> 24.000", 1, true),
-	"a pre-signal speed rise should update the player-kill row from its retained baseline")
-Traffic("RoomTemperatureProgress", {
-	RoomName = "Library",
-	Count = 1,
-	Required = 7,
-	Average = 0.0525,
-}):SendTo("GhostPatternLog")
-expect(controller.Count == 6 and string.find(entries[6].Text, "1/7", 1, true)
-	and string.find(entries[6].Text, "0.0525", 1, true),
-	"the first Shadow cooling change should create a live average row")
-Traffic("RoomTemperatureProgress", {
-	RoomName = "Library",
-	Count = 2,
-	Required = 7,
-	Average = 0.06,
-}):SendTo("GhostPatternLog")
-expect(controller.Count == 6 and string.find(entries[6].Text, "2/7", 1, true)
-	and string.find(entries[6].Text, "0.0600", 1, true),
-	"later Shadow changes should update the existing average row")
-Traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
-expect(controller.Count == 6, "unrequested tracker events should not create rows")
+expect(entries[4].Text == "KILL SPEED  22.00 -> 24.00", "kill speed should update the same row")
+Traffic("RoomTemperatureProgress", {Temperature = 2.5, Count = 0}):SendTo("GhostPatternLog")
+expect(entries[5].Text == "SHADOW TEMP  2.50 °C", "initial reading should show temperature")
+Traffic("RoomTemperatureProgress", {Temperature = 2.45, Count = 1, Average = 0.05}):SendTo("GhostPatternLog")
+expect(entries[5].Text == "SHADOW TEMP  2.45 °C | -0.050 °C/s", "the same row should show signed change")
+Traffic("GhostSpeedObserved", {Speed = 21, Hunting = true}):SendTo("GhostPatternLog")
+expect(entries[6].Text == "HUNT SPEED  21.00", "raw hunt speed should be visible")
+Traffic("HuntSpeedReset", {}):SendTo("SpeedArrayLog")
+Traffic("HuntSpeedSample", {Index = 4, Point = {s = 21, v = true}}):SendTo("SpeedArrayLog")
+expect(entries[7].Text == "BLINK SPEED  4/14 | visible 21.00", "blink samples should update one row")
+Traffic("HuntSpeedEnded", {Count = 4}):SendTo("SpeedArrayLog")
+expect(entries[7].Text == "BLINK SPEED  4/14 | incomplete", "a partial hunt should be marked incomplete")
+Traffic("SpeedFilterResult", {Identical = true, ScaleKnown = false}):SendTo("GhostPatternLog")
+expect(entries[7].Text == "BLINK SPEED  14/14 | steady | scale unknown", "the summary should show relevant uncertainty")
+Traffic("WretchSpeedResult", {AverageEnergy = 30, Speed = 21, Stable = true, Hunting = true}):SendTo("GhostPatternLog")
+expect(entries[8].Text == "WRETCH  30% Energy | 21.00 | scale unknown", "Wretch should show Energy and speed")
+Traffic("FootstepProgress", {Samples = 3, Hunting = true}):SendTo("GhostPatternLog")
+expect(entries[9].Text == "UMBRA FOOTSTEPS  heard" and controller.Count == 9, "footstep observations should stay compact")
 
-Traffic("GhostSpeedObserved",{Speed=21,Hunting=true,Visible=false,AverageEnergy=0}):SendTo("GhostPatternLog")
-expect(controller.Count==7 and entries[7].Text:find("21.000",1,true) and entries[7].Text:find("unconfirmed",1,true),"raw speed and unknown scale must be visible before a verdict")
-Traffic("HuntSpeedReset",{}):SendTo("SpeedArrayLog")
-Traffic("HuntSpeedSample",{Index=4,Point={s=21,v=true}}):SendTo("SpeedArrayLog")
-expect(controller.Count==8 and entries[8].Text:find("4/14",1,true),"unconsumed speed-array samples must reach a single updating row")
-Traffic("SpeedFilterResult",{Identical=true,BaseSpeed=10.5,ScaleKnown=false}):SendTo("GhostPatternLog")
-expect(controller.Count==8 and entries[8].Text:find("Oni waiting",1,true),"filter summaries must explain why a ghost is waiting")
-Traffic("WretchEnergySnapshot",{Transition=2,Hunting=true,AverageEnergy=30}):SendTo("SpeedArrayLog")
-Traffic("WretchSpeedResult",{AverageEnergy=30,Speed=21,ExpectedSpeed=25,Stable=true,Hunting=true,ScaleKnown=false}):SendTo("GhostPatternLog")
-expect(controller.Count==9 and entries[9].Text:find("three distinct Energy",1,true),"Wretch must log its measurements even without confirmation")
-Traffic("FootstepProgress",{Samples=2,Hunting=true}):SendTo("GhostPatternLog")
-Traffic("FootstepProgress",{Samples=3,Hunting=true}):SendTo("GhostPatternLog")
-expect(controller.Count==10 and entries[10].Text:find("contradict Umbra",1,true),"qualified footsteps must update the observation row")
 controller:Destroy()
 for _, entry in ipairs(entries) do expect(entry.Destroyed, "destroy should remove every generated log") end
 

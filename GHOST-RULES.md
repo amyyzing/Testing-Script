@@ -41,4 +41,4 @@ server-only behavior automatically.
 The test suite validates code contracts and representative observations. It is
 not a claim that all 25 ghosts have each been tested in a live round.
 
-Pattern logs display RULED OUT without a percentage. Other scores are internal rule strengths, not measured probabilities. Speed channels show raw observations and waiting conditions even when no verdict is ready.
+The ghost log shows one verdict per ghost and compact readings for active trackers. Rule scores remain internal.
