@@ -16,12 +16,16 @@ return function(dependencies)
 			and type(data.Time) == "number" and now() - data.Time >= 0 and now() - data.Time < 600 then
 			controller.Data = data
 		end
-		pcall(Teleport.SetTeleportSetting, Teleport, key, nil)
+		pcall(Teleport.SetTeleportSetting, Teleport, key, false)
 	end
 	function controller:Capture()
 		if not native then return end
 		local mode = dependencies.ReadDifficulty and dependencies.ReadDifficulty()
-		if mode ~= "Custom" then pcall(Teleport.SetTeleportSetting, Teleport, key, nil) return end
+		if mode ~= "Custom" then
+			self.Data = nil
+			pcall(Teleport.SetTeleportSetting, Teleport, key, false)
+			return
+		end
 		local ok, definition = pcall(load, native)
 		local gui = Player:FindFirstChildOfClass("PlayerGui")
 		local computer = gui and gui:FindFirstChild("ComputerScreen")
