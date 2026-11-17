@@ -70,7 +70,14 @@ return function(dependencies)
 		end))
 	end
 
+	Tracker.DisconnectHunting = Traffic:Receive("RoundStarted", function(signal, payload)
+		if signal == "HuntingState" and type(payload) == "table" and payload.Hunting == true then Tracker:Start() end
+	end)
+	local ghost = World:FindFirstChild("Ghost")
+	if ghost and ghost:GetAttribute("Hunting") == true then Tracker:Start() end
+
 	function Tracker:Destroy()
+		if self.DisconnectHunting then self.DisconnectHunting() end
 		if not self.Running then return end
 		self.Running = false
 		disconnectAll()

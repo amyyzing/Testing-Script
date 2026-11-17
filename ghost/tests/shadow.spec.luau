@@ -1,171 +1,66 @@
-local createTraffic = require("../traffic")
-local createVerdict = require("../verdict")
-local createGhostRoom = require("../active-trackers/ghost-room")
-local createRoundStarted = require("../discardable-trackers/round-started")
-local createRoomTemperature = require("../dormant-trackers/room-temperature")
-local Shadow = require("../ghosts/Shadow")
-
-local function expect(condition, message)
-	if not condition then error(message, 2) end
-end
-
+local createTraffic=require("../traffic")
+local createVerdict=require("../verdict")
+local createTemperature=require("../dormant-trackers/room-temperature")
+local createStarted=require("../discardable-trackers/round-started")
+local Shadow=require("../ghosts/Shadow")
 local function signal()
-	local callbacks = {}
-	return {
-		Connect = function(_, callback)
-			table.insert(callbacks, callback)
-			return {Disconnect = function()
-				local index = table.find(callbacks, callback)
-				if index then table.remove(callbacks, index) end
-			end}
-		end,
-		Fire = function(_, ...)
-			for _, callback in ipairs(table.clone(callbacks)) do callback(...) end
-		end,
-		Count = function() return #callbacks end,
-	}
+ local callbacks={}
+ return {Connect=function(_,fn)table.insert(callbacks,fn)return {Disconnect=function()local i=table.find(callbacks,fn)if i then table.remove(callbacks,i)end end}end,
+ Fire=function()for _,fn in ipairs(table.clone(callbacks))do fn()end end,Count=function()return #callbacks end}
 end
-
-local function room(name, initial)
-	local changed = signal()
-	local value = initial
-	local object = {Name = name, Parent = true}
-	function object:GetAttribute(attribute)
-		expect(attribute == "Temperature", "room-temperature should only read Temperature")
-		return value
-	end
-	function object:GetAttributeChangedSignal(attribute)
-		expect(attribute == "Temperature", "room-temperature should only watch Temperature")
-		return changed
-	end
-	function object:SetTemperature(nextValue)
-		value = nextValue
-		changed:Fire()
-	end
-	return object
+local function room(name)
+ local changed=signal()
+ local r={Name=name,Value=10}
+ function r:GetAttribute()return self.Value end
+ function r:GetAttributeChangedSignal()return changed end
+ function r:Set(value)self.Value=value changed:Fire()end
+ return r
 end
-
-local function exitDoor(closed)
-	local changed = signal()
-	local object = {Name = "ExitDoor"}
-	function object:GetAttribute(attribute)
-		if attribute == "DoorClosed" then return closed end
-		return nil
-	end
-	function object:GetAttributeChangedSignal(attribute)
-		expect(attribute == "DoorClosed", "round-started should only watch DoorClosed")
-		return changed
-	end
-	function object:SetClosed(value)
-		closed = value
-		changed:Fire()
-	end
-	return object
+local function harness(hunting)
+ local traffic=createTraffic()
+ local verdict=createVerdict({Traffic=traffic})
+ local processor=Shadow.new({Traffic=traffic})
+ local time=0
+ local progress={}
+ traffic:Receive("GhostPatternLog",function(_,payload)table.insert(progress,payload)end)
+ local temperature=createTemperature({Traffic=traffic,Clock=function()return time end})
+ local changed=signal()
+ local door={Name="ExitDoor",Closed=true}
+ function door:GetAttribute()return self.Closed end
+ function door:GetAttributeChangedSignal()return changed end
+ local world={FindFirstChild=function(_,name)
+  if name=="Ghost" then return {GetAttribute=function()return hunting end} end
+  if name=="Doors" then return {GetChildren=function()return {door}end,ChildAdded=signal()}end
+ end}
+ local started=createStarted({Traffic=traffic,Workspace=world})
+ local r=room("Library")
+ traffic("GhostRoom",{Room=r}):SendTo("RoomTemperature")
+ return {Traffic=traffic,Verdict=verdict,Tracker=temperature,Room=r,Progress=progress,Started=started,
+ Open=function()door.Closed=false changed:Fire()end,
+ Step=function(value)time+=1 r:Set(value)end,
+ Destroy=function()temperature:Destroy()started:Destroy()processor:Destroy()end}
 end
-
-local function harness(initialRoom)
-	local heartbeat = signal()
-	local currentRoom = initialRoom
-	local exits = {exitDoor(true), exitDoor(true)}
-	local doors = {ChildAdded = signal()}
-	function doors:GetChildren() return exits end
-	local world = {ChildAdded = signal()}
-	function world:FindFirstChild(name)
-		if name == "Doors" then return doors end
-	end
-	local Traffic = createTraffic()
-	local progress = {}
-	Traffic:Receive("GhostPatternLog", function(signalName, payload)
-		if signalName == "RoomTemperatureProgress" then
-			table.insert(progress, payload)
-		end
-	end)
-	local Verdict = createVerdict({Traffic = Traffic})
-	local shadow = Shadow.new({Traffic = Traffic})
-	local temperature = createRoomTemperature({Traffic = Traffic})
-	local ghostRoom = createGhostRoom({
-		Traffic = Traffic,
-		Workspace = world,
-		Ghost = {},
-		RunService = {Heartbeat = heartbeat},
-		Position = function() return 0 end,
-		FindRoom = function() return currentRoom end,
-	})
-	local roundStarted = createRoundStarted({Traffic = Traffic, Workspace = world})
-	return {
-		Traffic = Traffic,
-		Verdict = Verdict,
-		Shadow = shadow,
-		Temperature = temperature,
-		GhostRoom = ghostRoom,
-		RoundStarted = roundStarted,
-		ExitDoors = exits,
-		Heartbeat = heartbeat,
-		Progress = progress,
-		SetRoom = function(value) currentRoom = value end,
-	}
-end
-
-local shadowRoom = room("Library", 10)
-local positive = harness(shadowRoom)
-expect(positive.Temperature.Room == shadowRoom and not positive.Temperature.Active
-	and positive.RoundStarted.Started == false,
-	"room-temperature must remember the ghost room but stay dormant before an exit opens")
-shadowRoom:SetTemperature(12)
-expect(#positive.Temperature.Changes == 0,
-	"pre-round temperature changes must not enter the Shadow sample array")
-positive.ExitDoors[2]:SetClosed(false)
-expect(positive.RoundStarted.Started == true and not positive.RoundStarted.Running
-	and positive.Temperature.RoundStarted and positive.Temperature.Active,
-	"opening any exit door should permanently start the round and activate room-temperature")
-positive.ExitDoors[2]:SetClosed(true)
-expect(positive.RoundStarted.Started and positive.Temperature.RoundStarted,
-	"round-started must remain true after the exit door closes again")
-shadowRoom:SetTemperature(12.3)
-for index = 1, 7 do shadowRoom:SetTemperature(12.3 - index * 0.05) end
-expect(#positive.Temperature.Changes == 7,
-	"temperature increases should be ignored while seven cooling changes are retained")
-expect(#positive.Progress == 7 and positive.Progress[7].Count == 7
-	and math.abs(positive.Progress[7].Average - 0.05) < 0.000001,
-	"every cooling change must publish the current unrounded Shadow average")
-expect(positive.Verdict.Selected[1] == 15 and positive.Verdict.Confidence[15] == 35,
-	"seven cooling changes averaging below 0.08 should support Shadow")
-positive.GhostRoom:Destroy()
-positive.RoundStarted:Destroy()
-positive.Temperature:Destroy()
-positive.Shadow:Destroy()
-
-local firstRoom = room("Classroom", 15)
-local secondRoom = room("Hallway", 20)
-local negative = harness(firstRoom)
-expect(negative.RoundStarted:Start(),
-	"automation must be able to explicitly start the shared Shadow pipeline")
-for index = 1, 3 do firstRoom:SetTemperature(15 - index * 0.04) end
-negative.SetRoom(secondRoom)
-negative.Heartbeat:Fire(0.25)
-expect(negative.Temperature.Room == secondRoom and #negative.Temperature.Changes == 0,
-	"moving to a new ghost room should reset the previous room's temperature array")
-for index = 1, 7 do secondRoom:SetTemperature(20 - index * 0.1) end
-expect(not table.find(negative.Verdict.RuledOut, 15),
-	"an uncontrolled cooling rate must not exclude Shadow")
-expect(firstRoom:GetAttributeChangedSignal("Temperature"):Count() == 0,
-	"room-temperature should disconnect from the room the ghost left")
-negative.GhostRoom:Destroy()
-negative.RoundStarted:Destroy()
-negative.Temperature:Destroy()
-negative.Shadow:Destroy()
-
-local thresholdRoom = room("Office", 10)
-local threshold = harness(thresholdRoom)
-threshold.RoundStarted:Start()
-for index = 1, 7 do
-	thresholdRoom:SetTemperature(10 - index * 0.08)
-end
-expect(not table.find(threshold.Verdict.RuledOut, 15),
-	"an average at the heuristic threshold must remain inconclusive")
-threshold.GhostRoom:Destroy()
-threshold.RoundStarted:Destroy()
-threshold.Temperature:Destroy()
-threshold.Shadow:Destroy()
-
-print("shadow.spec: exit-door round gate and dormant temperature average passed")
+local h=harness(false)
+assert(not h.Tracker.Active and #h.Progress>0,"waiting temperature state must be visible before first cooling event")
+h.Step(10.2) assert(#h.Tracker.Changes==0)
+h.Open() assert(h.Tracker.Active)
+for i=1,16 do h.Step(i%2==0 and 10.2 or 10)end
+assert(h.Verdict.Confidence[15]==nil,"balanced cooling/warming jitter must not support Shadow")
+local plateauLogged=false
+for _,sample in ipairs(h.Progress)do if sample.Status:find("inconclusive")then plateauLogged=true end end
+assert(plateauLogged,"plateau must remain visible and inconclusive")
+for i=1,16 do h.Step(10.2-i*0.05)end
+assert(h.Verdict.Confidence[15]==35,"slow sustained net cooling is weak support only")
+assert(not table.find(h.Verdict.RuledOut,15))
+local other=room("Hallway")
+h.Traffic("GhostRoom",{Room=other}):SendTo("RoomTemperature")
+assert(#h.Tracker.Changes==0 and h.Room:GetAttributeChangedSignal():Count()==0,"moving room resets window and disconnects old samples")
+h.Destroy() assert(other:GetAttributeChangedSignal():Count()==0)
+local running=harness(true)
+assert(running.Started.Started and running.Tracker.Active,"loading after door closes during an existing hunt must activate temperature tracking")
+running.Destroy()
+local later=harness(false)
+later.Traffic:Broadcast("HuntingState",{Hunting=true})
+assert(later.Started.Started and later.Tracker.Active,"a later hunt must activate a missed round-start gate")
+later.Destroy()
+print("shadow.spec: visible waiting states, signed noise, timed cooling and late-hunt startup passed")

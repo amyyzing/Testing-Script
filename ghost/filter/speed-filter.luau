@@ -3,7 +3,7 @@ return function(dependencies)
 	local World = dependencies.Workspace or workspace
 	local epsilon = tonumber(dependencies.SpeedEpsilon) or 0.05
 	local customMultipliers = {0.5, 0.75, 1, 1.25, 1.5, 2}
-	local baseSpeeds = {11, 14}
+	local baseSpeeds = {10.5, 14}
 	local Filter = {Kind = "filter", Running = true}
 
 	local function mapMultiplier()
@@ -15,11 +15,14 @@ return function(dependencies)
 	end
 
 	local function inspect(pairs)
+		local scale = dependencies.ReadScale and dependencies.ReadScale() or {}
 		local result = {
 			Complete = type(pairs) == "table" and #pairs == 7,
 			Identical = false,
 			HasBothStates = false,
 			MapMultiplier = mapMultiplier(),
+			ScaleKnown = scale.Known == true,
+			AverageEnergy = World.GetAttribute and World:GetAttribute("AverageEnergy"),
 		}
 		if not result.Complete then return result end
 		local firstSpeed
@@ -43,7 +46,7 @@ return function(dependencies)
 		result.Identical = true
 		local bestError = math.huge
 		for _, baseSpeed in ipairs(baseSpeeds) do
-			for _, customMultiplier in ipairs(customMultipliers) do
+			for _, customMultiplier in ipairs(type(scale.CustomMultiplier) == "number" and {scale.CustomMultiplier} or customMultipliers) do
 				local expected = baseSpeed * result.MapMultiplier * customMultiplier
 				local errorAmount = 0
 				for _, speed in ipairs(speeds) do
@@ -67,6 +70,7 @@ return function(dependencies)
 	end
 
 	local function inspectWretch(payload)
+		local scale = dependencies.ReadScale and dependencies.ReadScale() or {}
 		local energy = tonumber(payload.AverageEnergy)
 		local speed = tonumber(payload.Speed)
 		if not energy or not speed then return {Complete = false} end
@@ -78,9 +82,12 @@ return function(dependencies)
 			Speed = speed,
 			BaseSpeed = 14 - energy * 0.05,
 			MapMultiplier = mapMultiplier(),
+			ScaleKnown = scale.Known == true,
+			Stable = payload.Stable == true,
+			Transition = payload.Transition,
 		}
 		local bestError = math.huge
-		for _, multiplier in ipairs(customMultipliers) do
+		for _, multiplier in ipairs(type(scale.CustomMultiplier) == "number" and {scale.CustomMultiplier} or customMultipliers) do
 			local expected = result.BaseSpeed * result.MapMultiplier * multiplier
 			local errorAmount = math.abs(speed - expected)
 			if errorAmount < bestError then
@@ -101,9 +108,10 @@ return function(dependencies)
 			result.Pairs = payload.Pairs
 			result.DistinctPairs = payload.DistinctPairs
 			result.Samples = payload.Samples
-			Traffic("SpeedFilterResult", result):SendTo("Dullahan", "Oni")
+			result.HuntId = payload.HuntId
+			Traffic("SpeedFilterResult", result):SendTo("Dullahan", "Oni", "GhostPatternLog")
 		elseif signal == "WretchSpeedSample" then
-			Traffic("WretchSpeedResult", inspectWretch(payload)):SendTo("Wretch")
+			Traffic("WretchSpeedResult", inspectWretch(payload)):SendTo("Wretch", "GhostPatternLog")
 		end
 	end)
 

@@ -1,47 +1,42 @@
 local createTraffic = require("../traffic")
 local createVerdict = require("../verdict")
-local createFootstepSound = require("../discardable-trackers/footstep-sound")
+local createFootsteps = require("../discardable-trackers/footstep-sound")
 local Umbra = require("../ghosts/Umbra")
-
-local function expect(condition, message)
-	if not condition then error(message, 2) end
+local function signal()
+ local callbacks={}
+ return {
+  Connect=function(_,callback) table.insert(callbacks,callback) return {Disconnect=function() local i=table.find(callbacks,callback) if i then table.remove(callbacks,i) end end} end,
+  Fire=function(_,...) for _,callback in ipairs(table.clone(callbacks)) do callback(...) end end,
+ }
 end
-
-local function object(name, className)
-	return {
-		Name = name,
-		IsA = function(_, kind) return className == kind end,
-	}
+local function harness(sounds)
+ local heartbeat=signal()
+ local ghost={Hunting=true}
+ function ghost:GetAttribute(key) return self[key] end
+ function ghost:FindFirstChild() return {GetDescendants=function() return sounds end} end
+ local traffic=createTraffic()
+ local verdict=createVerdict({Traffic=traffic})
+ local processor=Umbra.new({Traffic=traffic})
+ local tracker=createFootsteps({Traffic=traffic,Ghost=ghost,RunService={Heartbeat=heartbeat},FootstepIds={native=true}})
+ return {Ghost=ghost,Verdict=verdict,Sample=function() heartbeat:Fire(0.11) end,Destroy=function()tracker:Destroy()processor:Destroy()end}
 end
-
-local function run(children)
-	local root = {GetChildren = function() return children end}
-	local Ghost = {
-		FindFirstChild = function(_, name)
-			return name == "HumanoidRootPart" and root or nil
-		end,
-	}
-	local Traffic = createTraffic()
-	local Verdict = createVerdict({Traffic = Traffic})
-	local processor = Umbra.new({Traffic = Traffic})
-	local tracker = createFootstepSound({Traffic = Traffic, Ghost = Ghost})
-	processor:Destroy()
-	return Verdict, tracker
-end
-
-local silentVerdict, silentTracker = run({object("Hunting", "Sound"), object("RootRigAttachment", "Attachment")})
-expect(silentTracker.HasOtherSound == false and silentVerdict.Confidence[20] == 35,
-	"Hunting alone should support Umbra after the one immediate scan")
-
-local audibleVerdict, audibleTracker = run({object("Hunting", "Sound"), object("Footsteps", "Sound")})
-expect(audibleTracker.HasOtherSound == true and table.find(audibleVerdict.RuledOut, 20),
-	"a direct HRP Sound other than Hunting should rule Umbra out")
-
-local nestedVerdict, nestedTracker = run({object("FootstepContainer", "Folder")})
-expect(nestedTracker.HasOtherSound == false and nestedVerdict.Confidence[20] == 35,
-	"the scan should inspect only direct children of HumanoidRootPart")
-local voiceVerdict, voiceTracker = run({object("Voice", "Sound")})
-expect(voiceTracker.HasOtherSound == false and not table.find(voiceVerdict.RuledOut, 20),
-	"an unrelated voice Sound must not exclude a ghost with silent footsteps")
-
-print("umbra.spec: one-shot HumanoidRootPart Sound scan passed")
+local sound={Name="CurrentSound",SoundId="native",IsPlaying=true,Volume=0.45,IsA=function(_,kind)return kind=="Sound"end}
+local active=harness({sound})
+active.Sample() active.Sample()
+assert(active.Verdict.Confidence[20]==nil and not table.find(active.Verdict.RuledOut,20),"one or two audible samples must not decide Umbra")
+active.Sample()
+assert(table.find(active.Verdict.RuledOut,20),"three native audible footstep samples must exclude Umbra, regardless of Sound name")
+active.Destroy()
+local silent=harness({})
+for i=1,20 do silent.Sample() end
+assert(silent.Verdict.Confidence[20]==nil and #silent.Verdict.RuledOut==0,"missing sound must not become positive Umbra evidence")
+silent.Destroy()
+local voice=harness({{Name="Footsteps",SoundId="voice",IsPlaying=true,Volume=1,IsA=sound.IsA}})
+for i=1,5 do voice.Sample() end
+assert(#voice.Verdict.RuledOut==0,"names alone cannot identify a material footstep sound")
+voice.Destroy()
+local idle=harness({sound}) idle.Ghost.Hunting=false
+for i=1,5 do idle.Sample() end
+assert(#idle.Verdict.RuledOut==0,"non-hunting sounds must not qualify a hunt trial")
+idle.Destroy()
+print("umbra.spec: native sound IDs, audible hunt samples, and inconclusive silence passed")

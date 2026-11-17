@@ -24,7 +24,7 @@ local function signal()
 	}
 end
 
-local function run(rawSpeed, visibilityMode, mapSize)
+local function run(rawSpeed, visibilityMode, mapSize, known, hunts, energy)
 	local visibility = signal()
 	local Humanoid = {WalkSpeed = rawSpeed}
 	local Ghost = {Transparency = 0}
@@ -39,13 +39,13 @@ local function run(rawSpeed, visibilityMode, mapSize)
 	function Ghost:FindFirstChildOfClass() return Humanoid end
 	local Map = {MapSize = mapSize or "Medium"}
 	function Map:GetAttribute(name) return name == "MapSize" and self.MapSize or nil end
-	local World = {}
+	local World = {GetAttribute = function() return energy or 50 end}
 	function World:FindFirstChild(name) return name == "Map" and Map or nil end
 
 	local Traffic = createTraffic()
 	local Verdict = createVerdict({Traffic = Traffic})
 	local oni = Oni.new({Traffic = Traffic})
-	local speedFilter = createSpeedFilter({Traffic = Traffic, Workspace = World})
+	local speedFilter = createSpeedFilter({Traffic = Traffic, Workspace = World, ReadScale = function() return {Known = known == true, CustomMultiplier = known and 2 or nil} end})
 	local sevenPair = createSevenPair({
 		Traffic = Traffic,
 		Ghost = Ghost,
@@ -62,6 +62,8 @@ local function run(rawSpeed, visibilityMode, mapSize)
 		Ghost.Transparency = visible and 0 or 1
 		visibility:Fire()
 	end
+	for hunt = 1, hunts or 1 do
+	Traffic("HuntingState", {Hunting = false}):SendTo("SevenPair")
 	Traffic("HuntingState", {Hunting = true}):SendTo("SevenPair")
 	for index = 1, 7 do
 		local speed = type(rawSpeed) == "table" and rawSpeed[index] or rawSpeed
@@ -69,6 +71,7 @@ local function run(rawSpeed, visibilityMode, mapSize)
 		sample(speed, visibilityMode == "all-visible" or index == visibilityMode)
 	end
 
+	end
 	local snapshot = Verdict:Snapshot()
 	sevenPair:Destroy()
 	speedFilter:Destroy()
@@ -76,28 +79,19 @@ local function run(rawSpeed, visibilityMode, mapSize)
 	return snapshot, filtered
 end
 
-local oniSnapshot, oniFilter = run(14 * 1.05 * 2)
-expect(oniSnapshot.Selected[1] == 11 and oniFilter.Identical
-	and oniFilter.BaseSpeed == 14 and oniFilter.CustomMultiplier == 2
-	and oniFilter.MapMultiplier == 1.05,
-	"seven identical current 14-base visible/invisible pairs should support Oni after scaling")
-
-local smallSnapshot, smallFilter = run(28, nil, "Small")
-expect(smallSnapshot.Selected[1] == 11 and smallFilter.BaseSpeed == 14
-	and smallFilter.CustomMultiplier == 2 and smallFilter.MapMultiplier == 1,
-	"28 hunting WalkSpeed on a Small map should support the 200 percent Oni mode")
-
-local normalSnapshot, normalFilter = run(22, nil, "Small")
-expect(not table.find(normalSnapshot["ruled-out"], 11) and normalFilter.BaseSpeed == 11,
-	"an inferred mismatch should not hard-exclude Oni")
-
-local visibleSnapshot, visibleFilter = run(14 * 1.05, "all-visible")
-expect(#visibleSnapshot.Selected == 0 and #visibleSnapshot["ruled-out"] == 0
-	and visibleFilter == nil,
-	"one unchanged visibility state should never finish an Oni comparison")
-
-local invalidSnapshot, invalidFilter = run(14 * 1.05 * 1.75)
-expect(not table.find(invalidSnapshot["ruled-out"], 11) and invalidFilter.BaseSpeed == nil,
-	"an unsupported multiplier should remain inconclusive")
-
-print("oni.spec: visibility-driven map and custom-speed filtering passed")
+local unknown, inferred = run(28, nil, "Small")
+expect(unknown.Confidence[11] == nil and inferred.BaseSpeed == 14,
+ "an inferred scale must not confirm Oni")
+local first = run(28, nil, "Small", true)
+expect(first.Confidence[11] == 35, "one known-scale hunt is only weak support")
+local repeated = run(28, nil, "Small", true, 2)
+expect(repeated.Confidence[11] == 95, "two stable hunts at substantial Energy corroborate Oni")
+local overlap = run(28, nil, "Small", true, 2, 0)
+expect(overlap.Confidence[11] == 35, "zero Energy cannot separate Oni from Wretch")
+local normal, normalFilter = run(21, nil, "Small", true, 2)
+expect(table.find(normal["ruled-out"], 11) and normalFilter.BaseSpeed == 10.5,
+ "two complete known-scale ordinary-speed hunts exclude Oni")
+local visible, visibleFilter = run(28, "all-visible", "Small", true, 2)
+expect(#visible.Selected == 0 and #visible["ruled-out"] == 0 and visibleFilter == nil,
+ "one visibility state cannot complete the comparison")
+print("oni.spec: known scale, separate hunts and Energy overlap passed")

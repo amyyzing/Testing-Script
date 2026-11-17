@@ -26,7 +26,7 @@ return function(dependencies)
 				Traffic("PlayerKilled", {
 					userId = id,
 					Time = clock(),
-				}):SendTo("Revenant", "SpeedTracker")
+				}):SendTo("Revenant", "SpeedTracker", "Oni", "Wretch")
 			end
 		end
 	end

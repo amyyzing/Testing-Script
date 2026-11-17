@@ -8,7 +8,7 @@ local function expect(condition, message)
 	if not condition then error(message, 2) end
 end
 
-local function harness(energies, mapSize, speed)
+local function harness(energies, mapSize, speed, unknown)
 	local players = {}
 	for index in ipairs(energies) do
 		table.insert(players, {GetAttribute = function(_, name)
@@ -30,7 +30,7 @@ local function harness(energies, mapSize, speed)
 	end)
 	local Verdict = createVerdict({Traffic = Traffic})
 	local processor = Wretch.new({Traffic = Traffic})
-	local filter = createSpeedFilter({Traffic = Traffic, Workspace = World})
+	local filter = createSpeedFilter({Traffic = Traffic, Workspace = World, ReadScale = function() return {Known = not unknown, CustomMultiplier = not unknown and 2 or nil} end})
 	local tracker = createWretchSpeed({
 		Traffic = Traffic,
 		Players = Players,
@@ -43,9 +43,11 @@ local function harness(energies, mapSize, speed)
 		Humanoid = Humanoid,
 		Display = display,
 		RunDelayed = function()
-			local pending = delayed
-			delayed = {}
-			for _, callback in ipairs(pending) do callback() end
+			for _ = 1, 4 do
+				local pending = delayed
+				delayed = {}
+				for _, callback in ipairs(pending) do callback() end
+			end
 		end,
 	}
 	function result:Destroy()
@@ -121,10 +123,10 @@ changing.Traffic:Broadcast("HuntingState", {Hunting = false})
 changing.RunDelayed()
 expect(changing.Verdict.Confidence[23] == 35,
 	"an insignificant change within the speed tolerance is not corroboration")
-energies[1], changing.Humanoid.WalkSpeed = 95, 18.5
+energies[1], changing.Humanoid.WalkSpeed = 80, 20
 changing.Traffic:Broadcast("HuntingState", {Hunting = true})
 changing.RunDelayed()
-expect(changing.Verdict.Confidence[23] == 99,
+expect(changing.Verdict.Confidence[23] == 95,
 	"changing Energy and matching speed under the same multiplier should corroborate Wretch")
 changing:Destroy()
 
@@ -144,8 +146,32 @@ local rejected = harness({0}, "Small", 11)
 rejected.Traffic:Broadcast("HuntingState", {Hunting = false, Time = 19})
 rejected.Traffic:Broadcast("HuntingState", {Hunting = true, Time = 20})
 rejected.RunDelayed()
+expect(not table.find(rejected.Verdict.RuledOut, 23), "one mismatch is not enough")
+rejected.Traffic:Broadcast("HuntingState", {Hunting = false})
+rejected.RunDelayed()
+rejected.Traffic:Broadcast("HuntingState", {Hunting = true})
+rejected.RunDelayed()
 expect(table.find(rejected.Verdict.RuledOut, 23),
 	"Energy 0 should expect base 14 and reject an impossible hunting speed")
 rejected:Destroy()
 
 print("wretch.spec: first-hunt gate and transition Energy speed checks passed")
+
+local function unknownCurve(speeds, expected)
+ local energy = {100}
+ local h = harness(energy, "Small", speeds[1], true)
+ h.Traffic:Broadcast("HuntingState", {Hunting = false})
+ for i, value in ipairs({100, 60, 20}) do
+  energy[1], h.Humanoid.WalkSpeed = value, speeds[i]
+  h.Traffic:Broadcast("HuntingState", {Hunting = true}) h.RunDelayed()
+  if i < 3 then
+   expect(h.Verdict.Confidence[23] == nil and not table.find(h.Verdict.RuledOut, 23), "unknown scale needs three Energy levels")
+  end
+  h.Traffic:Broadcast("HuntingState", {Hunting = false}) h.RunDelayed()
+ end
+ if expected then expect(h.Verdict.Confidence[23] == 95, "consistent relative Energy response supports Wretch")
+ else expect(table.find(h.Verdict.RuledOut, 23), "constant speed across three Energy levels excludes Wretch") end
+ h:Destroy()
+end
+unknownCurve({18, 22, 26}, true)
+unknownCurve({21, 21, 21}, false)

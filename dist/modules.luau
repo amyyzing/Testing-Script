@@ -5514,7 +5514,7 @@ return function(dependencies)
 				Traffic("PlayerKilled", {
 					userId = id,
 					Time = clock(),
-				}):SendTo("Revenant", "SpeedTracker")
+				}):SendTo("Revenant", "SpeedTracker", "Oni", "Wretch")
 			end
 		end
 	end
@@ -5989,6 +5989,7 @@ return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "speed-tracker requires Traffic")
 	local Ghost = assert(dependencies.Ghost, "speed-tracker requires Ghost")
 	local clock = dependencies.Clock or os.clock
+	local World = dependencies.Workspace or workspace
 	local killMatchWindow = tonumber(dependencies.KillMatchWindow) or 0.75
 	local Tracker = {
 		Kind = "active", Running = true,
@@ -6004,6 +6005,10 @@ return function(dependencies)
 		local visible = type(transparency) == "boolean"
 			and not transparency
 			or type(transparency) == "number" and transparency < 0.5
+		Traffic("GhostSpeedObserved", {Speed = speed, Visible = visible == true,
+			Hunting = Tracker.hunting == true,
+			AverageEnergy = World and World:GetAttribute("AverageEnergy"), Source = source,
+		}):SendTo("GhostPatternLog")
 		local point = {s = speed, v = visible == true}
 		table.insert(Tracker.samples, point)
 		table.insert(Tracker.sampleMeta, {source = source, time = clock()})
@@ -6338,27 +6343,56 @@ modules["ghost/discardable-trackers/footstep-sound.luau"] = pack((function()
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "footstep-sound requires Traffic")
 	local Ghost = assert(dependencies.Ghost, "footstep-sound requires Ghost")
-	local root = Ghost:FindFirstChild("HumanoidRootPart")
-	local Tracker = {Kind = "discardable", Running = false}
-	if not root then
-		function Tracker:Destroy() end
-		return Tracker
-	end
-
-	local otherSound
-	for _, child in ipairs(root:GetChildren()) do
-		if child:IsA("Sound") and string.lower(child.Name):find("footstep", 1, true) then
-			otherSound = child
-			break
+	local RunService = dependencies.RunService or game:GetService("RunService")
+	local ids = dependencies.FootstepIds
+	if not ids then
+		ids = {}
+		local storage = dependencies.ReplicatedStorage or game:GetService("ReplicatedStorage")
+		local modules = storage:FindFirstChild("Modules")
+		local module = modules and modules:FindFirstChild("FootstepSounds")
+		local ok, sounds = pcall(function() return module and require(module) end)
+		if ok and type(sounds) == "table" then
+			for _, sound in pairs(sounds) do
+				if type(sound) == "table" and sound.id and (tonumber(sound.volume) or 0) > 0 then
+					ids[sound.id] = true
+				end
+			end
 		end
 	end
-	Tracker.HasOtherSound = otherSound ~= nil
-	Traffic("FootstepSound", {
-		HasOtherSound = Tracker.HasOtherSound,
-		Sound = otherSound,
-	}):SendTo("Umbra")
-
-	function Tracker:Destroy() end
+	local Tracker = {Kind = "active", Running = true, AudibleSamples = 0, Accumulator = 0}
+	function Tracker:Sample()
+		local root = Ghost:FindFirstChild("HumanoidRootPart")
+		local audible
+		if root and Ghost:GetAttribute("Hunting") == true then
+			for _, sound in ipairs(root:GetDescendants()) do
+				if sound:IsA("Sound") and ids[sound.SoundId] and sound.IsPlaying
+					and sound.Volume > 0 then audible = sound break end
+			end
+		end
+		local previous = self.AudibleSamples
+		self.AudibleSamples = audible and self.AudibleSamples + 1 or 0
+		local hunting = Ghost:GetAttribute("Hunting") == true
+		if previous ~= self.AudibleSamples or self.LastHunting ~= hunting then
+			Traffic("FootstepProgress", {Samples=self.AudibleSamples,Hunting=hunting}):SendTo("GhostPatternLog")
+			self.LastHunting = hunting
+		end
+		if self.AudibleSamples >= 3 then
+			Traffic("FootstepObserved", {Confirmed = true, Samples = self.AudibleSamples,
+				SoundId = audible.SoundId}):SendTo("Umbra")
+			self:Destroy()
+		end
+	end
+	function Tracker:Destroy()
+		self.Running = false
+		if self.Connection then self.Connection:Disconnect() end
+	end
+	Tracker.Connection = RunService.Heartbeat:Connect(function(delta)
+		if not Tracker.Running then return end
+		Tracker.Accumulator += delta
+		if Tracker.Accumulator < 0.1 then return end
+		Tracker.Accumulator = 0
+		Tracker:Sample()
+	end)
 	return Tracker
 end
 
@@ -6763,7 +6797,14 @@ return function(dependencies)
 		end))
 	end
 
+	Tracker.DisconnectHunting = Traffic:Receive("RoundStarted", function(signal, payload)
+		if signal == "HuntingState" and type(payload) == "table" and payload.Hunting == true then Tracker:Start() end
+	end)
+	local ghost = World:FindFirstChild("Ghost")
+	if ghost and ghost:GetAttribute("Hunting") == true then Tracker:Start() end
+
 	function Tracker:Destroy()
+		if self.DisconnectHunting then self.DisconnectHunting() end
 		if not self.Running then return end
 		self.Running = false
 		disconnectAll()
@@ -7618,109 +7659,67 @@ end
 end)())
 modules["ghost/dormant-trackers/room-temperature.luau"] = pack((function()
 return function(dependencies)
-	local Traffic = assert(dependencies.Traffic, "room-temperature requires Traffic")
-	local threshold = tonumber(dependencies.Threshold) or 0.08
-	local requiredChanges = tonumber(dependencies.RequiredChanges) or 7
-	local readTemperature = dependencies.ReadTemperature
-	local Tracker = {
-		Kind = "dormant",
-		Running = true,
-		RoundStarted = false,
-		Active = false,
-		Resolved = false,
-		Changes = {},
-	}
-
-	local function disconnectRoom()
-		if not Tracker.RoomConnection then return end
-		Tracker.RoomConnection:Disconnect()
-		Tracker.RoomConnection = nil
-	end
-
-	local function temperature(room)
-		if readTemperature then return tonumber(readTemperature(room)) end
-		return room and tonumber(room:GetAttribute("Temperature")) or nil
-	end
-
-	function Tracker:Sample()
-		if not self.Active or self.Resolved then return end
-		local current = temperature(self.Room)
-		if current == nil then
-			self.Previous = nil
-			return
-		end
-		if self.Previous ~= nil then
-			local decrease = self.Previous - current
-			if decrease > 0 then
-				table.insert(self.Changes, decrease)
-				local sum = 0
-				for _, change in ipairs(self.Changes) do sum += change end
-				Traffic("RoomTemperatureProgress", {
-					Room = self.Room,
-					RoomName = self.Room and self.Room.Name or nil,
-					Count = #self.Changes,
-					Required = requiredChanges,
-					Average = sum / #self.Changes,
-				}):SendTo("GhostPatternLog")
-			end
-		end
-		self.Previous = current
-		if #self.Changes < requiredChanges then return end
-
-		local sum = 0
-		for _, change in ipairs(self.Changes) do sum += change end
-		local average = sum / #self.Changes
-		Traffic("RoomTemperatureAverage", {
-			Room = self.Room,
-			RoomName = self.Room and self.Room.Name or nil,
-			Changes = table.clone(self.Changes),
-			Average = average,
-			Threshold = threshold,
-			Complete = true,
-		}):SendTo("Shadow")
-		self.Resolved = true
-		self.Active = false
-		disconnectRoom()
-	end
-
-	local function activateRoom()
-		disconnectRoom()
-		Tracker.Active = Tracker.RoundStarted and Tracker.Room ~= nil
-		Tracker.Previous = Tracker.Active and temperature(Tracker.Room) or nil
-		table.clear(Tracker.Changes)
-		if Tracker.Active then
-			Tracker.RoomConnection = Tracker.Room:GetAttributeChangedSignal("Temperature"):Connect(function()
-				Tracker:Sample()
-			end)
-		end
-	end
-
-	local function setRoom(room)
-		if room == Tracker.Room or Tracker.Resolved then return end
-		Tracker.Room = room
-		activateRoom()
-	end
-
-	Tracker.Disconnect = Traffic:Receive("RoomTemperature", function(signal, payload)
-		if type(payload) ~= "table" then return end
-		if signal == "GhostRoom" then
-			setRoom(payload.Room)
-		elseif signal == "RoundStarted" and payload.Started == true
-			and not Tracker.RoundStarted then
-			Tracker.RoundStarted = true
-			activateRoom()
-		end
-	end)
-
-	function Tracker:Destroy()
-		if not self.Running then return end
-		self.Running = false
-		self.Active = false
-		self.Disconnect()
-		disconnectRoom()
-	end
-
-	return Tracker
+ local Traffic = assert(dependencies.Traffic, "room-temperature requires Traffic")
+ local clock = dependencies.Clock or os.clock
+ local required = tonumber(dependencies.RequiredChanges) or 7
+ local duration = tonumber(dependencies.MinimumDuration) or 15
+ local Tracker = {Kind="dormant", Running=true, RoundStarted=false, Active=false, Changes={}}
+ local function temperature(room)
+  if dependencies.ReadTemperature then return tonumber(dependencies.ReadTemperature(room)) end
+  return room and tonumber(room:GetAttribute("Temperature"))
+ end
+ local function progress(current, status)
+  local elapsed = Tracker.StartTime and clock()-Tracker.StartTime or 0
+  local net = current and Tracker.Initial and Tracker.Initial-current or 0
+  local average = elapsed>0 and net/elapsed or 0
+  Traffic("RoomTemperatureProgress", {Room=Tracker.Room,RoomName=Tracker.Room and Tracker.Room.Name,
+   Temperature=current,Count=#Tracker.Changes,Required=required,Average=average,
+   Duration=elapsed,NetDecrease=net,Status=status}):SendTo("GhostPatternLog")
+  return elapsed,net,average
+ end
+ function Tracker:Sample()
+  if not self.Active then return end
+  local current = temperature(self.Room)
+  if current==nil then
+   self.Previous,self.Initial,self.StartTime=nil,nil,nil table.clear(self.Changes)
+   progress(nil,"Waiting for native temperature") return
+  end
+  if self.Previous~=nil then table.insert(self.Changes,self.Previous-current) end
+  self.Initial,self.StartTime=self.Initial or current,self.StartTime or clock()
+  self.Previous=current
+  local elapsed,net,average=progress(current,"Collecting signed cooling/warming; baseline uncalibrated")
+  if #self.Changes<required or elapsed<duration then return end
+  Traffic("RoomTemperatureAverage", {Room=self.Room,RoomName=self.Room.Name,Average=average,
+   Changes=table.clone(self.Changes),Duration=elapsed,NetDecrease=net,
+   SustainedCooling=net>=0.5,Threshold=0.08,Complete=true}):SendTo("Shadow")
+  progress(current,net>=0.5 and "Net cooling observed; uncalibrated comparison is weak only"
+   or "No sustained net cooling; noise/plateau is inconclusive")
+  table.clear(self.Changes) self.Initial,self.StartTime=current,clock()
+ end
+ local function activate()
+  if Tracker.RoomConnection then Tracker.RoomConnection:Disconnect() Tracker.RoomConnection=nil end
+  table.clear(Tracker.Changes)
+  Tracker.Active=Tracker.RoundStarted and Tracker.Room~=nil
+  Tracker.Previous=temperature(Tracker.Room)
+  Tracker.Initial,Tracker.StartTime=Tracker.Previous,clock()
+  progress(Tracker.Previous,Tracker.Active and "Waiting for temperature changes; baseline uncalibrated"
+   or "Waiting for round start / first hunt")
+  if Tracker.Active then
+   Tracker.RoomConnection=Tracker.Room:GetAttributeChangedSignal("Temperature"):Connect(function()Tracker:Sample()end)
+  end
+ end
+ Tracker.Disconnect=Traffic:Receive("RoomTemperature",function(signal,payload)
+  if type(payload)~="table" then return end
+  if signal=="GhostRoom" and payload.Room~=Tracker.Room then Tracker.Room=payload.Room activate()
+  elseif signal=="RoundStarted" and payload.Started==true and not Tracker.RoundStarted then
+   Tracker.RoundStarted=true activate()
+  end
+ end)
+ function Tracker:Destroy()
+  self.Running,self.Active=false,false self.Disconnect()
+  if self.RoomConnection then self.RoomConnection:Disconnect() end
+ end
+ return Tracker
 end
 
 end)())
@@ -7940,9 +7939,10 @@ return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "wretch-speed requires Traffic")
 	local Players = assert(dependencies.Players, "wretch-speed requires Players")
 	local Humanoid = assert(dependencies.Humanoid, "wretch-speed requires Humanoid")
+	local World = dependencies.Workspace
 	local delay = dependencies.DelayTask or (task and task.delay)
 	assert(type(delay) == "function", "wretch-speed requires task.delay")
-	local settleDelay = tonumber(dependencies.SettleDelay) or 0.1
+	local settleDelay = tonumber(dependencies.SettleDelay) or 0.3
 	local Tracker = {
 		Kind = "dormant",
 		Running = true,
@@ -7953,15 +7953,19 @@ return function(dependencies)
 	}
 
 	local function averageEnergy()
+		local reported = World and tonumber(World:GetAttribute("AverageEnergy"))
+		if reported then return reported end
 		local players = Players:GetPlayers()
 		if #players == 0 then return nil end
-		local total = 0
+		local total, count = 0, 0
 		for _, player in ipairs(players) do
+			if player:GetAttribute("Dead") == true then continue end
 			local energy = tonumber(player:GetAttribute("Energy"))
 			if not energy then return nil end
 			total += energy
+			count += 1
 		end
-		return total / #players
+		return count > 0 and total / count or nil
 	end
 
 	Tracker.Disconnect = Traffic:Receive("WretchSpeed", function(signal, payload)
@@ -7990,16 +7994,23 @@ return function(dependencies)
 		}):SendTo("SpeedArrayLog")
 		Tracker.Token += 1
 		local token = Tracker.Token
-		delay(settleDelay, function()
+		local samples = {}
+		local function sample()
 			if not Tracker.Running or Tracker.Token ~= token then return end
+			table.insert(samples, Humanoid.WalkSpeed)
+			if #samples < 3 then delay(0.15, sample) return end
+			local minimum, maximum, sum = math.huge, -math.huge, 0
+			for _, speed in ipairs(samples) do minimum = math.min(minimum, speed) maximum = math.max(maximum, speed) sum += speed end
 			Traffic("WretchSpeedSample", {
 				Transition = transition,
 				Hunting = hunting,
 				AverageEnergy = energy,
-				Speed = Humanoid.WalkSpeed,
+				Speed = sum / #samples,
+				Stable = maximum - minimum <= 0.05,
 				TransitionTime = payload.Time,
 			}):SendTo("SpeedFilter", "SpeedArrayLog")
-		end)
+		end
+		delay(settleDelay, sample)
 	end)
 
 	function Tracker:Destroy()
@@ -9219,6 +9230,7 @@ return function(dependencies)
 		Tracker.Resolved = true
 		stopSampling()
 		Traffic("SevenPairResult", {
+			HuntId = Tracker.Generation,
 			Pairs = table.clone(Tracker.Pairs),
 			DistinctPairs = distinctPairCount(Tracker.Pairs),
 			Samples = Tracker.SampleCount,
@@ -9368,7 +9380,7 @@ return function(dependencies)
 	local World = dependencies.Workspace or workspace
 	local epsilon = tonumber(dependencies.SpeedEpsilon) or 0.05
 	local customMultipliers = {0.5, 0.75, 1, 1.25, 1.5, 2}
-	local baseSpeeds = {11, 14}
+	local baseSpeeds = {10.5, 14}
 	local Filter = {Kind = "filter", Running = true}
 
 	local function mapMultiplier()
@@ -9380,11 +9392,14 @@ return function(dependencies)
 	end
 
 	local function inspect(pairs)
+		local scale = dependencies.ReadScale and dependencies.ReadScale() or {}
 		local result = {
 			Complete = type(pairs) == "table" and #pairs == 7,
 			Identical = false,
 			HasBothStates = false,
 			MapMultiplier = mapMultiplier(),
+			ScaleKnown = scale.Known == true,
+			AverageEnergy = World.GetAttribute and World:GetAttribute("AverageEnergy"),
 		}
 		if not result.Complete then return result end
 		local firstSpeed
@@ -9408,7 +9423,7 @@ return function(dependencies)
 		result.Identical = true
 		local bestError = math.huge
 		for _, baseSpeed in ipairs(baseSpeeds) do
-			for _, customMultiplier in ipairs(customMultipliers) do
+			for _, customMultiplier in ipairs(type(scale.CustomMultiplier) == "number" and {scale.CustomMultiplier} or customMultipliers) do
 				local expected = baseSpeed * result.MapMultiplier * customMultiplier
 				local errorAmount = 0
 				for _, speed in ipairs(speeds) do
@@ -9432,6 +9447,7 @@ return function(dependencies)
 	end
 
 	local function inspectWretch(payload)
+		local scale = dependencies.ReadScale and dependencies.ReadScale() or {}
 		local energy = tonumber(payload.AverageEnergy)
 		local speed = tonumber(payload.Speed)
 		if not energy or not speed then return {Complete = false} end
@@ -9443,9 +9459,12 @@ return function(dependencies)
 			Speed = speed,
 			BaseSpeed = 14 - energy * 0.05,
 			MapMultiplier = mapMultiplier(),
+			ScaleKnown = scale.Known == true,
+			Stable = payload.Stable == true,
+			Transition = payload.Transition,
 		}
 		local bestError = math.huge
-		for _, multiplier in ipairs(customMultipliers) do
+		for _, multiplier in ipairs(type(scale.CustomMultiplier) == "number" and {scale.CustomMultiplier} or customMultipliers) do
 			local expected = result.BaseSpeed * result.MapMultiplier * multiplier
 			local errorAmount = math.abs(speed - expected)
 			if errorAmount < bestError then
@@ -9466,9 +9485,10 @@ return function(dependencies)
 			result.Pairs = payload.Pairs
 			result.DistinctPairs = payload.DistinctPairs
 			result.Samples = payload.Samples
-			Traffic("SpeedFilterResult", result):SendTo("Dullahan", "Oni")
+			result.HuntId = payload.HuntId
+			Traffic("SpeedFilterResult", result):SendTo("Dullahan", "Oni", "GhostPatternLog")
 		elseif signal == "WretchSpeedSample" then
-			Traffic("WretchSpeedResult", inspectWretch(payload)):SendTo("Wretch")
+			Traffic("WretchSpeedResult", inspectWretch(payload)):SendTo("Wretch", "GhostPatternLog")
 		end
 	end)
 
@@ -9797,34 +9817,36 @@ modules["ghost/ghosts/Nightmare.luau"] = pack((function()
 
 end)())
 modules["ghost/ghosts/Oni.luau"] = pack((function()
-local Oni = {Name = "Oni", Index = 11}
-
+local Oni={Name="Oni",Index=11}
 function Oni.new(dependencies)
-	local Traffic = assert(dependencies.Traffic, "Oni requires Traffic")
-	local Processor = {Resolved = false}
-
-	Processor.Disconnect = Traffic:Receive("Oni", function(signal, payload)
-		if Processor.Resolved or signal ~= "SpeedFilterResult"
-			or type(payload) ~= "table" or payload.Complete ~= true then return end
-		if payload.HasBothStates ~= true then return end
-		Processor.Resolved = true
-		local supported = payload.Identical == true and payload.BaseSpeed == 14
-		Traffic(supported and "Support" or "Negative", {
-			Ghost = "Oni",
-			Confidence = supported and 65 or 35,
-			Reason = supported
-				and string.format(
-					"all seven hunting pairs held visible and invisible speed at scaled 14 base (%d%%); also possible for Wretch",
-					math.floor((payload.CustomMultiplier or 1) * 100 + 0.5)
-				)
-				or "seven hunting pairs did not match the inferred scaled 14 base; custom speed remains uncertain",
-		}):SendTo("Verdict")
-	end)
-
-	function Processor:Destroy() self.Disconnect() end
-	return Processor
+ local Traffic=assert(dependencies.Traffic,"Oni requires Traffic")
+ local processor={Matches=0,Mismatches=0,Seen={},HadKill=false}
+ processor.Disconnect=Traffic:Receive("Oni",function(signal,payload)
+  if signal=="PlayerKilled" then processor.HadKill=true return end
+  if processor.Resolved or signal~="SpeedFilterResult" or type(payload)~="table"
+   or not payload.Complete or not payload.HasBothStates or not payload.ScaleKnown then return end
+  if payload.HuntId and processor.Seen[payload.HuntId] then return end
+  if payload.HuntId then processor.Seen[payload.HuntId]=true end
+  local matched=payload.Identical==true and payload.BaseSpeed==14
+  if matched then
+   processor.Matches+=1
+   local energy=tonumber(payload.AverageEnergy)
+   local confirmed=processor.Matches>=2 and energy and energy>=25 and not processor.HadKill
+   processor.Resolved=confirmed==true
+   Traffic("Support",{Ghost="Oni",Confidence=confirmed and 95 or 35,
+    Reason=confirmed and "two stable hunts matched scaled base 14 with enough Energy to distinguish Wretch"
+     or "stable scaled base 14; waiting for a second hunt and enough Energy to distinguish Wretch"}):SendTo("Verdict")
+  else
+   processor.Mismatches+=1
+   if processor.Mismatches<2 then return end
+   processor.Resolved=true
+   Traffic("RuleOut",{Ghost="Oni",Confidence=95,
+    Reason="two complete hunt windows did not match base 14 at the confirmed map and custom scale"}):SendTo("Verdict")
+  end
+ end)
+ function processor:Destroy() self.Disconnect() end
+ return processor
 end
-
 return Oni
 
 end)())
@@ -9984,7 +10006,7 @@ function Shadow.new(dependencies)
 			or type(payload) ~= "table" or payload.Complete ~= true then return end
 		local average = tonumber(payload.Average)
 		local threshold = tonumber(payload.Threshold) or 0.08
-		if not average then return end
+		if not average or payload.SustainedCooling ~= true then return end
 		Processor.Resolved = true
 		local supported = average < threshold - 0.000001
 		if not supported then return end
@@ -9992,7 +10014,7 @@ function Shadow.new(dependencies)
 			Ghost = "Shadow",
 			Confidence = 35,
 			Reason = string.format(
-				"room temperature changes averaged %.4f, %s %.4f; room conditions are uncontrolled",
+				"net cooling averaged %.4f C/s, %s %.4f; weak uncalibrated observation",
 				average,
 				supported and "below" or "at or above", threshold
 			),
@@ -10131,15 +10153,13 @@ function Umbra.new(dependencies)
 	local Traffic = assert(dependencies.Traffic, "Umbra requires Traffic")
 	local Processor = {Checked = false}
 	Processor.Disconnect = Traffic:Receive("Umbra", function(signal, payload)
-		if Processor.Checked or signal ~= "FootstepSound" or type(payload) ~= "table"
-			or type(payload.HasOtherSound) ~= "boolean" then return end
+		if Processor.Checked or signal ~= "FootstepObserved" or type(payload) ~= "table"
+			or payload.Confirmed ~= true or (tonumber(payload.Samples) or 0) < 3 then return end
 		Processor.Checked = true
-		Traffic(payload.HasOtherSound and "RuleOut" or "Support", {
+		Traffic("RuleOut", {
 			Ghost = "Umbra",
-			Confidence = payload.HasOtherSound and 99 or 35,
-			Reason = payload.HasOtherSound
-				and "HumanoidRootPart contained a footstep Sound"
-				or "no footstep Sound was replicated on the initial scan; not conclusive",
+			Confidence = 99,
+			Reason = "a native material-footstep sound played audibly during a hunt over three samples",
 		}):SendTo("Verdict")
 	end)
 	function Processor:Destroy() self.Disconnect() end
@@ -10265,48 +10285,58 @@ return Wraith
 
 end)())
 modules["ghost/ghosts/Wretch.luau"] = pack((function()
-local Wretch = {Name = "Wretch", Index = 23}
-
+local Wretch = {Name="Wretch",Index=23}
 function Wretch.new(dependencies)
-	local Traffic = assert(dependencies.Traffic, "Wretch requires Traffic")
-	local Processor = {Supported = false, RuledOut = false, Samples = {}}
-	Processor.Disconnect = Traffic:Receive("Wretch", function(signal, payload)
-		if Processor.RuledOut or signal ~= "WretchSpeedResult"
-			or type(payload) ~= "table" or payload.Complete ~= true then return end
-		if payload.Matched == true then
-			if Processor.Supported then return end
-			local previous = Processor.Samples[payload.Multiplier]
-			Processor.Samples[payload.Multiplier] = previous or payload
-			local energySpeedChange = previous and math.abs(payload.AverageEnergy - previous.AverageEnergy)
-				* 0.05 * payload.MapMultiplier * payload.Multiplier or 0
-			local corroborated = energySpeedChange > 0.1
-			Processor.Supported = corroborated
-			Traffic("Support", {
-				Ghost = "Wretch",
-				Confidence = corroborated and 99 or 35,
-				Reason = string.format(
-					"state-change WalkSpeed %.3f matched expected %.3f at %.2f%% average Energy%s",
-					payload.Speed, payload.ExpectedSpeed, payload.AverageEnergy,
-					corroborated and " (corroborated across changing Energy)"
-						or " (awaiting changing Energy)"
-				),
-			}):SendTo("Verdict")
-		else
-			Processor.RuledOut = true
-			Traffic("RuleOut", {
-				Ghost = "Wretch",
-				Confidence = 99,
-				Reason = string.format(
-					"state-change WalkSpeed %.3f did not match closest expected %.3f at %.2f%% average Energy",
-					payload.Speed, payload.ExpectedSpeed, payload.AverageEnergy
-				),
-			}):SendTo("Verdict")
-		end
-	end)
-	function Processor:Destroy() self.Disconnect() end
-	return Processor
+ local Traffic=assert(dependencies.Traffic,"Wretch requires Traffic")
+ local processor={Samples={},UnknownSamples={},Mismatches=0,Seen={},HadKill=false}
+ processor.Disconnect=Traffic:Receive("Wretch",function(signal,payload)
+  if signal=="PlayerKilled" then processor.HadKill=true return end
+  if processor.Resolved or signal~="WretchSpeedResult" or type(payload)~="table"
+   or not payload.Complete or not payload.Stable or not payload.Hunting then return end
+  local transition=payload.Transition
+  if transition and processor.Seen[transition] then return end
+  if transition then processor.Seen[transition]=true end
+  if payload.ScaleKnown~=true then
+   if processor.HadKill then return end
+   local energy=math.clamp(payload.AverageEnergy,0,100)
+   local samples=processor.UnknownSamples
+   for _,sample in ipairs(samples) do if math.abs(sample.Energy-energy)<5 then return end end
+   table.insert(samples,{Energy=energy,Scale=payload.Speed/(14-energy*0.05)})
+   if #samples<3 then return end
+   local lowEnergy,highEnergy,lowScale,highScale=100,0,math.huge,0
+   for _,sample in ipairs(samples) do
+    lowEnergy=math.min(lowEnergy,sample.Energy) highEnergy=math.max(highEnergy,sample.Energy)
+    lowScale=math.min(lowScale,sample.Scale) highScale=math.max(highScale,sample.Scale)
+   end
+   if highEnergy-lowEnergy<20 then return end
+   local spread=(highScale-lowScale)/lowScale
+   if spread>0.02 and spread<0.05 then return end
+   processor.Resolved=true
+   Traffic(spread<=0.02 and "Support" or "RuleOut",{Ghost="Wretch",Confidence=95,
+    Reason=spread<=0.02 and "three stable hunts followed the Energy curve at one consistent combined map/custom scale"
+     or "three stable hunts at distinct Energy levels could not share one Energy-curve scale"}):SendTo("Verdict")
+   return
+  end
+  if not payload.Matched then
+   processor.Mismatches+=1
+   if processor.Mismatches<2 then return end
+   processor.Resolved=true
+   Traffic("RuleOut",{Ghost="Wretch",Confidence=95,
+    Reason=string.format("two stable hunts disagreed with the confirmed scale and Energy curve (observed %.3f, expected %.3f)",payload.Speed,payload.ExpectedSpeed)}):SendTo("Verdict")
+   return
+  end
+  if processor.HadKill then return end
+  local previous=processor.Samples[payload.Multiplier]
+  processor.Samples[payload.Multiplier]=previous or payload
+  local changed=previous and math.abs(payload.AverageEnergy-previous.AverageEnergy)>=10
+  processor.Resolved=changed==true
+  Traffic("Support",{Ghost="Wretch",Confidence=changed and 95 or 35,
+   Reason=string.format("stable hunt speed %.3f matched %.3f at %.2f%% Energy%s",payload.Speed,payload.ExpectedSpeed,payload.AverageEnergy,
+    changed and " across a meaningful Energy change" or "; waiting for a different Energy level")}):SendTo("Verdict")
+ end)
+ function processor:Destroy() self.Disconnect() end
+ return processor
 end
-
 return Wretch
 
 end)())
@@ -13078,14 +13108,10 @@ return function(dependencies)
 		local ghost = tostring(payload.Ghost or "Unknown")
 		local reason = tostring(payload.Reason or "pattern observed")
 		local positive = signal == "Support"
-		add(string.format(
-			"%s  %s  [%s%%]\n%s",
-			positive and "POSITIVE" or "NEGATIVE",
-			ghost,
-			tostring(tonumber(payload.Confidence) or 0),
-			reason
-		), positive and positiveColor or negativeColor,
-			table.concat({signal, ghost, reason}, "|"))
+		local heading = signal == "RuleOut" and "RULED OUT" or positive and "SUPPORT" or "NEGATIVE"
+		local strength = signal == "RuleOut" and "" or string.format("  [score %d/100]", tonumber(payload.Confidence) or 0)
+		add(string.format("%s  %s%s\n%s", heading, ghost, strength, reason),
+			positive and positiveColor or negativeColor, table.concat({signal, ghost, reason}, "|"))
 	end
 
 	local function recordTracker(signal, payload)
@@ -13136,24 +13162,60 @@ return function(dependencies)
 
 	local function recordTemperature(signal, payload)
 		if signal ~= "RoomTemperatureProgress" then return end
+		add(string.format("TRACK  SHADOW TEMPERATURE\n%s | %.2f C | %d/%d | net cooling: %.4f C/s\n%s",
+			tostring(payload.RoomName or "Waiting for room"), tonumber(payload.Temperature) or 0,
+			tonumber(payload.Count) or 0, tonumber(payload.Required) or 7, tonumber(payload.Average) or 0,
+			tostring(payload.Status or "Collecting temperature changes")), eventColor, "temperature")
+	end
+
+	local function number(value)
+		return type(value) == "number" and string.format("%.3f", value) or "unknown"
+	end
+
+	local function recordSpeed(signal, payload)
 		payload = type(payload) == "table" and payload or {}
-		if not controller.ShadowRow then
-			controller.ShadowRow = add("", eventColor)
+		if signal == "GhostSpeedObserved" then
+			local scale = dependencies.ReadScale and dependencies.ReadScale() or {}
+			add(string.format("TRACK  GHOST SPEED\n%s | %s | speed: %s | Energy: %s\nMap: x%s | custom: x%s | %s",
+				payload.Hunting and "Hunting" or "Not hunting", payload.Visible and "Visible" or "Invisible",
+				number(payload.Speed), number(payload.AverageEnergy), number(scale.MapMultiplier), number(scale.CustomMultiplier),
+				scale.Known and "Scale confirmed" or "Scale unconfirmed; absolute-speed verdicts waiting"), eventColor, "speed")
+		elseif signal == "HuntSpeedReset" then
+			add("TRACK  PHANTOM / ONI / DULLAHAN\nWaiting for visible/invisible pairs: 0/7", eventColor, "pairs")
+		elseif signal == "HuntSpeedSample" then
+			local point = payload.Point or {}
+			add(string.format("TRACK  PHANTOM / ONI / DULLAHAN\n%d/14 visibility samples | %s speed: %s",
+				tonumber(payload.Index) or 0, point.v and "Visible" or "Invisible", number(point.s)), eventColor, "pairs")
+		elseif signal == "SpeedFilterResult" then
+			add(string.format("TRACK  PHANTOM / ONI / DULLAHAN\n7/7 pairs | %s | base: %s | %s",
+				payload.Identical and "Flat speed" or "Changing speed", number(payload.BaseSpeed),
+				payload.ScaleKnown and "Scale confirmed; checking perk behavior" or "Scale unconfirmed; Oni waiting"), eventColor, "pairs")
+		elseif signal == "HuntSpeedEnded" then
+			add(string.format("TRACK  HUNT WINDOW\nEnded after %d visibility samples; incomplete windows stay inconclusive",
+				tonumber(payload.Count) or 0), eventColor, "hunt-end")
+		elseif signal == "WretchEnergySnapshot" then
+			add(string.format("TRACK  WRETCH\nTransition %s | %s | Energy: %s | waiting for stable speed",
+				tostring(payload.Transition or "?"), payload.Hunting and "Hunting" or "Not hunting", number(payload.AverageEnergy)), eventColor, "wretch")
+		elseif signal == "WretchSpeedResult" then
+			add(string.format("TRACK  WRETCH\nEnergy: %s | speed: %s | candidate expected: %s\n%s",
+				number(payload.AverageEnergy), number(payload.Speed), number(payload.ExpectedSpeed),
+				not payload.Stable and "Unstable speed; trial ignored" or not payload.Hunting and "Non-hunting baseline; waiting for hunt"
+				or not payload.ScaleKnown and "Scale unconfirmed; waiting for three distinct Energy levels"
+				or payload.Matched and "Curve match; waiting for corroboration" or "Curve mismatch; waiting for corroboration"), eventColor, "wretch")
+		elseif signal == "FootstepProgress" then
+			add(string.format("TRACK  UMBRA FOOTSTEPS\n%d/3 audible native-footstep samples | %s",
+				tonumber(payload.Samples) or 0, (tonumber(payload.Samples) or 0)>=3 and "Audible native footsteps contradict Umbra" or payload.Hunting and "Listening during hunt; silence is inconclusive" or "Waiting for hunt"), eventColor, "footsteps")
 		end
-		controller.ShadowRow.Text = string.format(
-			"TRACK  SHADOW TEMPERATURE\n%s | %d/%d | average: %.4f C",
-			tostring(payload.RoomName or "Unknown room"),
-			tonumber(payload.Count) or 0,
-			tonumber(payload.Required) or 7,
-			tonumber(payload.Average) or 0
-		)
-		defer(updateCanvas)
 	end
 
 	table.insert(controller.Disconnects, Traffic:Receive("Verdict", recordVerdict))
 	table.insert(controller.Disconnects, Traffic:Receive("SpeedTracker", recordTracker))
 	table.insert(controller.Disconnects, Traffic:Receive("Aswang", recordKillSpeed))
-	table.insert(controller.Disconnects, Traffic:Receive("GhostPatternLog", recordTemperature))
+	table.insert(controller.Disconnects, Traffic:Receive("GhostPatternLog", function(signal, payload)
+			recordTemperature(signal, payload)
+			recordSpeed(signal, payload)
+		end))
+	table.insert(controller.Disconnects, Traffic:Receive("SpeedArrayLog", recordSpeed))
 	controller.LayoutConnection = view.Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateCanvas)
 	updateCanvas()
 
@@ -16693,6 +16755,71 @@ end
 		end
 		return perkTrackerState.teleportToRoomBoundingBoxCenter(room, options)
 	end
+end
+
+end)())
+modules["logic/round-tuning.luau"] = pack((function()
+return function(dependencies)
+	local World = dependencies.Workspace or workspace
+	local Game = dependencies.Game or game
+	local Storage = assert(dependencies.ReplicatedStorage, "round-tuning requires ReplicatedStorage")
+	local Player = assert(dependencies.Player, "round-tuning requires Player")
+	local Teleport = assert(dependencies.TeleportService, "round-tuning requires TeleportService")
+	local load = dependencies.Require or require
+	local now = dependencies.Now or os.time
+	local key = "DemonologyRoundTuning"
+	local controller = {}
+	local modules = Storage:FindFirstChild("Modules")
+	local native = modules and modules:FindFirstChild("CustomDifficulty")
+	if not native then
+		local ok, data = pcall(Teleport.GetTeleportSetting, Teleport, key)
+		if ok and type(data) == "table" and data.GameId == Game.GameId
+			and type(data.Time) == "number" and now() - data.Time >= 0 and now() - data.Time < 600 then
+			controller.Data = data
+		end
+		pcall(Teleport.SetTeleportSetting, Teleport, key, nil)
+	end
+	function controller:Capture()
+		if not native then return end
+		local mode = dependencies.ReadDifficulty and dependencies.ReadDifficulty()
+		if mode ~= "Custom" then pcall(Teleport.SetTeleportSetting, Teleport, key, nil) return end
+		local ok, definition = pcall(load, native)
+		local gui = Player:FindFirstChildOfClass("PlayerGui")
+		local computer = gui and gui:FindFirstChild("ComputerScreen")
+		local list = computer and computer:FindFirstChild("SettingsList", true)
+		if not ok or type(definition) ~= "table" or not list then return end
+		local data = {GameId = Game.GameId, Time = now(), Source = "NativeLobby"}
+		for _, option in ipairs(definition.Options or {}) do
+			if option.ID == "GhostWalkSpeedMultiplier" or option.ID == "GhostLowerTemperatureRange" then
+				local row = list:FindFirstChild(option.ID)
+				local index = row and row:GetAttribute("Index")
+				local toggle = type(index) == "number" and option.Toggles[index]
+				if toggle then data[option.ID] = option.Values and option.Values[toggle] or toggle end
+			end
+		end
+		if type(data.GhostWalkSpeedMultiplier) == "number" then
+			self.Data = data
+			pcall(Teleport.SetTeleportSetting, Teleport, key, data)
+		end
+	end
+	function controller:GetScale()
+		local map = World:FindFirstChild("Map")
+		local size = map and map:GetAttribute("MapSize")
+		local custom = self.Data and self.Data.GhostWalkSpeedMultiplier
+		local mapFactor = size == "Large" and 1.1 or size == "Medium" and 1.05 or 1
+		return {CustomMultiplier = custom, MapMultiplier = mapFactor,
+			Known = type(custom) == "number" and size == "Small",
+			TemperatureMode = self.Data and self.Data.GhostLowerTemperatureRange}
+	end
+	if native and Player.OnTeleport then
+		controller.Connection = Player.OnTeleport:Connect(function(state)
+			if tostring(state) == "Enum.TeleportState.Started" then controller:Capture() end
+		end)
+	end
+	function controller:Destroy()
+		if self.Connection then self.Connection:Disconnect() end
+	end
+	return controller
 end
 
 end)())

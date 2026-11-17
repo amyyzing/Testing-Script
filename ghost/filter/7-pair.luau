@@ -53,6 +53,7 @@ return function(dependencies)
 		Tracker.Resolved = true
 		stopSampling()
 		Traffic("SevenPairResult", {
+			HuntId = Tracker.Generation,
 			Pairs = table.clone(Tracker.Pairs),
 			DistinctPairs = distinctPairCount(Tracker.Pairs),
 			Samples = Tracker.SampleCount,

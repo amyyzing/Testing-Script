@@ -272,6 +272,12 @@ if not table.find(LobbySettings.Difficulties, settings.Difficulty) then
 	settings.Difficulty = LobbySettings.ReadSelectedDifficulty(player) or "Easy"
 end
 session.Settings, session.SettingsStore = settings, settingsStore
+session.RoundTuning = loadModule("logic/round-tuning.luau")({
+	Workspace = Services.Workspace, ReplicatedStorage = Services.ReplicatedStorage,
+	Player = player, TeleportService = Services.TeleportService,
+	ReadDifficulty = function() return LobbySettings.ReadSelectedDifficulty(player) end,
+})
+table.insert(session.Trackers, session.RoundTuning)
 session.MCPResume = loadModule("logic/mcp-teleport.luau")({
 	Environment = environment,
 	ModuleUrl = BASE_URL .. "logic/mcp-teleport.luau",
@@ -431,6 +437,7 @@ local function startTrackers()
 		remember(createGhostPatternLog({
 			Traffic = Traffic,
 			View = view.PatternDrawer,
+			ReadScale = function() return session.RoundTuning:GetScale() end,
 			PositiveColor = view.Colors.Positive,
 			NegativeColor = view.Colors.Danger,
 			EventColor = view.Colors.Muted,
@@ -482,6 +489,7 @@ local function startTrackers()
 		remember(createSpeedFilter({
 			Traffic = Traffic,
 			Workspace = Services.Workspace,
+			ReadScale = function() return session.RoundTuning:GetScale() end,
 		}))
 		remember(createSevenPair({
 			Traffic = Traffic,
@@ -601,6 +609,7 @@ local function startTrackers()
 			end,
 		}))
 		remember(createWretchSpeed({
+			Workspace = Services.Workspace,
 			Traffic = Traffic,
 			Players = Services.Players,
 			Humanoid = humanoid,

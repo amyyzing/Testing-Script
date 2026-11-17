@@ -2,6 +2,7 @@ return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "speed-tracker requires Traffic")
 	local Ghost = assert(dependencies.Ghost, "speed-tracker requires Ghost")
 	local clock = dependencies.Clock or os.clock
+	local World = dependencies.Workspace or workspace
 	local killMatchWindow = tonumber(dependencies.KillMatchWindow) or 0.75
 	local Tracker = {
 		Kind = "active", Running = true,
@@ -17,6 +18,10 @@ return function(dependencies)
 		local visible = type(transparency) == "boolean"
 			and not transparency
 			or type(transparency) == "number" and transparency < 0.5
+		Traffic("GhostSpeedObserved", {Speed = speed, Visible = visible == true,
+			Hunting = Tracker.hunting == true,
+			AverageEnergy = World and World:GetAttribute("AverageEnergy"), Source = source,
+		}):SendTo("GhostPatternLog")
 		local point = {s = speed, v = visible == true}
 		table.insert(Tracker.samples, point)
 		table.insert(Tracker.sampleMeta, {source = source, time = clock()})

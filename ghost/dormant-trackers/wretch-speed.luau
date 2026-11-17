@@ -2,9 +2,10 @@ return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "wretch-speed requires Traffic")
 	local Players = assert(dependencies.Players, "wretch-speed requires Players")
 	local Humanoid = assert(dependencies.Humanoid, "wretch-speed requires Humanoid")
+	local World = dependencies.Workspace
 	local delay = dependencies.DelayTask or (task and task.delay)
 	assert(type(delay) == "function", "wretch-speed requires task.delay")
-	local settleDelay = tonumber(dependencies.SettleDelay) or 0.1
+	local settleDelay = tonumber(dependencies.SettleDelay) or 0.3
 	local Tracker = {
 		Kind = "dormant",
 		Running = true,
@@ -15,15 +16,19 @@ return function(dependencies)
 	}
 
 	local function averageEnergy()
+		local reported = World and tonumber(World:GetAttribute("AverageEnergy"))
+		if reported then return reported end
 		local players = Players:GetPlayers()
 		if #players == 0 then return nil end
-		local total = 0
+		local total, count = 0, 0
 		for _, player in ipairs(players) do
+			if player:GetAttribute("Dead") == true then continue end
 			local energy = tonumber(player:GetAttribute("Energy"))
 			if not energy then return nil end
 			total += energy
+			count += 1
 		end
-		return total / #players
+		return count > 0 and total / count or nil
 	end
 
 	Tracker.Disconnect = Traffic:Receive("WretchSpeed", function(signal, payload)
@@ -52,16 +57,23 @@ return function(dependencies)
 		}):SendTo("SpeedArrayLog")
 		Tracker.Token += 1
 		local token = Tracker.Token
-		delay(settleDelay, function()
+		local samples = {}
+		local function sample()
 			if not Tracker.Running or Tracker.Token ~= token then return end
+			table.insert(samples, Humanoid.WalkSpeed)
+			if #samples < 3 then delay(0.15, sample) return end
+			local minimum, maximum, sum = math.huge, -math.huge, 0
+			for _, speed in ipairs(samples) do minimum = math.min(minimum, speed) maximum = math.max(maximum, speed) sum += speed end
 			Traffic("WretchSpeedSample", {
 				Transition = transition,
 				Hunting = hunting,
 				AverageEnergy = energy,
-				Speed = Humanoid.WalkSpeed,
+				Speed = sum / #samples,
+				Stable = maximum - minimum <= 0.05,
 				TransitionTime = payload.Time,
 			}):SendTo("SpeedFilter", "SpeedArrayLog")
-		end)
+		end
+		delay(settleDelay, sample)
 	end)
 
 	function Tracker:Destroy()

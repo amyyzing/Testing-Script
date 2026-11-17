@@ -1,29 +1,31 @@
-local Oni = {Name = "Oni", Index = 11}
-
+local Oni={Name="Oni",Index=11}
 function Oni.new(dependencies)
-	local Traffic = assert(dependencies.Traffic, "Oni requires Traffic")
-	local Processor = {Resolved = false}
-
-	Processor.Disconnect = Traffic:Receive("Oni", function(signal, payload)
-		if Processor.Resolved or signal ~= "SpeedFilterResult"
-			or type(payload) ~= "table" or payload.Complete ~= true then return end
-		if payload.HasBothStates ~= true then return end
-		Processor.Resolved = true
-		local supported = payload.Identical == true and payload.BaseSpeed == 14
-		Traffic(supported and "Support" or "Negative", {
-			Ghost = "Oni",
-			Confidence = supported and 65 or 35,
-			Reason = supported
-				and string.format(
-					"all seven hunting pairs held visible and invisible speed at scaled 14 base (%d%%); also possible for Wretch",
-					math.floor((payload.CustomMultiplier or 1) * 100 + 0.5)
-				)
-				or "seven hunting pairs did not match the inferred scaled 14 base; custom speed remains uncertain",
-		}):SendTo("Verdict")
-	end)
-
-	function Processor:Destroy() self.Disconnect() end
-	return Processor
+ local Traffic=assert(dependencies.Traffic,"Oni requires Traffic")
+ local processor={Matches=0,Mismatches=0,Seen={},HadKill=false}
+ processor.Disconnect=Traffic:Receive("Oni",function(signal,payload)
+  if signal=="PlayerKilled" then processor.HadKill=true return end
+  if processor.Resolved or signal~="SpeedFilterResult" or type(payload)~="table"
+   or not payload.Complete or not payload.HasBothStates or not payload.ScaleKnown then return end
+  if payload.HuntId and processor.Seen[payload.HuntId] then return end
+  if payload.HuntId then processor.Seen[payload.HuntId]=true end
+  local matched=payload.Identical==true and payload.BaseSpeed==14
+  if matched then
+   processor.Matches+=1
+   local energy=tonumber(payload.AverageEnergy)
+   local confirmed=processor.Matches>=2 and energy and energy>=25 and not processor.HadKill
+   processor.Resolved=confirmed==true
+   Traffic("Support",{Ghost="Oni",Confidence=confirmed and 95 or 35,
+    Reason=confirmed and "two stable hunts matched scaled base 14 with enough Energy to distinguish Wretch"
+     or "stable scaled base 14; waiting for a second hunt and enough Energy to distinguish Wretch"}):SendTo("Verdict")
+  else
+   processor.Mismatches+=1
+   if processor.Mismatches<2 then return end
+   processor.Resolved=true
+   Traffic("RuleOut",{Ghost="Oni",Confidence=95,
+    Reason="two complete hunt windows did not match base 14 at the confirmed map and custom scale"}):SendTo("Verdict")
+  end
+ end)
+ function processor:Destroy() self.Disconnect() end
+ return processor
 end
-
 return Oni
