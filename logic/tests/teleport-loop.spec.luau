@@ -23,3 +23,48 @@ assert(queued:find("DemonologyLoopEnabled", 1, true), "queued source must remain
 assert(queued:find('JobSite = "Prison"', 1, true), "settings were not captured in the handoff")
 
 print("teleport-loop.spec: cancellable four-second cross-place handoff passed")
+
+local emergencySource
+local recovery = createTeleportLoop({
+	Environment = {},
+	ArmOnEnable = true,
+	LoaderUrl = "https://example.test/loader.luau",
+	QueueOnTeleport = function(source) emergencySource = source end,
+})
+recovery:SetEnabled(true)
+assert(emergencySource, "round automation must queue before a death-triggered return")
+local armed = emergencySource
+assert(recovery:Queue("ReturnToLobby") and emergencySource == armed,
+	"a planned return should reuse the already armed arrival")
+
+local arrived = {}
+local executions, downloads = 0, 0
+local failDownload = true
+local globals = setmetatable({
+	getgenv = function() return arrived end,
+	game = {
+		JobId = "death-return-lobby",
+		PlaceId = 18199615050,
+		IsLoaded = function() return true end,
+		HttpGet = function()
+			downloads += 1
+			if failDownload then error("temporary network error") end
+			return "return true"
+		end,
+	},
+	task = {wait = function() end},
+	loadstring = function()
+		return function() executions += 1 end
+	end,
+}, {__index = getfenv()})
+local runArrival = assert(loadstring(armed))
+setfenv(runArrival, globals)
+assert(not pcall(runArrival) and downloads == 3, "failed downloads should exhaust bounded retries")
+assert(arrived.DemonologyArrivalJob == nil and arrived.DemonologyHandoffToken == nil,
+	"a failed arrival must remain retryable")
+failDownload = false
+assert(pcall(runArrival))
+assert(executions == 1 and arrived.DemonologyAutoHandoff.Context == "ReturnToLobby",
+	"unexpected round exits should resume the lobby")
+assert(pcall(runArrival) and executions == 1, "repeated queued scripts should not load twice")
+print("teleport-loop.spec: death return, failed download retry and arrival deduplication passed")

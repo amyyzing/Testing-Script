@@ -246,6 +246,7 @@ end
 session.Settings, session.SettingsStore = settings, settingsStore
 local teleportLoop = createTeleportLoop({
 	Environment = environment,
+	ArmOnEnable = Services.Workspace:FindFirstChild("Ghost") ~= nil,
 	LoaderUrl = BASE_URL .. "loader.luau",
 	ReadSettings = function() return settings end,
 })

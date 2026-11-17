@@ -16454,6 +16454,10 @@ return function(dependencies)
 	function controller:SetEnabled(enabled)
 		self.Enabled = enabled == true
 		environment.DemonologyLoopEnabled = self.Enabled
+		if self.Enabled and dependencies.ArmOnEnable then
+			local ok, failure = self:Queue("Teleport")
+			self.LastError = ok and nil or failure
+		end
 		return self.Enabled
 	end
 
@@ -16466,7 +16470,7 @@ return function(dependencies)
 		if not self.Enabled then return false, "automation loop is disabled" end
 		if type(queue) ~= "function" then return false, "queue_on_teleport is unavailable" end
 		context = tostring(context or "Teleport")
-		if self.QueuedContext == context then return true end
+		if self.QueuedContext == context or self.QueuedContext == "Teleport" then return true end
 		serial += 1
 		local settings = dependencies.ReadSettings and dependencies.ReadSettings() or {}
 		local challenges = type(settings.Challenges) == "table" and settings.Challenges or {}
@@ -16474,6 +16478,9 @@ return function(dependencies)
 		local source = string.format([[
 local environment = (getgenv and getgenv()) or _G
 if environment.DemonologyLoopEnabled == false then return end
+if not game:IsLoaded() then game.Loaded:Wait() end
+local arrival = tostring(game.JobId)
+if environment.DemonologyArrivalJob == arrival then return end
 local previous = environment.DemonologySession
 if previous and type(previous.Destroy) == "function" then
 	pcall(previous.Destroy, previous)
@@ -16482,7 +16489,6 @@ environment.DemonologySession = nil
 environment.DemonologyLoopEnabled = true
 local token = %q
 if environment.DemonologyHandoffToken == token then return end
-environment.DemonologyHandoffToken = token
 environment.DemonologyAutoHandoff = {
 	Auto = true,
 	Context = %q,
@@ -16497,6 +16503,7 @@ environment.DemonologyAutoHandoff = {
 		ChallengesConfigured = %s,
 	},
 }
+environment.DemonologyAutoHandoff.Context = game.PlaceId == 18199615050 and "ReturnToLobby" or "AttemptStart"
 if not game:IsLoaded() then game.Loaded:Wait() end
 task.wait(4)
 if environment.DemonologyLoopEnabled == false then return end
@@ -16516,7 +16523,13 @@ end
 assert(source, "Demonology auto-loader download failed: " .. tostring(failure))
 local chunk, compileError = compiler(source, "@DemonologyAutoLoop")
 assert(chunk, compileError)
-chunk()
+local ok, result = xpcall(chunk, debug.traceback)
+if not ok then
+	environment.DemonologyHandoffToken = nil
+	error(result, 0)
+end
+environment.DemonologyArrivalJob = arrival
+environment.DemonologyHandoffToken = token
 ]], token, context,
 			tostring(settings.JobSite or ""),
 			tostring(settings.Difficulty or ""),
