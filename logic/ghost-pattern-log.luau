@@ -13,8 +13,12 @@ return function(dependencies)
 	end
 
 	local function add(text, color, key)
-		if key and controller.Seen[key] then return end
-		if key then controller.Seen[key] = true end
+		if key and controller.Seen[key] then
+			local entry = controller.Seen[key]
+			entry.Text, entry.TextColor3 = text, color
+			defer(updateCanvas)
+			return entry
+		end
 		controller.Count += 1
 
 		local entry = view.Template:Clone()
@@ -26,6 +30,7 @@ return function(dependencies)
 		entry.Parent = view.List
 		view.Empty.Visible = false
 		table.insert(controller.Entries, entry)
+		if key then controller.Seen[key] = entry end
 		defer(updateCanvas)
 		return entry
 	end

@@ -10,9 +10,9 @@ end
 
 local function harness(energies, mapSize, speed)
 	local players = {}
-	for _, energy in ipairs(energies) do
+	for index in ipairs(energies) do
 		table.insert(players, {GetAttribute = function(_, name)
-			return name == "Energy" and energy or nil
+			return name == "Energy" and energies[index] or nil
 		end})
 	end
 	local Players = {GetPlayers = function() return players end}
@@ -67,8 +67,8 @@ expect(#startup.Display == 1
 	and startup.Display[1].Payload.AverageEnergy == 100,
 	"the first transition into hunting should start Energy tracking")
 startup.RunDelayed()
-expect(startup.Verdict.Confidence[23] == 99,
-	"the first hunt should match 100 Energy to base 9 with a configured multiplier")
+expect(startup.Verdict.Confidence[23] == 35,
+	"one speed match with an inferred multiplier should only offer weak support")
 expect(#startup.Display == 2
 	and startup.Display[2].Signal == "WretchSpeedSample"
 	and startup.Display[2].Payload.Speed == 18,
@@ -79,6 +79,8 @@ expect(#startup.Display == 4
 	and startup.Display[3].Payload.Hunting == false
 	and startup.Display[4].Payload.Hunting == false,
 	"non-hunting transitions should be tracked after the first hunt")
+expect(startup.Verdict.Confidence[23] == 35,
+	"repeated speed at unchanged Energy must not increase confidence")
 startup:Destroy()
 
 local alreadyHunting = harness({0}, "Small", 28)
@@ -89,7 +91,7 @@ expect(#alreadyHunting.Display == 0,
 alreadyHunting.Traffic:Broadcast("HuntingState", {Hunting = false, Time = 4})
 alreadyHunting.Traffic:Broadcast("HuntingState", {Hunting = true, Time = 5})
 alreadyHunting.RunDelayed()
-expect(#alreadyHunting.Display == 2 and alreadyHunting.Verdict.Confidence[23] == 99,
+expect(#alreadyHunting.Display == 2 and alreadyHunting.Verdict.Confidence[23] == 35,
 	"an existing hunt should start tracking only after the next transition into hunting")
 alreadyHunting:Destroy()
 
@@ -97,7 +99,7 @@ local zeroEnergy = harness({0}, "Small", 28)
 zeroEnergy.Traffic:Broadcast("HuntingState", {Hunting = false, Time = 6})
 zeroEnergy.Traffic:Broadcast("HuntingState", {Hunting = true, Time = 7})
 zeroEnergy.RunDelayed()
-expect(zeroEnergy.Verdict.Confidence[23] == 99,
+expect(zeroEnergy.Verdict.Confidence[23] == 35,
 	"0 Energy and WalkSpeed 28 should match base 14 at the configured 200 percent multiplier")
 zeroEnergy:Destroy()
 
@@ -105,9 +107,38 @@ local hunting = harness({20, 60}, "Medium", 12 * 1.05 * 2)
 hunting.Traffic:Broadcast("HuntingState", {Hunting = false, Time = 9})
 hunting.Traffic:Broadcast("HuntingState", {Hunting = true, Time = 10})
 hunting.RunDelayed()
-expect(hunting.Verdict.Confidence[23] == 99,
+expect(hunting.Verdict.Confidence[23] == 35,
 	"average Energy 40 should map to base 12 and accept a configured hunting multiplier")
 hunting:Destroy()
+
+local energies = {100}
+local changing = harness(energies, "Small", 18)
+changing.Traffic:Broadcast("HuntingState", {Hunting = false})
+changing.Traffic:Broadcast("HuntingState", {Hunting = true})
+changing.RunDelayed()
+energies[1], changing.Humanoid.WalkSpeed = 99.5, 18.05
+changing.Traffic:Broadcast("HuntingState", {Hunting = false})
+changing.RunDelayed()
+expect(changing.Verdict.Confidence[23] == 35,
+	"an insignificant change within the speed tolerance is not corroboration")
+energies[1], changing.Humanoid.WalkSpeed = 95, 18.5
+changing.Traffic:Broadcast("HuntingState", {Hunting = true})
+changing.RunDelayed()
+expect(changing.Verdict.Confidence[23] == 99,
+	"changing Energy and matching speed under the same multiplier should corroborate Wretch")
+changing:Destroy()
+
+local shiftingEnergy = {100}
+local shifting = harness(shiftingEnergy, "Small", 18)
+shifting.Traffic:Broadcast("HuntingState", {Hunting = false})
+shifting.Traffic:Broadcast("HuntingState", {Hunting = true})
+shifting.RunDelayed()
+shiftingEnergy[1], shifting.Humanoid.WalkSpeed = 40, 18
+shifting.Traffic:Broadcast("HuntingState", {Hunting = false})
+shifting.RunDelayed()
+expect(shifting.Verdict.Confidence[23] == 35,
+	"a constant speed that needs a different inferred multiplier must not corroborate Wretch")
+shifting:Destroy()
 
 local rejected = harness({0}, "Small", 11)
 rejected.Traffic:Broadcast("HuntingState", {Hunting = false, Time = 19})

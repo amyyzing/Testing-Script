@@ -48,6 +48,10 @@ Traffic("Support", payload):SendTo("Verdict")
 expect(controller.Count == 1 and #entries == 1, "identical patterns should be logged once")
 expect(entries[1].TextColor3 == "green" and view.Empty.Visible == false,
 	"support should create a positive row and hide the empty message")
+Traffic("Support", {Ghost = "Aswang", Confidence = 50, Reason = payload.Reason}):SendTo("Verdict")
+expect(controller.Count == 1 and #entries == 1
+	and string.find(entries[1].Text, "[50%]", 1, true),
+	"a repeated pattern should update its confidence without adding another row")
 Traffic("RuleOut", payload):SendTo("Verdict")
 expect(controller.Count == 2 and entries[2].TextColor3 == "red",
 	"a negative result should be a distinct log")
