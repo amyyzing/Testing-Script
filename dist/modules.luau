@@ -1727,6 +1727,10 @@ return function(dependencies: any)
 			if ghost and ghost:GetAttribute("Hunting") ~= true then break end
 			state.questionsActive = false
 			setStatus(ghost and "Hunt escape" or "Waiting for ghost")
+			if escaped and not playerInsideBase() then
+				escaped = false
+				nextAttemptAt = 0
+			end
 			if not escaped and os.clock() >= nextAttemptAt then
 				if type(fastTeleportToBase) == "function" then
 					escaped = fastTeleportToBase() == true and playerInsideBase()
