@@ -276,6 +276,17 @@ local function finishRoundWithGhost(
 	generation,
 	finalPhase
 )
+	local allowed = perkTrackerState.getRemainingCandidates(false)
+	if #allowed == 0 then allowed = perkTrackerState.getRemainingCandidates(true) end
+	local proposed = doRoundState.completionGhost or ghostName
+	if not table.find(allowed, proposed) then
+		ghostName, confidence = chooseRoundTimeoutFallback()
+		if not ghostName or not table.find(allowed, ghostName) then
+			return false, "new observations conflict with the final guess; waiting for a compatible candidate"
+		end
+		certain = false
+		doRoundState.completionGhost = nil
+	end
 	if doRoundState.completionGhost then
 		ghostName = doRoundState.completionGhost
 		confidence = doRoundState.completionScore or confidence

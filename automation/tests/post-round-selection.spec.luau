@@ -5,12 +5,14 @@ local function expect(condition, message)
 end
 
 local ready = false
+local operationActive = true
 local state = {completionClaimed = false}
 local perkState = {
 	currentGhostGuess = "Aswang",
 	currentGhostGuessScore = 99,
 	currentGhostGuessCertain = false,
 	getRemainingCandidates = function() return {"Aswang"} end,
+	getConfirmedEvidence = function() return {} end,
 }
 local post = createPostRound({
 	Dependencies = {
@@ -29,11 +31,11 @@ local post = createPostRound({
 		Copy = {Controls = {PlaceRoomItems = "Place Room Items"}},
 		Colors = {cardHover = "off"},
 		SetGhostIdentificationLabel = function() end,
-		SetDoRoundStatus = function() end,
+		SetDoRoundStatus = function() operationActive = false end,
 		EvidenceReady = function() return ready end,
 	},
 	Pre = {
-		OperationActive = function() return true end,
+		OperationActive = function() return operationActive end,
 		Wait = function() return true end,
 		PlayerIsInsideBaseCamp = function() return true end,
 		ReturnToBase = function() return true end,
@@ -58,5 +60,10 @@ moduleEnvironment._G = {DemonologyRavagerLab = true}
 expect(post.CurrentIdentification() == nil,
 	"Ravager lab mode must suppress post-round identification completion")
 moduleEnvironment._G = originalGlobals
+
+state.completionGhost, state.completionScore, state.completionCertain = "Oni", 99, true
+post.FinishTimed(1)
+expect(state.completionGhost == "Aswang" and state.completionCertain == false,
+	"a locked choice contradicted by new evidence must be replaced by a compatible fallback")
 
 print("post-round-selection.spec: evidence settle and Ravager lab gates passed")
