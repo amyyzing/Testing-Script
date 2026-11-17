@@ -495,7 +495,8 @@ local function startRoundTimeoutWatchdog(generation)
 	if ravagerLabEnabled() then
 		return
 	end
-	doRoundState.timeoutThread = task.delay(180, function()
+	local timeoutSeconds = math.clamp(tonumber(dependencies.TimeoutSeconds) or 180, 30, 600)
+	doRoundState.timeoutThread = task.delay(timeoutSeconds, function()
 		if not doRoundOperationActive(generation)
 			or doRoundState.completionClaimed then
 			return
@@ -9543,12 +9544,24 @@ function Aswang.new(dependencies)
 				}):SendTo("Verdict")
 			end
 		elseif signal == "KillSpeed" then
-			local before = data.baselineKill or data.beforeKill and data.beforeKill[#data.beforeKill]
+			local before = data.beforeKill or {}
 			local after = data.afterKill or {}
-			if not before or #after < 3 then return end
-			local a, b = after[#after - 1], after[#after]
-			local rose = a.s > before.s + epsilon and b.s > before.s + epsilon
-				and math.abs(a.s - b.s) <= epsilon
+			if #after < 3 then return end
+			local baselines, observed = {}, {}
+			for _, point in ipairs(before) do
+				if type(point.v) == "boolean" and type(point.s) == "number" and point.s > 0 then
+					baselines[point.v] = math.min(baselines[point.v] or math.huge, point.s)
+				end
+			end
+			for index = 2, #after do
+				local point = after[index]
+				if type(point.v) == "boolean" and type(point.s) == "number" and point.s > 0 then
+					observed[point.v] = point.s
+				end
+			end
+			if not baselines[true] or not baselines[false] or not observed[true] or not observed[false] then return end
+			local rose = observed[true] > baselines[true] + epsilon
+				and observed[false] > baselines[false] + epsilon
 			if rose or data.completed then
 				Traffic(rose and "Support" or "RuleOut", {
 					Ghost = "Aswang",
@@ -12439,6 +12452,7 @@ return function(dependencies)
 	function presenter:SetGhostIdentificationLock() end
 
 	local legacy = createRoundAutomation({
+		TimeoutSeconds = dependencies.TimeoutSeconds,
 		CreatePreRound = createPreRound,
 		CreateLaySalt = createLaySalt,
 		CreatePourHolyOil = createPourHolyOil,

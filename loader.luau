@@ -618,6 +618,7 @@ local function startTrackers()
 			Workspace = Services.Workspace,
 		}))
 		session.Automation = remember(createAutomation({
+			TimeoutSeconds = environment.DemonologyRoundTimeoutSeconds,
 			Services = Services,
 			Player = player,
 			Ghost = ghost,

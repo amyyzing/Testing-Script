@@ -370,6 +370,7 @@ return function(dependencies)
 	function presenter:SetGhostIdentificationLock() end
 
 	local legacy = createRoundAutomation({
+		TimeoutSeconds = dependencies.TimeoutSeconds,
 		CreatePreRound = createPreRound,
 		CreateLaySalt = createLaySalt,
 		CreatePourHolyOil = createPourHolyOil,

@@ -54,8 +54,8 @@ Traffic("KillSpeed", {
 	beforeKill = {{s = 22, v = false}, {s = 24, v = false}, {s = 24, v = false}},
 	afterKill = {{s = 24, v = false}, {s = 24, v = false}, {s = 24, v = false}},
 }):SendTo("Aswang")
-expect(Verdict:Snapshot().Selected[1] == 1,
-	"a pre-signal speed rise should compare against the retained kill baseline")
+expect(Verdict.Confidence[1] == nil,
+	"a single visibility state cannot confirm a permanent kill-speed increase")
 
 Verdict:Reset()
 Traffic("SaltSpeed", {
@@ -69,7 +69,7 @@ expect(Verdict:Snapshot()["ruled-out"][1] == 1,
 
 Verdict:Reset()
 Traffic("KillSpeed", {
-	beforeKill = {{s = 11, v = true}},
+	beforeKill = {{s = 11, v = true}, {s = 11, v = false}},
 	afterKill = {{s = 11, v = true}, {s = 11, v = false}, {s = 11, v = true}},
 	completed = true,
 }):SendTo("Aswang")
@@ -85,6 +85,23 @@ Traffic("KillSpeed", {
 local insufficient = Verdict:Snapshot()
 expect(#insufficient.Selected == 0 and #insufficient["ruled-out"] == 0,
 	"insufficient post-kill samples should not produce a verdict")
+
+Verdict:Reset()
+Traffic("KillSpeed", {
+	beforeKill = {{s = 21, v = true}, {s = 27, v = false}},
+	baselineKill = {s = 21, v = true},
+	afterKill = {{s = 21, v = true}, {s = 27, v = false}, {s = 27, v = false}},
+}):SendTo("Aswang")
+expect(Verdict.Confidence[1] == nil, "a Phantom hidden-speed transition must not confirm Aswang")
+
+Verdict:Reset()
+Traffic("KillSpeed", {
+	beforeKill = {{s = 21, v = true}, {s = 21, v = false}},
+	afterKill = {{s = 21, v = true}, {s = 23, v = false}, {s = 23, v = true},
+		{s = 21, v = false}, {s = 21, v = true}},
+	completed = true,
+}):SendTo("Aswang")
+expect(table.find(Verdict.RuledOut, 1), "a recovered temporary increase must not remain a permanent kill perk")
 
 aswang:Destroy()
 print("traffic-verdict.spec: Aswang salt and kill verdicts passed")

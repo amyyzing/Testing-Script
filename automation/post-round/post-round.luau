@@ -463,7 +463,8 @@ local function startRoundTimeoutWatchdog(generation)
 	if ravagerLabEnabled() then
 		return
 	end
-	doRoundState.timeoutThread = task.delay(180, function()
+	local timeoutSeconds = math.clamp(tonumber(dependencies.TimeoutSeconds) or 180, 30, 600)
+	doRoundState.timeoutThread = task.delay(timeoutSeconds, function()
 		if not doRoundOperationActive(generation)
 			or doRoundState.completionClaimed then
 			return
