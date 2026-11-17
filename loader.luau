@@ -439,7 +439,6 @@ local function startTrackers()
 			View = view.PatternDrawer,
 			PositiveColor = view.Colors.Positive,
 			NegativeColor = view.Colors.Danger,
-			EventColor = view.Colors.Muted,
 		}))
 		remember(createEvidenceLog({
 			Traffic = Traffic,

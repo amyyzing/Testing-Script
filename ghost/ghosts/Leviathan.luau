@@ -9,7 +9,7 @@ function Leviathan.new(dependencies)
 		if signal == "NativeGlitch" and type(payload.Token) == "number" and payload.Token > 0 then
 			Processor.Resolved = true
 			Traffic("Support", {
-				Ghost = "Leviathan", Confidence = 99,
+				Ghost = "Leviathan", Perk = "Item glitch", Confidence = 99,
 				Reason = "an electronic item received the native LeviathanGlitch attribute",
 			}):SendTo("Verdict")
 			return

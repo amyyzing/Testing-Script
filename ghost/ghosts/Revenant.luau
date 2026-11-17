@@ -18,6 +18,8 @@ function Revenant.new(dependencies)
 		Processor.Generation += 1
 		Traffic(supported and "Support" or "RuleOut", {
 			Ghost = "Revenant",
+			Perk = "Hunt ends after kill",
+			Observation = supported and "Hunt stopped after kill" or "Hunt continued after kill",
 			Confidence = 99,
 			Reason = reason,
 		}):SendTo("Verdict")

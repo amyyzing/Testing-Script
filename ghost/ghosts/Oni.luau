@@ -14,14 +14,14 @@ function Oni.new(dependencies)
    local energy=tonumber(payload.AverageEnergy)
    local confirmed=processor.Matches>=2 and energy and energy>=25 and not processor.HadKill
    processor.Resolved=confirmed==true
-   Traffic("Support",{Ghost="Oni",Confidence=confirmed and 95 or 35,
+   Traffic("Support",{Ghost="Oni", Perk = "Hunt speed",Confidence=confirmed and 95 or 35,
     Reason=confirmed and "two stable hunts matched scaled base 14 with enough Energy to distinguish Wretch"
      or "stable scaled base 14; waiting for a second hunt and enough Energy to distinguish Wretch"}):SendTo("Verdict")
   else
    processor.Mismatches+=1
    if processor.Mismatches<2 then return end
    processor.Resolved=true
-   Traffic("RuleOut",{Ghost="Oni",Confidence=95,
+   Traffic("RuleOut",{Ghost="Oni", Perk = "Hunt speed",Confidence=95,
     Reason="two complete hunt windows did not match base 14 at the confirmed map and custom scale"}):SendTo("Verdict")
   end
  end)

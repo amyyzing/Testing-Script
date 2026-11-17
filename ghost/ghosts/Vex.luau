@@ -10,6 +10,7 @@ function Vex.new(dependencies)
 		Processor.Checked = true
 		Traffic("Support", {
 			Ghost = "Vex",
+			Perk = "Invisible on LIDAR",
 			Confidence = 99,
 			Reason = "the replicated InvisibleOnLIDAR flag is true",
 		}):SendTo("Verdict")

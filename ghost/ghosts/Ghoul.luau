@@ -10,6 +10,7 @@ function Ghoul.new(dependencies)
 		Processor.Resolved = true
 		Traffic("RuleOut", {
 			Ghost = "Ghoul",
+			Perk = "Electronics disabled at a distance",
 			Confidence = 99,
 			Reason = string.format(
 				"%s was disabled with no living player within %d studs",

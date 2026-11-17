@@ -9,6 +9,8 @@ function Wraith.new(dependencies)
 		Processor.Resolved = true
 		Traffic(signal, {
 			Ghost = "Wraith",
+			Perk = "Undisturbed salt",
+			Observation = signal == "Support" and "Salt undisturbed" or "Salt disturbed",
 			Confidence = 99,
 			Reason = reason,
 		}):SendTo("Verdict")

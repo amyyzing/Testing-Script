@@ -27,6 +27,8 @@ function Aswang.new(dependencies)
 			if dropped or data.completed and comparedAfterSplit then
 				Traffic(dropped and "Support" or "RuleOut", {
 					Ghost = "Aswang",
+					Perk = "Salt slowdown",
+					Observation = dropped and "Slowed on salt" or "No salt slowdown",
 					Confidence = 99,
 					Reason = dropped and "hunting disturbed-salt contact reduced speed"
 						or "hunting salt contact caused no speed reduction",
@@ -42,6 +44,8 @@ function Aswang.new(dependencies)
 			if rose or data.completed then
 				Traffic(rose and "Support" or "RuleOut", {
 					Ghost = "Aswang",
+					Perk = "Speed rises after kill",
+					Observation = rose and "Sped up after kill" or "No speed gain after kill",
 					Confidence = 99,
 					Reason = rose and "stable speed rose after a unique player kill"
 						or "stable speed did not rise after a unique player kill",

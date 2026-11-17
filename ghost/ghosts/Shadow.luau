@@ -15,6 +15,7 @@ function Shadow.new(dependencies)
 		if not supported then return end
 		Traffic("Support", {
 			Ghost = "Shadow",
+			Perk = "Slow cooling",
 			Confidence = 35,
 			Reason = string.format(
 				"net cooling averaged %.4f C/s, %s %.4f; weak uncalibrated observation",

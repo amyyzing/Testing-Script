@@ -28,6 +28,8 @@ function Keres.new(dependencies)
 		if dropped or data.completed then
 			Traffic(dropped and "Support" or "RuleOut", {
 				Ghost = "Keres",
+				Perk = "Speed drops after kill",
+				Observation = dropped and "Slowed after kill" or "No slowdown after kill",
 				Confidence = 99,
 				Reason = dropped and "stable speed permanently dropped after a unique player kill"
 					or "stable speed did not permanently drop after a unique player kill",

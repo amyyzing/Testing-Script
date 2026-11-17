@@ -278,8 +278,8 @@ function Aesthetic.Create(dependencies)
 
 	local patternDrawer = makeDrawer(
 		"PatternDrawer",
-		"GHOST LOG",
-		"No observations yet.",
+		"GHOST PERKS",
+		"",
 		"L\nO\nG\nS",
 		-54
 	)

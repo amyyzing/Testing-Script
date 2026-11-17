@@ -25,6 +25,8 @@ function Phantom.new(dependencies)
 		end
 		Traffic(supported and "Support" or "RuleOut", {
 			Ghost = "Phantom",
+			Perk = "Blink speed",
+			Observation = supported and "Blink speed alternated" or "No alternating blink speed",
 			Confidence = 99,
 			Reason = supported
 				and "seven hunting pairs repeated the same alternating A / B speed pattern"

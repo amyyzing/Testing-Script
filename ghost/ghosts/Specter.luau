@@ -25,6 +25,8 @@ function Specter.new(dependencies)
 			Processor.RuledOut = true
 			Traffic("RuleOut", {
 				Ghost = "Specter",
+				Perk = "Stays in favourite room",
+				Observation = "Left favourite room",
 				Confidence = 95,
 				Reason = "the non-hunting ghost left its unchanged favourite room after the five-second arm point",
 			}):SendTo("Verdict")

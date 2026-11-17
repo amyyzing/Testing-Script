@@ -9,6 +9,8 @@ function Demon.new(dependencies)
 		local animated = payload.Animated == true
 		Traffic(animated and "Support" or "RuleOut", {
 			Ghost = "Demon",
+			Perk = "Floating Cross",
+			Observation = animated and "Cross floated" or "Cross did not float",
 			Confidence = 99,
 			Reason = animated and "an activated Cross floated and rotated"
 				or "an activated Cross did not float and rotate",

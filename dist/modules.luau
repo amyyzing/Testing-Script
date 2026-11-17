@@ -9532,6 +9532,8 @@ function Aswang.new(dependencies)
 			if dropped or data.completed and comparedAfterSplit then
 				Traffic(dropped and "Support" or "RuleOut", {
 					Ghost = "Aswang",
+					Perk = "Salt slowdown",
+					Observation = dropped and "Slowed on salt" or "No salt slowdown",
 					Confidence = 99,
 					Reason = dropped and "hunting disturbed-salt contact reduced speed"
 						or "hunting salt contact caused no speed reduction",
@@ -9547,6 +9549,8 @@ function Aswang.new(dependencies)
 			if rose or data.completed then
 				Traffic(rose and "Support" or "RuleOut", {
 					Ghost = "Aswang",
+					Perk = "Speed rises after kill",
+					Observation = rose and "Sped up after kill" or "No speed gain after kill",
 					Confidence = 99,
 					Reason = rose and "stable speed rose after a unique player kill"
 						or "stable speed did not rise after a unique player kill",
@@ -9595,6 +9599,8 @@ function Demon.new(dependencies)
 		local animated = payload.Animated == true
 		Traffic(animated and "Support" or "RuleOut", {
 			Ghost = "Demon",
+			Perk = "Floating Cross",
+			Observation = animated and "Cross floated" or "Cross did not float",
 			Confidence = 99,
 			Reason = animated and "an activated Cross floated and rotated"
 				or "an activated Cross did not float and rotate",
@@ -9683,6 +9689,7 @@ function Entity.new(dependencies)
 		local found = payload.Found == true
 		Traffic(found and "Support" or "Negative", {
 			Ghost = "Entity",
+			Perk = "Smoke Holder",
 			Confidence = found and 99 or 50,
 			Reason = found and "a teleported object coincided with a Smoke Holder"
 				or "a teleported object had no Smoke Holder",
@@ -9713,6 +9720,7 @@ function Ghoul.new(dependencies)
 		Processor.Resolved = true
 		Traffic("RuleOut", {
 			Ghost = "Ghoul",
+			Perk = "Electronics disabled at a distance",
 			Confidence = 99,
 			Reason = string.format(
 				"%s was disabled with no living player within %d studs",
@@ -9760,6 +9768,8 @@ function Keres.new(dependencies)
 		if dropped or data.completed then
 			Traffic(dropped and "Support" or "RuleOut", {
 				Ghost = "Keres",
+				Perk = "Speed drops after kill",
+				Observation = dropped and "Slowed after kill" or "No slowdown after kill",
 				Confidence = 99,
 				Reason = dropped and "stable speed permanently dropped after a unique player kill"
 					or "stable speed did not permanently drop after a unique player kill",
@@ -9786,7 +9796,7 @@ function Leviathan.new(dependencies)
 		if signal == "NativeGlitch" and type(payload.Token) == "number" and payload.Token > 0 then
 			Processor.Resolved = true
 			Traffic("Support", {
-				Ghost = "Leviathan", Confidence = 99,
+				Ghost = "Leviathan", Perk = "Item glitch", Confidence = 99,
 				Reason = "an electronic item received the native LeviathanGlitch attribute",
 			}):SendTo("Verdict")
 			return
@@ -9833,14 +9843,14 @@ function Oni.new(dependencies)
    local energy=tonumber(payload.AverageEnergy)
    local confirmed=processor.Matches>=2 and energy and energy>=25 and not processor.HadKill
    processor.Resolved=confirmed==true
-   Traffic("Support",{Ghost="Oni",Confidence=confirmed and 95 or 35,
+   Traffic("Support",{Ghost="Oni", Perk = "Hunt speed",Confidence=confirmed and 95 or 35,
     Reason=confirmed and "two stable hunts matched scaled base 14 with enough Energy to distinguish Wretch"
      or "stable scaled base 14; waiting for a second hunt and enough Energy to distinguish Wretch"}):SendTo("Verdict")
   else
    processor.Mismatches+=1
    if processor.Mismatches<2 then return end
    processor.Resolved=true
-   Traffic("RuleOut",{Ghost="Oni",Confidence=95,
+   Traffic("RuleOut",{Ghost="Oni", Perk = "Hunt speed",Confidence=95,
     Reason="two complete hunt windows did not match base 14 at the confirmed map and custom scale"}):SendTo("Verdict")
   end
  end)
@@ -9878,6 +9888,8 @@ function Phantom.new(dependencies)
 		end
 		Traffic(supported and "Support" or "RuleOut", {
 			Ghost = "Phantom",
+			Perk = "Blink speed",
+			Observation = supported and "Blink speed alternated" or "No alternating blink speed",
 			Confidence = 99,
 			Reason = supported
 				and "seven hunting pairs repeated the same alternating A / B speed pattern"
@@ -9906,6 +9918,7 @@ function Ravager.new(dependencies)
 		Processor.Resolved = true
 		Traffic("Support", {
 			Ghost = "Ravager",
+			Perk = "Item vortex",
 			Confidence = 99,
 			Reason = "at least three item or interactable models sustained XZ rotation around the moving hunting ghost",
 		}):SendTo("Verdict")
@@ -9939,6 +9952,8 @@ function Revenant.new(dependencies)
 		Processor.Generation += 1
 		Traffic(supported and "Support" or "RuleOut", {
 			Ghost = "Revenant",
+			Perk = "Hunt ends after kill",
+			Observation = supported and "Hunt stopped after kill" or "Hunt continued after kill",
 			Confidence = 99,
 			Reason = reason,
 		}):SendTo("Verdict")
@@ -10012,6 +10027,7 @@ function Shadow.new(dependencies)
 		if not supported then return end
 		Traffic("Support", {
 			Ghost = "Shadow",
+			Perk = "Slow cooling",
 			Confidence = 35,
 			Reason = string.format(
 				"net cooling averaged %.4f C/s, %s %.4f; weak uncalibrated observation",
@@ -10035,10 +10051,11 @@ function Siren.new(dependencies)
 	local Traffic = assert(dependencies.Traffic, "Siren requires Traffic")
 	local Processor = {}
 
-	local function verdict(signal, confidence, reason)
+	local function verdict(signal, confidence, perk, reason)
 		Traffic(signal, {
 			Ghost = "Siren",
 			Confidence = confidence,
+			Perk = perk,
 			Reason = reason,
 		}):SendTo("Verdict")
 	end
@@ -10046,18 +10063,18 @@ function Siren.new(dependencies)
 	Processor.Disconnect = Traffic:Receive("Siren", function(signal, payload)
 		payload = type(payload) == "table" and payload or {}
 		if signal == "Humming" and payload.Response == "- HUMMING -" then
-			verdict("Support", 99, "Spirit Box returned - HUMMING -")
+			verdict("Support", 99, "Humming", "Spirit Box returned - HUMMING -")
 		elseif signal == "ModelGender" then
 			if payload.Gender == "Female" then
-				verdict("Support", 25, "the ghost uses a female VisualModel")
+				verdict("Support", 25, nil, "the ghost uses a female VisualModel")
 			elseif payload.Gender == "Male" then
-				verdict("RuleOut", 99, "the ghost uses a male VisualModel")
+				verdict("RuleOut", 99, nil, "the ghost uses a male VisualModel")
 			end
 		elseif signal == "LOSSpeedResult" then
 			if payload.Slowed == true then
-				verdict("Support", 99, "a hunting player entered the Siren's 0.8x walk or sprint speed state")
+				verdict("Support", 99, "Slows players", "a hunting player entered the Siren's 0.8x walk or sprint speed state")
 			elseif payload.Completed == true and payload.Slowed == false then
-				verdict("RuleOut", 99, "a hunting line-of-sight trial stayed at the learned walk and sprint speeds")
+				verdict("RuleOut", 99, "Slows players", "a hunting line-of-sight trial stayed at the learned walk and sprint speeds")
 			end
 		end
 	end)
@@ -10097,6 +10114,8 @@ function Specter.new(dependencies)
 			Processor.RuledOut = true
 			Traffic("RuleOut", {
 				Ghost = "Specter",
+				Perk = "Stays in favourite room",
+				Observation = "Left favourite room",
 				Confidence = 95,
 				Reason = "the non-hunting ghost left its unchanged favourite room after the five-second arm point",
 			}):SendTo("Verdict")
@@ -10128,12 +10147,15 @@ function Spirit.new(dependencies)
 		if payload.Kind == "Spirit" then
 			Traffic("Support", {
 				Ghost = "Spirit",
+				Perk = "Blue Holy Oil",
 				Confidence = 99,
 				Reason = "burning Holy Oil matched the blue Spirit colour sequence",
 			}):SendTo("Verdict")
 		elseif payload.Kind == "Normal" then
 			Traffic("RuleOut", {
 				Ghost = "Spirit",
+				Perk = "Blue Holy Oil",
+				Observation = "Orange Holy Oil",
 				Confidence = 99,
 				Reason = "burning Holy Oil matched the normal orange colour sequence",
 			}):SendTo("Verdict")
@@ -10158,6 +10180,8 @@ function Umbra.new(dependencies)
 		Processor.Checked = true
 		Traffic("RuleOut", {
 			Ghost = "Umbra",
+			Perk = "Silent footsteps",
+			Observation = "Footsteps heard",
 			Confidence = 99,
 			Reason = "a native material-footstep sound played audibly during a hunt over three samples",
 		}):SendTo("Verdict")
@@ -10185,6 +10209,7 @@ function Vex.new(dependencies)
 		Processor.Checked = true
 		Traffic("Support", {
 			Ghost = "Vex",
+			Perk = "Invisible on LIDAR",
 			Confidence = 99,
 			Reason = "the replicated InvisibleOnLIDAR flag is true",
 		}):SendTo("Verdict")
@@ -10203,11 +10228,12 @@ function Wisp.new(dependencies)
 	local Traffic = assert(dependencies.Traffic, "Wisp requires Traffic")
 	local Processor = {FavouriteHunts = 0, RuledOut = false}
 
-	local function verdict(signal, confidence, reason)
+	local function verdict(signal, confidence, perk, reason)
 		if signal == "RuleOut" then Processor.RuledOut = true end
 		Traffic(signal, {
 			Ghost = "Wisp",
 			Confidence = confidence,
+			Perk = perk,
 			Reason = reason,
 		}):SendTo("Verdict")
 	end
@@ -10219,25 +10245,25 @@ function Wisp.new(dependencies)
 			if type(payload.CanCollide) ~= "boolean" then return end
 			Processor.CanCollide = payload.CanCollide == true
 			if Processor.CanCollide then
-				verdict("RuleOut", 99, "burning Holy Oil's GhostWall remained collidable")
+				verdict("RuleOut", 99, "Passes through Holy Oil", "burning Holy Oil's GhostWall remained collidable")
 			else
-				verdict("Support", 99, "burning Holy Oil's GhostWall became non-collidable")
+				verdict("Support", 99, "Passes through Holy Oil", "burning Holy Oil's GhostWall became non-collidable")
 			end
 		elseif signal == "FavouriteHuntRoom" then
 			if payload.InFavourite == false then
-				verdict("RuleOut", 99, "the ghost started a hunt outside its favourite room")
+				verdict("RuleOut", 99, "Hunts from favourite room", "the ghost started a hunt outside its favourite room")
 			elseif payload.InFavourite == true and Processor.FavouriteHunts < 9 then
 				Processor.FavouriteHunts += 1
 				local count = Processor.FavouriteHunts
-				verdict("Support", math.min(95, 5 + count * 10),
+				verdict("Support", math.min(95, 5 + count * 10), "Hunts from favourite room",
 					"the ghost started a hunt in its favourite room (" .. count
 						.. (count == 1 and " time)" or " times)"))
 			end
 		elseif signal == "HolyOilFireResult" then
 			if payload.CaughtFire == false then
-				verdict("RuleOut", 99, "the ghost passed through burning Holy Oil without catching fire")
+				verdict("RuleOut", 99, "Catches fire in Holy Oil", "the ghost passed through burning Holy Oil without catching fire")
 			elseif payload.CaughtFire == true and Processor.CanCollide ~= true then
-				verdict("Support", 99, "the ghost caught fire after passing through burning Holy Oil")
+				verdict("Support", 99, "Catches fire in Holy Oil", "the ghost caught fire after passing through burning Holy Oil")
 			end
 		end
 	end)
@@ -10261,6 +10287,8 @@ function Wraith.new(dependencies)
 		Processor.Resolved = true
 		Traffic(signal, {
 			Ghost = "Wraith",
+			Perk = "Undisturbed salt",
+			Observation = signal == "Support" and "Salt undisturbed" or "Salt disturbed",
 			Confidence = 99,
 			Reason = reason,
 		}):SendTo("Verdict")
@@ -10312,7 +10340,7 @@ function Wretch.new(dependencies)
    local spread=(highScale-lowScale)/lowScale
    if spread>0.02 and spread<0.05 then return end
    processor.Resolved=true
-   Traffic(spread<=0.02 and "Support" or "RuleOut",{Ghost="Wretch",Confidence=95,
+   Traffic(spread<=0.02 and "Support" or "RuleOut",{Ghost="Wretch", Perk = "Energy speed curve",Confidence=95,
     Reason=spread<=0.02 and "three stable hunts followed the Energy curve at one consistent combined map/custom scale"
      or "three stable hunts at distinct Energy levels could not share one Energy-curve scale"}):SendTo("Verdict")
    return
@@ -10321,7 +10349,7 @@ function Wretch.new(dependencies)
    processor.Mismatches+=1
    if processor.Mismatches<2 then return end
    processor.Resolved=true
-   Traffic("RuleOut",{Ghost="Wretch",Confidence=95,
+   Traffic("RuleOut",{Ghost="Wretch", Perk = "Energy speed curve",Confidence=95,
     Reason=string.format("two stable hunts disagreed with the confirmed scale and Energy curve (observed %.3f, expected %.3f)",payload.Speed,payload.ExpectedSpeed)}):SendTo("Verdict")
    return
   end
@@ -10330,7 +10358,7 @@ function Wretch.new(dependencies)
   processor.Samples[payload.Multiplier]=previous or payload
   local changed=previous and math.abs(payload.AverageEnergy-previous.AverageEnergy)>=10
   processor.Resolved=changed==true
-  Traffic("Support",{Ghost="Wretch",Confidence=changed and 95 or 35,
+  Traffic("Support",{Ghost="Wretch", Perk = "Energy speed curve",Confidence=changed and 95 or 35,
    Reason=string.format("stable hunt speed %.3f matched %.3f at %.2f%% Energy%s",payload.Speed,payload.ExpectedSpeed,payload.AverageEnergy,
     changed and " across a meaningful Energy change" or "; waiting for a different Energy level")}):SendTo("Verdict")
  end)
@@ -11181,8 +11209,8 @@ function Aesthetic.Create(dependencies)
 
 	local patternDrawer = makeDrawer(
 		"PatternDrawer",
-		"GHOST LOG",
-		"No observations yet.",
+		"GHOST PERKS",
+		"",
 		"L\nO\nG\nS",
 		-54
 	)
@@ -13070,159 +13098,47 @@ return function(dependencies)
 	local view = assert(dependencies.View, "ghost-pattern-log requires View")
 	local positiveColor = assert(dependencies.PositiveColor, "ghost-pattern-log requires PositiveColor")
 	local negativeColor = assert(dependencies.NegativeColor, "ghost-pattern-log requires NegativeColor")
-	local eventColor = dependencies.EventColor or positiveColor
 	local canvasSize = dependencies.CanvasSize or UDim2.fromOffset
 	local defer = dependencies.Defer or task.defer
-	local controller = {Seen = {}, Entries = {}, Count = 0, Disconnects = {}, KillRows = {}, RuledOut = {}}
+	local controller = {Rows = {}, Count = 0}
+	view.Empty.Visible = false
 
 	local function updateCanvas()
 		view.List.CanvasSize = canvasSize(0, view.Layout.AbsoluteContentSize.Y + 8)
 	end
 
-	local function add(text, color, key)
-		if key and controller.Seen[key] then
-			local entry = controller.Seen[key]
-			entry.Text, entry.TextColor3 = text, color
-			defer(updateCanvas)
-			return entry
+	local disconnect = Traffic:Receive("Verdict", function(signal, payload)
+		if signal ~= "Support" and signal ~= "RuleOut" then return end
+		if type(payload) ~= "table" or type(payload.Ghost) ~= "string"
+			or type(payload.Perk) ~= "string" or (tonumber(payload.Confidence) or 0) < 80 then return end
+
+		local key = payload.Ghost .. "|" .. payload.Perk
+		local row = controller.Rows[key]
+		if not row then
+			controller.Count += 1
+			row = view.Template:Clone()
+			row.Name = "Perk" .. controller.Count
+			row.LayoutOrder = controller.Count
+			row.Visible = true
+			row.Parent = view.List
+			controller.Rows[key] = row
+			view.Empty.Visible = false
 		end
-		controller.Count += 1
 
-		local entry = view.Template:Clone()
-		entry.Name = "Pattern" .. controller.Count
-		entry.LayoutOrder = controller.Count
-		entry.Text = text
-		entry.TextColor3 = color
-		entry.Visible = true
-		entry.Parent = view.List
-		view.Empty.Visible = false
-		table.insert(controller.Entries, entry)
-		if key then controller.Seen[key] = entry end
-		defer(updateCanvas)
-		return entry
-	end
-
-	local function recordVerdict(signal, payload)
-		if signal ~= "Support" and signal ~= "Negative" and signal ~= "RuleOut" then return end
-		payload = type(payload) == "table" and payload or {}
-		local ghost = tostring(payload.Ghost or "Unknown")
-		if controller.RuledOut[ghost] then return end
-		if signal == "RuleOut" then controller.RuledOut[ghost] = true end
 		local positive = signal == "Support"
-		local heading = signal == "RuleOut" and "RULED OUT" or positive and "SUPPORT" or "AGAINST"
-		add(heading .. "  " .. ghost, positive and positiveColor or negativeColor, "verdict|" .. ghost)
-	end
-
-	local function recordTracker(signal, payload)
-		payload = type(payload) == "table" and payload or {}
-		if signal == "SaltHit" then
-			add(payload.Hunting and "SALT HIT (HUNT)" or "SALT HIT", eventColor)
-		elseif signal == "PlayerKilled" then
-			local id = tostring(payload.userId or "?")
-			controller.KillRows[id] = add("PLAYER KILLED", eventColor)
-		end
-	end
-
-	local function maximumSpeed(points)
-		local result
-		for _, point in ipairs(type(points) == "table" and points or {}) do
-			local speed = tonumber(point.s)
-			if speed and (not result or speed > result) then result = speed end
-		end
-		return result
-	end
-
-	local function recordKillSpeed(signal, payload)
-		if signal ~= "KillSpeed" then return end
-		payload = type(payload) == "table" and payload or {}
-		local id = tostring(payload.userId or "?")
-		local after = type(payload.afterKill) == "table" and payload.afterKill or {}
-		local current = after[#after] and tonumber(after[#after].s)
-		local before = payload.baselineKill and tonumber(payload.baselineKill.s)
-			or maximumSpeed(payload.beforeKill)
-		local entry = controller.KillRows[id]
-		if not entry then
-			entry = add("", eventColor)
-			controller.KillRows[id] = entry
-		end
-		entry.Text = string.format(
-			"KILL SPEED  %s -> %s",
-			before and string.format("%.2f", before) or "?",
-			current and string.format("%.2f", current) or "?"
-		)
+		local heading = positive and "POSITIVE" or "NEGATIVE"
+		row.Text = heading .. "  " .. payload.Ghost .. " | " .. (payload.Observation or payload.Perk)
+		row.TextColor3 = positive and positiveColor or negativeColor
 		defer(updateCanvas)
-	end
-
-	local function number(value, format)
-		return type(value) == "number" and string.format(format or "%.2f", value) or "?"
-	end
-
-	local function recordTemperature(signal, payload)
-		if signal ~= "RoomTemperatureProgress" then return end
-		local reading = number(payload.Temperature) .. " �C"
-		if (payload.Count or 0) > 0 then
-			reading ..= " | " .. number(-(payload.Average or 0), "%+.3f") .. " �C/s"
-		end
-		add("SHADOW TEMP  " .. reading, eventColor, "temperature")
-	end
-
-	local function recordSpeed(signal, payload)
-		payload = type(payload) == "table" and payload or {}
-		if signal == "GhostSpeedObserved" then
-			local heading = payload.Hunting and "HUNT SPEED" or "IDLE SPEED"
-			add(heading .. "  " .. number(payload.Speed), eventColor, "speed")
-		elseif signal == "HuntSpeedReset" then
-			add("BLINK SPEED  0/14", eventColor, "pairs")
-		elseif signal == "HuntSpeedSample" then
-			local point = payload.Point or {}
-			local visibility = point.v and "visible" or "hidden"
-			add(string.format("BLINK SPEED  %d/14 | %s %s", payload.Index or 0,
-				visibility, number(point.s)), eventColor, "pairs")
-		elseif signal == "SpeedFilterResult" then
-			local trend = payload.Identical and "steady" or "changing"
-			local scale = payload.ScaleKnown and "" or " | scale unknown"
-			add("BLINK SPEED  14/14 | " .. trend .. scale, eventColor, "pairs")
-		elseif signal == "HuntSpeedEnded" and (payload.Count or 0) < 14 then
-			add(string.format("BLINK SPEED  %d/14 | incomplete", payload.Count or 0), eventColor, "pairs")
-		elseif signal == "WretchEnergySnapshot" then
-			add("WRETCH  " .. number(payload.AverageEnergy, "%.0f") .. "% Energy | sampling", eventColor, "wretch")
-		elseif signal == "WretchSpeedResult" then
-			local status
-			if not payload.Stable then
-				status = "unstable"
-			elseif not payload.Hunting then
-				status = "idle"
-			elseif not payload.ScaleKnown then
-				status = "scale unknown"
-			else
-				status = payload.Matched and "match" or "mismatch"
-			end
-			add(string.format("WRETCH  %s%% Energy | %s | %s",
-				number(payload.AverageEnergy, "%.0f"), number(payload.Speed), status), eventColor, "wretch")
-		elseif signal == "FootstepProgress" then
-			local samples = payload.Samples or 0
-			local status = samples >= 3 and "heard" or payload.Hunting and "listening" or "waiting"
-			add("UMBRA FOOTSTEPS  " .. status, eventColor, "footsteps")
-		end
-	end
-
-	table.insert(controller.Disconnects, Traffic:Receive("Verdict", recordVerdict))
-	table.insert(controller.Disconnects, Traffic:Receive("SpeedTracker", recordTracker))
-	table.insert(controller.Disconnects, Traffic:Receive("Aswang", recordKillSpeed))
-	table.insert(controller.Disconnects, Traffic:Receive("GhostPatternLog", function(signal, payload)
-			recordTemperature(signal, payload)
-			recordSpeed(signal, payload)
-		end))
-	table.insert(controller.Disconnects, Traffic:Receive("SpeedArrayLog", recordSpeed))
-	controller.LayoutConnection = view.Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateCanvas)
+	end)
+	local layoutConnection = view.Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateCanvas)
 	updateCanvas()
 
 	function controller:Destroy()
-		for _, disconnect in ipairs(self.Disconnects) do disconnect() end
-		table.clear(self.Disconnects)
-		self.LayoutConnection:Disconnect()
-		for _, entry in ipairs(self.Entries) do entry:Destroy() end
-		table.clear(self.Entries)
+		disconnect()
+		layoutConnection:Disconnect()
+		for _, row in pairs(self.Rows) do row:Destroy() end
+		table.clear(self.Rows)
 	end
 
 	return controller

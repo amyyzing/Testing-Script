@@ -9,6 +9,8 @@ function Umbra.new(dependencies)
 		Processor.Checked = true
 		Traffic("RuleOut", {
 			Ghost = "Umbra",
+			Perk = "Silent footsteps",
+			Observation = "Footsteps heard",
 			Confidence = 99,
 			Reason = "a native material-footstep sound played audibly during a hunt over three samples",
 		}):SendTo("Verdict")

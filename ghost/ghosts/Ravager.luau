@@ -11,6 +11,7 @@ function Ravager.new(dependencies)
 		Processor.Resolved = true
 		Traffic("Support", {
 			Ghost = "Ravager",
+			Perk = "Item vortex",
 			Confidence = 99,
 			Reason = "at least three item or interactable models sustained XZ rotation around the moving hunting ghost",
 		}):SendTo("Verdict")

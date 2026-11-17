@@ -12,6 +12,7 @@ function Entity.new(dependencies)
 		local found = payload.Found == true
 		Traffic(found and "Support" or "Negative", {
 			Ghost = "Entity",
+			Perk = "Smoke Holder",
 			Confidence = found and 99 or 50,
 			Reason = found and "a teleported object coincided with a Smoke Holder"
 				or "a teleported object had no Smoke Holder",

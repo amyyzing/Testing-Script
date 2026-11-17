@@ -15,12 +15,15 @@ function Spirit.new(dependencies)
 		if payload.Kind == "Spirit" then
 			Traffic("Support", {
 				Ghost = "Spirit",
+				Perk = "Blue Holy Oil",
 				Confidence = 99,
 				Reason = "burning Holy Oil matched the blue Spirit colour sequence",
 			}):SendTo("Verdict")
 		elseif payload.Kind == "Normal" then
 			Traffic("RuleOut", {
 				Ghost = "Spirit",
+				Perk = "Blue Holy Oil",
+				Observation = "Orange Holy Oil",
 				Confidence = 99,
 				Reason = "burning Holy Oil matched the normal orange colour sequence",
 			}):SendTo("Verdict")

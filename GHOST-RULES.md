@@ -41,4 +41,4 @@ server-only behavior automatically.
 The test suite validates code contracts and representative observations. It is
 not a claim that all 25 ghosts have each been tested in a live round.
 
-The ghost log shows one verdict per ghost and compact readings for active trackers. Rule scores remain internal.
+The ghost log shows positive and negative results for qualified perk checks. Raw readings and tentative findings stay internal.

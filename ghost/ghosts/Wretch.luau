@@ -25,7 +25,7 @@ function Wretch.new(dependencies)
    local spread=(highScale-lowScale)/lowScale
    if spread>0.02 and spread<0.05 then return end
    processor.Resolved=true
-   Traffic(spread<=0.02 and "Support" or "RuleOut",{Ghost="Wretch",Confidence=95,
+   Traffic(spread<=0.02 and "Support" or "RuleOut",{Ghost="Wretch", Perk = "Energy speed curve",Confidence=95,
     Reason=spread<=0.02 and "three stable hunts followed the Energy curve at one consistent combined map/custom scale"
      or "three stable hunts at distinct Energy levels could not share one Energy-curve scale"}):SendTo("Verdict")
    return
@@ -34,7 +34,7 @@ function Wretch.new(dependencies)
    processor.Mismatches+=1
    if processor.Mismatches<2 then return end
    processor.Resolved=true
-   Traffic("RuleOut",{Ghost="Wretch",Confidence=95,
+   Traffic("RuleOut",{Ghost="Wretch", Perk = "Energy speed curve",Confidence=95,
     Reason=string.format("two stable hunts disagreed with the confirmed scale and Energy curve (observed %.3f, expected %.3f)",payload.Speed,payload.ExpectedSpeed)}):SendTo("Verdict")
    return
   end
@@ -43,7 +43,7 @@ function Wretch.new(dependencies)
   processor.Samples[payload.Multiplier]=previous or payload
   local changed=previous and math.abs(payload.AverageEnergy-previous.AverageEnergy)>=10
   processor.Resolved=changed==true
-  Traffic("Support",{Ghost="Wretch",Confidence=changed and 95 or 35,
+  Traffic("Support",{Ghost="Wretch", Perk = "Energy speed curve",Confidence=changed and 95 or 35,
    Reason=string.format("stable hunt speed %.3f matched %.3f at %.2f%% Energy%s",payload.Speed,payload.ExpectedSpeed,payload.AverageEnergy,
     changed and " across a meaningful Energy change" or "; waiting for a different Energy level")}):SendTo("Verdict")
  end)
