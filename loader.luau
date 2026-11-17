@@ -260,7 +260,7 @@ local settingsStore = createSettingsStore({
 	HttpService = Services.HttpService,
 })
 local settings = settingsStore:Load(handoff and handoff.Settings)
-local inLobby = Services.Workspace:FindFirstChild("Ghost") == nil
+local inLobby = game.PlaceId == 18199615050
 if not table.find(LobbySettings.JobSiteNames(player), settings.JobSite)
 	or (inLobby and not LobbySettings.IsJobSiteUnlocked(player, settings.JobSite)) then
 	settings.JobSite = LobbySettings.ReadSelectedJobSite(player) or ""
