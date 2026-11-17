@@ -43,6 +43,12 @@ local Services = {
 	TeleportService = game:GetService("TeleportService"),
 }
 local player = Services.Players.LocalPlayer
+local researchTimeout
+do
+	local ok, value = pcall(Services.TeleportService.GetTeleportSetting,
+		Services.TeleportService, "DemonologyResearchRoundTimeout")
+	if ok then researchTimeout = tonumber(value) end
+end
 
 local compiler = loadstring or load
 assert(type(compiler) == "function", "This executor does not provide loadstring")
@@ -618,7 +624,7 @@ local function startTrackers()
 			Workspace = Services.Workspace,
 		}))
 		session.Automation = remember(createAutomation({
-			TimeoutSeconds = environment.DemonologyRoundTimeoutSeconds,
+			TimeoutSeconds = researchTimeout,
 			Services = Services,
 			Player = player,
 			Ghost = ghost,
