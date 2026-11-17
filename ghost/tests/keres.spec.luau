@@ -13,6 +13,7 @@ local keres = Keres.new({Traffic = Traffic})
 
 Traffic("KillSpeed", {
 	baselineKill = {s = 11, v = true},
+	beforeKill = {{s = 11, v = true}, {s = 11, v = false}},
 	afterKill = {{s = 11, v = true}, {s = 9, v = false}, {s = 9, v = true}},
 }):SendTo("Keres")
 expect(Verdict:Snapshot().Selected[1] == 8,
@@ -20,6 +21,7 @@ expect(Verdict:Snapshot().Selected[1] == 8,
 
 Traffic("KillSpeed", {
 	baselineKill = {s = 11, v = true},
+	beforeKill = {{s = 11, v = true}, {s = 11, v = false}},
 	afterKill = {
 		{s = 11, v = true}, {s = 9, v = false}, {s = 9, v = true},
 		{s = 11, v = false}, {s = 11, v = true},
@@ -31,7 +33,16 @@ expect(Verdict:Snapshot()["ruled-out"][1] == 8,
 
 Verdict:Reset()
 Traffic("KillSpeed", {
+	beforeKill = {{s = 21, v = true}, {s = 27, v = false}},
+	baselineKill = {s = 27, v = false},
+	afterKill = {{s = 27, v = false}, {s = 21, v = true}, {s = 21, v = true}},
+}):SendTo("Keres")
+expect(Verdict.Confidence[8] == nil, "a Phantom blink slowdown in only one state must not support Keres")
+
+Verdict:Reset()
+Traffic("KillSpeed", {
 	baselineKill = {s = 11, v = true},
+	beforeKill = {{s = 11, v = true}, {s = 11, v = false}},
 	afterKill = {{s = 11, v = true}, {s = 9, v = false}},
 	completed = true,
 }):SendTo("Keres")
@@ -41,15 +52,17 @@ expect(#insufficient.Selected == 0 and #insufficient["ruled-out"] == 0,
 
 Traffic("KillSpeed", {
 	baselineKill = {s = 11, v = true},
+	beforeKill = {{s = 11, v = true}, {s = 11, v = false}},
 	afterKill = {{s = 11, v = true}, {s = 9, v = false}, {s = 8, v = true}},
 	completed = true,
 }):SendTo("Keres")
-expect(Verdict:Snapshot()["ruled-out"][1] == 8,
-	"an unstable completed decrease should rule out a permanent Keres drop")
+expect(Verdict.Confidence[8] == 99,
+	"a decrease in both visibility states should support Keres even when their absolute speeds differ")
 
 Verdict:Reset()
 Traffic("KillSpeed", {
 	baselineKill = {s = 11, v = true},
+	beforeKill = {{s = 11, v = true}, {s = 11, v = false}},
 	afterKill = {{s = 11, v = true}, {s = 11, v = false}, {s = 11, v = true}},
 	completed = true,
 }):SendTo("Keres")

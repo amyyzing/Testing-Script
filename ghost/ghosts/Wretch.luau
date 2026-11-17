@@ -5,12 +5,12 @@ function Wretch.new(dependencies)
  processor.Disconnect=Traffic:Receive("Wretch",function(signal,payload)
   if signal=="PlayerKilled" then processor.HadKill=true return end
   if processor.Resolved or signal~="WretchSpeedResult" or type(payload)~="table"
-   or not payload.Complete or not payload.Stable or not payload.Hunting then return end
+   or processor.HadKill or not payload.Complete or not payload.Stable or not payload.Hunting then return end
+  if type(payload.Speed) ~= "number" or payload.Speed <= 0 then return end
   local transition=payload.Transition
   if transition and processor.Seen[transition] then return end
   if transition then processor.Seen[transition]=true end
   if payload.ScaleKnown~=true then
-   if processor.HadKill then return end
    local energy=math.clamp(payload.AverageEnergy,0,100)
    local samples=processor.UnknownSamples
    for _,sample in ipairs(samples) do if math.abs(sample.Energy-energy)<5 then return end end
@@ -38,7 +38,6 @@ function Wretch.new(dependencies)
     Reason=string.format("two stable hunts disagreed with the confirmed scale and Energy curve (observed %.3f, expected %.3f)",payload.Speed,payload.ExpectedSpeed)}):SendTo("Verdict")
    return
   end
-  if processor.HadKill then return end
   local previous=processor.Samples[payload.Multiplier]
   processor.Samples[payload.Multiplier]=previous or payload
   local changed=previous and math.abs(payload.AverageEnergy-previous.AverageEnergy)>=10

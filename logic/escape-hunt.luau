@@ -71,7 +71,19 @@ return function(dependencies)
 		self.Enabled = enabled == true
 		if self.Enabled then
 			if type(captureSafetyPosition) == "function" then
-				pcall(captureSafetyPosition)
+				local captured, destination = pcall(captureSafetyPosition)
+				if (not captured or not destination) and ghost:GetAttribute("Hunting") ~= true then
+					local character = player.Character
+					local original = character and character:GetPivot()
+					local prepared, moved = pcall(teleportToSafety)
+					if prepared and moved == true then
+						captured, destination = pcall(captureSafetyPosition)
+					end
+					if character == player.Character and character and original then
+						character:PivotTo(original)
+					end
+				end
+				self.SafetyPrepared = captured and destination ~= nil
 			end
 			update()
 		else

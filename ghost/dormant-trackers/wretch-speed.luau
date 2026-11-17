@@ -41,6 +41,7 @@ return function(dependencies)
 		end
 		if Tracker.LastHunting == hunting then return end
 		Tracker.LastHunting = hunting
+		Tracker.Token += 1
 		if not Tracker.Started then
 			if not hunting then return end
 			Tracker.Started = true
@@ -55,7 +56,6 @@ return function(dependencies)
 			AverageEnergy = energy,
 			TransitionTime = payload.Time,
 		}):SendTo("SpeedArrayLog")
-		Tracker.Token += 1
 		local token = Tracker.Token
 		local samples = {}
 		local function sample()

@@ -55,9 +55,9 @@ return function(dependencies)
 	function Tracker:Report(part)
 		local salt = saltObject(part)
 		if self.Touched[salt] then return end
-		self.Touched[salt] = true
 		self.PendingSpatial[salt] = nil
 		local payload = payloadFor(self, salt)
+		self.Touched[salt] = payload
 		Traffic("SaltHit", payload):SendTo("SaltStateAfterHit", "SpeedTracker")
 	end
 
@@ -66,8 +66,11 @@ return function(dependencies)
 		if self.Disturbed[salt] then return end
 		self.Disturbed[salt] = true
 		self.PendingSpatial[salt] = nil
-		local payload = payloadFor(self, salt)
-		Traffic("SaltHit", payload):SendTo("SpeedTracker")
+		local payload = self.Touched[salt]
+		if not payload then
+			payload = payloadFor(self, salt)
+			Traffic("SaltHit", payload):SendTo("SpeedTracker")
+		end
 		Traffic("SaltStateAfterHit", {
 			ContactId = payload.ContactId,
 			Salt = salt,

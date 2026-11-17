@@ -136,6 +136,15 @@ expect(#received == 4 and received[3].name == "SaltHit"
 	and received[4].payload.State == "disturbed",
 	"a newly replicated DisturbedSaltPile should use the same signal path")
 
+tracker:Report(cleanPartA)
+local contact = received[#received].payload.ContactId
+local count = #received
+cleanSalt:Rename("DisturbedSaltLine")
+expect(#received == count + 1 and received[#received].name == "SaltStateAfterHit"
+	and received[#received].payload.ContactId == contact,
+	"disturbance after physical contact must reuse the split instead of opening another")
+
+
 tracker:Destroy()
 speedTracker:Destroy()
 aswang:Destroy()

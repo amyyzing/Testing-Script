@@ -23,7 +23,7 @@ server-only behavior automatically.
 | Leviathan | Native `LeviathanGlitch` item attribute | Direct glitch signal is strong; ordinary switch bursts are weak |
 | Nightmare | False throw/shatter sounds, increased dark-room hunt chance | Evidence matching; isolated sounds/hunts cannot identify it |
 | Oni | Hunt speed 14 | Known scale and two hunts required; substantial Energy separates its base 14 from Wretch |
-| Phantom | Faster while invisible, blink speed 13.5 | Seven stable pairs must have invisible speed greater than visible speed |
+| Phantom | Faster while invisible, blink speed 13.5 | Seven stable pairs compare invisible and visible speed; a drifting baseline stays inconclusive |
 | Ravager | Multiple throws, hunting item vortex | Sustained multi-object orbit qualification |
 | Revenant | Stops hunting after a kill, rests 15s | Qualified multiplayer kill/hunt transitions |
 | Shadow | Temperature-alter coefficient 0.5 | Signed net cooling per second is logged with warm-up/plateau states; uncalibrated slow cooling is weak and cannot exclude |
@@ -34,7 +34,7 @@ server-only behavior automatically.
 | Umbra | No footsteps, lit-room speed coefficient 0.8 | Three playing native footstep-asset samples exclude; silence gives no support |
 | Vesper | Hunts by sound, hears voices anywhere | Evidence matching; unqualified pursuit does not prove auditory targeting |
 | Vex | Invisible on LIDAR, walks through walls | True replicated flag supports; late values are watched and absence is inconclusive |
-| Wretch | Energy-dependent speed 9–14, avoids hunts near lit candles | Known scale requires meaningful Energy change; unknown scale requires three Energy levels sharing one scale |
+| Wretch | Energy-dependent speed 9–14, avoids hunts near lit candles | Known scale requires meaningful Energy change; unknown scale requires three Energy levels sharing one scale. Post-kill samples are ignored |
 | Wisp | Hunt starts in favourite room, ignores oil, lights candles | Qualified favourite-room and burning-oil passage observations |
 | Wraith | Energy drain coefficient 1.5; journal confirms undisturbed salt | Qualified direct salt contact; missing salt events do not identify it |
 

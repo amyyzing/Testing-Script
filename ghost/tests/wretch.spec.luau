@@ -175,3 +175,26 @@ local function unknownCurve(speeds, expected)
 end
 unknownCurve({18, 22, 26}, true)
 unknownCurve({21, 21, 21}, false)
+
+local postKill = harness({0}, "Small", 21)
+postKill.Traffic("PlayerKilled", {}):SendTo("Wretch")
+postKill.Traffic:Broadcast("HuntingState", {Hunting = false})
+for _ = 1, 2 do
+	postKill.Traffic:Broadcast("HuntingState", {Hunting = true})
+	postKill.RunDelayed()
+	postKill.Traffic:Broadcast("HuntingState", {Hunting = false})
+	postKill.RunDelayed()
+end
+expect(not table.find(postKill.Verdict.RuledOut, 23), "post-kill mismatches must not exclude Wretch")
+postKill:Destroy()
+
+local lostEnergy = {100}
+local interrupted = harness(lostEnergy, "Small", 18)
+interrupted.Traffic:Broadcast("HuntingState", {Hunting = false})
+interrupted.Traffic:Broadcast("HuntingState", {Hunting = true})
+lostEnergy[1] = nil
+interrupted.Traffic:Broadcast("HuntingState", {Hunting = false})
+interrupted.RunDelayed()
+expect(interrupted.Verdict.Confidence[23] == nil and #interrupted.Display == 1,
+	"a hunt ending before samples settle must cancel them even when Energy becomes unavailable")
+interrupted:Destroy()

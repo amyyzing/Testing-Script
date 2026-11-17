@@ -5864,9 +5864,9 @@ return function(dependencies)
 	function Tracker:Report(part)
 		local salt = saltObject(part)
 		if self.Touched[salt] then return end
-		self.Touched[salt] = true
 		self.PendingSpatial[salt] = nil
 		local payload = payloadFor(self, salt)
+		self.Touched[salt] = payload
 		Traffic("SaltHit", payload):SendTo("SaltStateAfterHit", "SpeedTracker")
 	end
 
@@ -5875,8 +5875,11 @@ return function(dependencies)
 		if self.Disturbed[salt] then return end
 		self.Disturbed[salt] = true
 		self.PendingSpatial[salt] = nil
-		local payload = payloadFor(self, salt)
-		Traffic("SaltHit", payload):SendTo("SpeedTracker")
+		local payload = self.Touched[salt]
+		if not payload then
+			payload = payloadFor(self, salt)
+			Traffic("SaltHit", payload):SendTo("SpeedTracker")
+		end
 		Traffic("SaltStateAfterHit", {
 			ContactId = payload.ContactId,
 			Salt = salt,
@@ -7978,6 +7981,7 @@ return function(dependencies)
 		end
 		if Tracker.LastHunting == hunting then return end
 		Tracker.LastHunting = hunting
+		Tracker.Token += 1
 		if not Tracker.Started then
 			if not hunting then return end
 			Tracker.Started = true
@@ -7992,7 +7996,6 @@ return function(dependencies)
 			AverageEnergy = energy,
 			TransitionTime = payload.Time,
 		}):SendTo("SpeedArrayLog")
-		Tracker.Token += 1
 		local token = Tracker.Token
 		local samples = {}
 		local function sample()
@@ -9759,12 +9762,25 @@ function Keres.new(dependencies)
 			return
 		end
 		if signal ~= "KillSpeed" then return end
-		local before = data.baselineKill or data.beforeKill and data.beforeKill[#data.beforeKill]
+		local before = data.beforeKill
 		local after = data.afterKill or {}
-		if not before or #after < 3 then return end
-		local a, b = after[#after - 1], after[#after]
-		local dropped = a.s < before.s - epsilon and b.s < before.s - epsilon
-			and math.abs(a.s - b.s) <= epsilon
+		if type(before) ~= "table" or #after < 3 then return end
+
+		local baselines, observed = {}, {}
+		for _, point in ipairs(before) do
+			if type(point.v) == "boolean" and type(point.s) == "number" and point.s > 0 then
+				baselines[point.v] = math.min(baselines[point.v] or math.huge, point.s)
+			end
+		end
+		for index = 2, #after do
+			local point = after[index]
+			if type(point.v) == "boolean" and type(point.s) == "number" and point.s > 0 then
+				observed[point.v] = math.max(observed[point.v] or 0, point.s)
+			end
+		end
+		if not baselines[true] or not baselines[false] or not observed[true] or not observed[false] then return end
+		local dropped = observed[true] < baselines[true] - epsilon
+			and observed[false] < baselines[false] - epsilon
 		if dropped or data.completed then
 			Traffic(dropped and "Support" or "RuleOut", {
 				Ghost = "Keres",
@@ -9872,28 +9888,29 @@ function Phantom.new(dependencies)
 		if Processor.Resolved or signal ~= "SevenPairResult"
 			or type(payload) ~= "table" or type(payload.Pairs) ~= "table"
 			or #payload.Pairs ~= 7 then return end
-		Processor.Resolved = true
 		local first = payload.Pairs[1]
 		local visible = first and tonumber(first.v)
 		local invisible = first and tonumber(first.i)
-		local supported = visible ~= nil and invisible ~= nil
-			and invisible > visible + epsilon
+		if not visible or not invisible or visible <= 0 or invisible <= 0 then return end
+
 		for _, pair in ipairs(payload.Pairs) do
-			if not supported or pair.MixedVisibility ~= true
+			if pair.MixedVisibility ~= true
 				or math.abs((tonumber(pair.v) or math.huge) - visible) > epsilon
 				or math.abs((tonumber(pair.i) or math.huge) - invisible) > epsilon then
-				supported = false
-				break
+				return
 			end
 		end
+
+		local supported = invisible > visible + epsilon
+		Processor.Resolved = true
 		Traffic(supported and "Support" or "RuleOut", {
 			Ghost = "Phantom",
 			Perk = "Blink speed",
-			Observation = supported and "Blink speed alternated" or "No alternating blink speed",
+			Observation = supported and "Blink speed alternated" or "No speed gain while hidden",
 			Confidence = 99,
 			Reason = supported
 				and "seven hunting pairs repeated the same alternating A / B speed pattern"
-				or "seven hunting pairs did not repeat an alternating A / B speed pattern",
+				or "seven stable hunting pairs showed no speed gain while hidden",
 		}):SendTo("Verdict")
 	end)
 
@@ -10320,12 +10337,12 @@ function Wretch.new(dependencies)
  processor.Disconnect=Traffic:Receive("Wretch",function(signal,payload)
   if signal=="PlayerKilled" then processor.HadKill=true return end
   if processor.Resolved or signal~="WretchSpeedResult" or type(payload)~="table"
-   or not payload.Complete or not payload.Stable or not payload.Hunting then return end
+   or processor.HadKill or not payload.Complete or not payload.Stable or not payload.Hunting then return end
+  if type(payload.Speed) ~= "number" or payload.Speed <= 0 then return end
   local transition=payload.Transition
   if transition and processor.Seen[transition] then return end
   if transition then processor.Seen[transition]=true end
   if payload.ScaleKnown~=true then
-   if processor.HadKill then return end
    local energy=math.clamp(payload.AverageEnergy,0,100)
    local samples=processor.UnknownSamples
    for _,sample in ipairs(samples) do if math.abs(sample.Energy-energy)<5 then return end end
@@ -10353,7 +10370,6 @@ function Wretch.new(dependencies)
     Reason=string.format("two stable hunts disagreed with the confirmed scale and Energy curve (observed %.3f, expected %.3f)",payload.Speed,payload.ExpectedSpeed)}):SendTo("Verdict")
    return
   end
-  if processor.HadKill then return end
   local previous=processor.Samples[payload.Multiplier]
   processor.Samples[payload.Multiplier]=previous or payload
   local changed=previous and math.abs(payload.AverageEnergy-previous.AverageEnergy)>=10
@@ -12667,7 +12683,19 @@ return function(dependencies)
 		self.Enabled = enabled == true
 		if self.Enabled then
 			if type(captureSafetyPosition) == "function" then
-				pcall(captureSafetyPosition)
+				local captured, destination = pcall(captureSafetyPosition)
+				if (not captured or not destination) and ghost:GetAttribute("Hunting") ~= true then
+					local character = player.Character
+					local original = character and character:GetPivot()
+					local prepared, moved = pcall(teleportToSafety)
+					if prepared and moved == true then
+						captured, destination = pcall(captureSafetyPosition)
+					end
+					if character == player.Character and character and original then
+						character:PivotTo(original)
+					end
+				end
+				self.SafetyPrepared = captured and destination ~= nil
 			end
 			update()
 		else

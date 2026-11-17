@@ -73,7 +73,7 @@ expect(table.find(reverseSnapshot["ruled-out"], 12),
 	"speeding up while visible instead of invisible contradicts Phantom's current behavior")
 
 local inconsistentSnapshot = run({5, 5, 6, 5, 5, 5, 5}, 9)
-expect(table.find(inconsistentSnapshot["ruled-out"], 12),
-	"a non-repeating seven-pair pattern should rule out Phantom")
+expect(not table.find(inconsistentSnapshot["ruled-out"], 12) and inconsistentSnapshot.Confidence[12] == nil,
+	"a changing baseline should leave Phantom inconclusive")
 
 print("phantom.spec: speed-independent alternating A / B pattern passed")

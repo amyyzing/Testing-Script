@@ -19,12 +19,25 @@ function Keres.new(dependencies)
 			return
 		end
 		if signal ~= "KillSpeed" then return end
-		local before = data.baselineKill or data.beforeKill and data.beforeKill[#data.beforeKill]
+		local before = data.beforeKill
 		local after = data.afterKill or {}
-		if not before or #after < 3 then return end
-		local a, b = after[#after - 1], after[#after]
-		local dropped = a.s < before.s - epsilon and b.s < before.s - epsilon
-			and math.abs(a.s - b.s) <= epsilon
+		if type(before) ~= "table" or #after < 3 then return end
+
+		local baselines, observed = {}, {}
+		for _, point in ipairs(before) do
+			if type(point.v) == "boolean" and type(point.s) == "number" and point.s > 0 then
+				baselines[point.v] = math.min(baselines[point.v] or math.huge, point.s)
+			end
+		end
+		for index = 2, #after do
+			local point = after[index]
+			if type(point.v) == "boolean" and type(point.s) == "number" and point.s > 0 then
+				observed[point.v] = math.max(observed[point.v] or 0, point.s)
+			end
+		end
+		if not baselines[true] or not baselines[false] or not observed[true] or not observed[false] then return end
+		local dropped = observed[true] < baselines[true] - epsilon
+			and observed[false] < baselines[false] - epsilon
 		if dropped or data.completed then
 			Traffic(dropped and "Support" or "RuleOut", {
 				Ghost = "Keres",

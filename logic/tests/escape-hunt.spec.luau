@@ -101,3 +101,30 @@ expect(character.Pivot == "second-original",
 fastController:Destroy()
 
 print("escape-hunt.spec: toggle, one-shot escape, and restoration passed")
+
+local cached
+local preparations = 0
+ghost:SetHunting(false)
+character.Pivot = "field"
+local preparedController = createEscapeHunt({
+	Player = player,
+	Ghost = ghost,
+	CaptureSafetyPosition = function() return cached end,
+	TeleportToSafety = function()
+		preparations += 1
+		character.Pivot = "base"
+		cached = "base"
+		return true
+	end,
+	FastTeleportToSafety = function()
+		character.Pivot = cached
+		return cached ~= nil
+	end,
+})
+preparedController:SetEnabled(true)
+expect(preparations == 1 and preparedController.SafetyPrepared and character.Pivot == "field",
+	"arming outside Base Camp must prepare the cache before the hunt and restore the player's position")
+ghost:SetHunting(true)
+expect(character.Pivot == "base" and preparations == 1, "a prepared hunt escape must avoid a full floor search")
+ghost:SetHunting(false)
+preparedController:Destroy()
