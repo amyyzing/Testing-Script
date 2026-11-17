@@ -52,9 +52,9 @@ expect(Verdict.Lists[Verdict.Selected[1]] == "Leviathan",
 	"trait confidence should rank only the evidence-compatible candidates")
 
 Traffic("EvidenceState", {Evidence = "Spirit Box", State = true}):SendTo("Verdict")
-expect(Verdict.Lists[Verdict.Selected[1]] == "Skinwalker",
-	"an impossible three-evidence Orb combination must resolve to Skinwalker without a trait")
-expect(Verdict:GetEvidenceResolvedGhost() == "Skinwalker",
+expect(Verdict.Lists[Verdict.Selected[1]] == "Doppelganger",
+	"an impossible three-evidence Orb combination must resolve to Doppelganger without a trait")
+expect(Verdict:GetEvidenceResolvedGhost() == "Doppelganger",
 	"the automation adapter should see the impossible Orb result as Certain")
 
 Traffic("EvidenceState", {Evidence = "Spirit Box", State = nil}):SendTo("Verdict")

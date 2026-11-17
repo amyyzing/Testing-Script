@@ -127,12 +127,12 @@ local Ravager = loadModule("ghost/ghosts/Ravager.luau")
 local Revenant = loadModule("ghost/ghosts/Revenant.luau")
 local Shadow = loadModule("ghost/ghosts/Shadow.luau")
 local Siren = loadModule("ghost/ghosts/Siren.luau")
-local Skinwalker = loadModule("ghost/ghosts/Skinwalker.luau")
+local Doppelganger = loadModule("ghost/ghosts/Doppelganger.luau")
 local Specter = loadModule("ghost/ghosts/Specter.luau")
 local Spirit = loadModule("ghost/ghosts/Spirit.luau")
 local Umbra = loadModule("ghost/ghosts/Umbra.luau")
 local Vex = loadModule("ghost/ghosts/Vex.luau")
-local Wendigo = loadModule("ghost/ghosts/Wendigo.luau")
+local Wretch = loadModule("ghost/ghosts/Wretch.luau")
 local Wisp = loadModule("ghost/ghosts/Wisp.luau")
 local Wraith = loadModule("ghost/ghosts/Wraith.luau")
 loading:SetStage("Loading trackers", 6, 10)
@@ -168,7 +168,7 @@ local createLOSSight = loadModule("ghost/dormant-trackers/los-sight.luau")
 local createLOSSpeed = loadModule("ghost/dormant-trackers/los-speed.luau")
 local createRoomTemperature = loadModule("ghost/dormant-trackers/room-temperature.luau")
 local createSpecterTrial = loadModule("ghost/dormant-trackers/specter-trial.luau")
-local createWendigoSpeed = loadModule("ghost/dormant-trackers/wendigo-speed.luau")
+local createWretchSpeed = loadModule("ghost/dormant-trackers/wretch-speed.luau")
 local askSpiritBox = Remotes:Get("AskSpiritBoxFromUI")
 local createAutoSpiritBox = loadModule("logic/auto-spirit-box.luau")
 local createAutomation = loadModule("logic/automation.luau")
@@ -226,8 +226,17 @@ local settingsStore = createSettingsStore({
 	HttpService = Services.HttpService,
 })
 local settings = settingsStore:Load(handoff and handoff.Settings)
-if not table.find(LobbySettings.JobSiteNames(), settings.JobSite) then settings.JobSite = "School" end
-if not table.find(LobbySettings.Difficulties, settings.Difficulty) then settings.Difficulty = "Nightmare" end
+if not table.find(LobbySettings.JobSiteNames(player), settings.JobSite) then
+	settings.JobSite = LobbySettings.ReadSelectedJobSite(player) or ""
+	if settings.JobSite == "" then
+		for _, name in ipairs(LobbySettings.JobSiteNames(player)) do
+			if LobbySettings.IsJobSiteUnlocked(player, name) then settings.JobSite = name break end
+		end
+	end
+end
+if not table.find(LobbySettings.Difficulties, settings.Difficulty) then
+	settings.Difficulty = LobbySettings.ReadSelectedDifficulty(player) or "Easy"
+end
 session.Settings, session.SettingsStore = settings, settingsStore
 local teleportLoop = createTeleportLoop({
 	Environment = environment,
@@ -416,12 +425,12 @@ local function startTrackers()
 		remember(Revenant.new({Traffic = Traffic}))
 		remember(Shadow.new({Traffic = Traffic}))
 		remember(Siren.new({Traffic = Traffic}))
-		remember(Skinwalker.new({Traffic = Traffic}))
+		remember(Doppelganger.new({Traffic = Traffic}))
 		remember(Specter.new({Traffic = Traffic}))
 		remember(Spirit.new({Traffic = Traffic}))
 		remember(Umbra.new({Traffic = Traffic}))
 		remember(Vex.new({Traffic = Traffic}))
-		remember(Wendigo.new({Traffic = Traffic}))
+		remember(Wretch.new({Traffic = Traffic}))
 		remember(Wisp.new({Traffic = Traffic}))
 		remember(Wraith.new({Traffic = Traffic}))
 		remember(createFlickerArray({Traffic = Traffic}))
@@ -546,7 +555,7 @@ local function startTrackers()
 				return ghostRoom.Room
 			end,
 		}))
-		remember(createWendigoSpeed({
+		remember(createWretchSpeed({
 			Traffic = Traffic,
 			Players = Services.Players,
 			Humanoid = humanoid,

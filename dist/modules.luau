@@ -62,6 +62,11 @@ return function(package: any)
 	local ROUND_JOURNAL_SETTLE_SECONDS = Pre.JournalSettleSeconds
 	local disable = function() return false end
 
+local function ravagerLabEnabled()
+	local environment = (getgenv and getgenv()) or _G
+	return environment.DemonologyRavagerLab == true
+end
+
 local function journalSelectionMatchesFinalState(ghostName)
 	local ghostTypes = perkTrackerState.findJournalGhostTypes()
 	if not ghostTypes then
@@ -388,6 +393,9 @@ local function finishTimedRound(generation)
 end
 
 local function currentConfidentRoundIdentification()
+	if ravagerLabEnabled() then
+		return nil
+	end
 	if doRoundState.completionClaimed then
 		return nil
 	end
@@ -473,6 +481,9 @@ local function startRoundIdentificationWatchdog(generation)
 end
 
 local function startRoundTimeoutWatchdog(generation)
+	if ravagerLabEnabled() then
+		return
+	end
 	doRoundState.timeoutThread = task.delay(180, function()
 		if not doRoundOperationActive(generation)
 			or doRoundState.completionClaimed then
@@ -6116,7 +6127,7 @@ return function(dependencies)
 		Traffic("HolyOilFireResult", {
 			HolyOil = payload.HolyOil,
 			CaughtFire = caughtFire,
-		}):SendTo("Wisp", "Skinwalker")
+		}):SendTo("Wisp")
 	end
 
 	local function probe(payload)
@@ -7823,13 +7834,13 @@ return function(dependencies)
 end
 
 end)())
-modules["ghost/dormant-trackers/wendigo-speed.luau"] = pack((function()
+modules["ghost/dormant-trackers/wretch-speed.luau"] = pack((function()
 return function(dependencies)
-	local Traffic = assert(dependencies.Traffic, "wendigo-speed requires Traffic")
-	local Players = assert(dependencies.Players, "wendigo-speed requires Players")
-	local Humanoid = assert(dependencies.Humanoid, "wendigo-speed requires Humanoid")
+	local Traffic = assert(dependencies.Traffic, "wretch-speed requires Traffic")
+	local Players = assert(dependencies.Players, "wretch-speed requires Players")
+	local Humanoid = assert(dependencies.Humanoid, "wretch-speed requires Humanoid")
 	local delay = dependencies.DelayTask or (task and task.delay)
-	assert(type(delay) == "function", "wendigo-speed requires task.delay")
+	assert(type(delay) == "function", "wretch-speed requires task.delay")
 	local settleDelay = tonumber(dependencies.SettleDelay) or 0.1
 	local Tracker = {
 		Kind = "dormant",
@@ -7852,7 +7863,7 @@ return function(dependencies)
 		return total / #players
 	end
 
-	Tracker.Disconnect = Traffic:Receive("WendigoSpeed", function(signal, payload)
+	Tracker.Disconnect = Traffic:Receive("WretchSpeed", function(signal, payload)
 		if signal ~= "HuntingState" or type(payload) ~= "table"
 			or type(payload.Hunting) ~= "boolean" then return end
 		local hunting = payload.Hunting
@@ -7870,7 +7881,7 @@ return function(dependencies)
 		if not energy then return end
 		Tracker.TransitionCount += 1
 		local transition = Tracker.TransitionCount
-		Traffic("WendigoEnergySnapshot", {
+		Traffic("WretchEnergySnapshot", {
 			Transition = transition,
 			Hunting = hunting,
 			AverageEnergy = energy,
@@ -7880,7 +7891,7 @@ return function(dependencies)
 		local token = Tracker.Token
 		delay(settleDelay, function()
 			if not Tracker.Running or Tracker.Token ~= token then return end
-			Traffic("WendigoSpeedSample", {
+			Traffic("WretchSpeedSample", {
 				Transition = transition,
 				Hunting = hunting,
 				AverageEnergy = energy,
@@ -8056,14 +8067,14 @@ local SOURCE = {
 	Revenant = "https://demonology.fandom.com/wiki/Revenant",
 	Shadow = "https://demonology.fandom.com/wiki/Shadow",
 	Siren = "https://demonology.fandom.com/wiki/Siren",
-	Skinwalker = "https://demonology.fandom.com/wiki/Skinwalker",
+	Doppelganger = "live-game:ReplicatedStorage.Modules.GhostInfo",
 	Specter = "https://demonology.fandom.com/wiki/Specter",
 	Spirit = "https://demonology.fandom.com/wiki/Spirit",
 	Wisp = "https://demonology.fandom.com/wiki/The_Wisp",
 	Umbra = "https://demonology.fandom.com/wiki/Umbra",
 	Vesper = "https://demonology.fandom.com/wiki/Vesper",
 	Vex = "https://demonology.fandom.com/wiki/Vex",
-	Wendigo = "https://demonology.fandom.com/wiki/Wendigo",
+	Wretch = "live-game:ReplicatedStorage.Modules.GhostInfo",
 	Wraith = "https://demonology.fandom.com/wiki/Wraith",
 }
 
@@ -8191,13 +8202,10 @@ local Profiles = {
 	}, {
 		note("A verified male VisualModel or a completed line-of-sight trial with no slowdown is a 99% negative.", SOURCE.Siren, "user-observed", false, "RuleOut"),
 	})),
-	profile("Skinwalker", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "user-observed", perks({
-		note("Ghost Orb forms a fourth evidence observation or completes an impossible three-evidence combination.", SOURCE.Skinwalker, "user-observed", false, "Trait"),
-		note("Spirit Box humming paired with a verified male VisualModel identifies a Siren-mimicking Skinwalker.", SOURCE.Skinwalker, "user-observed", false, "Ability"),
-	}, {
-		note("It can mimic Wisp by crossing qualified burning Holy Oil without catching fire, or mimic Umbra by having no HumanoidRootPart sound other than Hunting.", SOURCE.Skinwalker, "user-observed", false, "Ability"),
-	}, {
-		note("Catching fire after qualified Holy Oil passage is a 99% Skinwalker negative. Orb alone is not sufficient.", SOURCE.Skinwalker, "user-observed", false, "RuleOut"),
+	profile("Doppelganger", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "live-game", perks({
+		note("Ghost Orb forms a fourth evidence observation or completes an impossible three-evidence combination.", SOURCE.Doppelganger, "user-observed", false, "Trait"),
+	}, {}, {
+		note("No automatic Doppelganger behavior observation beyond its false Ghost Orb is currently trusted.", SOURCE.Doppelganger, "live-game", false, "Caveat"),
 	}), nil, {"GhostOrb"}),
 	profile("Specter", {"EMFLevel5", "FreezingTemperatures", "LaserProjector"}, "user-observed", perks({
 		note("Across a completed five-second arm trial, the non-hunting ghost remains stationary in its unchanged favourite room until the next hunt begins.", SOURCE.Specter, "user-observed", false, "Trait"),
@@ -8222,10 +8230,10 @@ local Profiles = {
 	}, {}, {
 		note("The replicated InvisibleOnLIDAR value does not exist on the fixed ghost model.", SOURCE.Vex, "user-observed", false, "RuleOut"),
 	})),
-	profile("Wendigo", {"GhostOrb", "GhostWriting", "LaserProjector"}, "user-observed", perks({
-		note("Two alternating settled hunt-state transitions match the WalkSpeed curve for average player Energy captured at each exact switch; the sanity spread must be large enough to exceed speed tolerance.", SOURCE.Wendigo, "user-observed", false, "Trait"),
+	profile("Wretch", {"GhostOrb", "GhostWriting", "LaserProjector"}, "live-game", perks({
+		note("Two alternating settled hunt-state transitions match the WalkSpeed curve for average player Energy captured at each exact switch; the sanity spread must be large enough to exceed speed tolerance.", SOURCE.Wretch, "user-observed", false, "Trait"),
 	}, {}, {
-		note("A qualified transition-time WalkSpeed does not match its same-transition average-Energy prediction. Live sanity changes between transitions do not change speed.", SOURCE.Wendigo, "user-observed", false, "RuleOut"),
+		note("A qualified transition-time WalkSpeed does not match its same-transition average-Energy prediction. Live sanity changes between transitions do not change speed.", SOURCE.Wretch, "user-observed", false, "RuleOut"),
 	})),
 	profile("Wisp", {"GhostOrb", "LaserProjector", "Wither"}, "user-observed", perks({
 		note("While hunting through burning Holy Oil, GhostWall.CanCollide is false.", SOURCE.Wisp, "user-observed", false, "Ability"),
@@ -8265,7 +8273,7 @@ local PerkConfidence = {
 	Demon = 99,
 	Dullahan = 99,
 	Entity = 99,
-	Skinwalker = 100,
+	Doppelganger = 100,
 	Keres = 99,
 	Leviathan = 99,
 	Oni = 99,
@@ -8278,7 +8286,7 @@ local PerkConfidence = {
 	Spirit = 99,
 	Umbra = 99,
 	Vex = 99,
-	Wendigo = 99,
+	Wretch = 99,
 	Wisp = 99,
 	Wraith = 99,
 }
@@ -8288,7 +8296,7 @@ local PerkTTL = {
 	Dullahan = 25,
 	Dybbuk = 120,
 	Entity = 30,
-	Skinwalker = 120,
+	Doppelganger = 120,
 	Leviathan = 30,
 	Oni = 25,
 	Phantom = 30,
@@ -8297,7 +8305,7 @@ local PerkTTL = {
 	Specter = 120,
 	Umbra = 60,
 	Vex = 2,
-	Wendigo = 20,
+	Wretch = 20,
 	Wisp = 120,
 	Wraith = 120,
 }
@@ -8477,7 +8485,7 @@ local function filterCandidates(evidence, ruleOuts, options)
 		end
 		if compatible then
 			for evidenceKey in pairs(disproved) do
-				-- A missing fake Orb does not disprove Skinwalker, so negative
+				-- A missing fake Orb does not disprove Doppelganger, so negative
 				-- evidence considers real evidence only.
 				if supportsEvidence(ghostProfile, evidenceKey, {RealOnly = true}) then
 					compatible = false
@@ -8606,9 +8614,9 @@ local function selectHighestConfidenceGuess(options)
 	local confirmedEvidence = collectEvidence(options.ConfirmedEvidence)
 	if next(confirmedEvidence) ~= nil then
 		local orbCombination = classifyOrbCombination(confirmedEvidence)
-		if orbCombination.Qualified and allowed.Skinwalker then
-			candidates = {"Skinwalker"}
-			allowed = {Skinwalker = true}
+		if orbCombination.Qualified and allowed.Doppelganger then
+			candidates = {"Doppelganger"}
+			allowed = {Doppelganger = true}
 		else
 			local fewestConflicts = math.huge
 			local evidenceCandidates = {}
@@ -8616,14 +8624,14 @@ local function selectHighestConfidenceGuess(options)
 				local conflicts = 0
 				for evidenceKey in pairs(confirmedEvidence) do
 					-- With fewer than three confirmed observations, Orb is still a
-					-- valid partial Skinwalker clue and must not push it behind every
+					-- valid partial Doppelganger clue and must not push it behind every
 					-- real-Orb ghost. At three observations a valid real combination
 					-- wins; impossible/fourth combinations are handled above.
-					local partialSkinwalkerOrb = name == "Skinwalker"
+					local partialDoppelgangerOrb = name == "Doppelganger"
 						and evidenceKey == "GhostOrb"
 						and orbCombination.OrbObserved
 						and orbCombination.EvidenceCount < 3
-					if not partialSkinwalkerOrb and not supportsEvidence(name, evidenceKey, {
+					if not partialDoppelgangerOrb and not supportsEvidence(name, evidenceKey, {
 						RealOnly = true,
 						IncludeFalseEvidence = false,
 					}) then
@@ -8699,21 +8707,21 @@ local function selectHighestConfidenceGuess(options)
 
 	local orbObserved = options.OrbObserved == true
 		or confirmedEvidence.GhostOrb == true
-	local skinwalkerTied = false
+	local doppelgangerTied = false
 	if #tied > 1 and not orbObserved then
 		for _, name in ipairs(tied) do
-			if name == "Skinwalker" then
-				skinwalkerTied = true
+			if name == "Doppelganger" then
+				doppelgangerTied = true
 				break
 			end
 		end
 	end
-	if skinwalkerTied then
+	if doppelgangerTied then
 		local redistributed = 0.5 / math.max(#tied - 1, 1)
 		local totalWeight = 0
 		local weights = {}
 		for index, name in ipairs(tied) do
-			local weight = name == "Skinwalker"
+			local weight = name == "Doppelganger"
 				and 0.5
 				or 1 + redistributed
 			weights[index] = weight
@@ -9322,7 +9330,7 @@ return function(dependencies)
 		return result
 	end
 
-	local function inspectWendigo(payload)
+	local function inspectWretch(payload)
 		local energy = tonumber(payload.AverageEnergy)
 		local speed = tonumber(payload.Speed)
 		if not energy or not speed then return {Complete = false} end
@@ -9358,8 +9366,8 @@ return function(dependencies)
 			result.DistinctPairs = payload.DistinctPairs
 			result.Samples = payload.Samples
 			Traffic("SpeedFilterResult", result):SendTo("Dullahan", "Oni")
-		elseif signal == "WendigoSpeedSample" then
-			Traffic("WendigoSpeedResult", inspectWendigo(payload)):SendTo("Wendigo")
+		elseif signal == "WretchSpeedSample" then
+			Traffic("WretchSpeedResult", inspectWretch(payload)):SendTo("Wretch")
 		end
 	end)
 
@@ -9459,6 +9467,16 @@ function Demon.new(dependencies)
 end
 
 return Demon
+
+end)())
+modules["ghost/ghosts/Doppelganger.luau"] = pack((function()
+local Doppelganger = {Name = "Doppelganger", Index = 17}
+
+function Doppelganger.new()
+	return {Destroy = function() end}
+end
+
+return Doppelganger
 
 end)())
 modules["ghost/ghosts/Dullahan.luau"] = pack((function()
@@ -9883,37 +9901,6 @@ end
 return Siren
 
 end)())
-modules["ghost/ghosts/Skinwalker.luau"] = pack((function()
-local Skinwalker = {Name = "Skinwalker", Index = 17}
-
-function Skinwalker.new(dependencies)
-	local Traffic = assert(dependencies.Traffic, "Skinwalker requires Traffic")
-	local Processor = {}
-
-	local function verdict(signal, reason)
-		Traffic(signal, {
-			Ghost = "Skinwalker",
-			Confidence = 99,
-			Reason = reason,
-		}):SendTo("Verdict")
-	end
-
-	Processor.Disconnect = Traffic:Receive("Skinwalker", function(signal, payload)
-		if signal ~= "HolyOilFireResult" or type(payload) ~= "table" then return end
-		if payload.CaughtFire == true then
-			verdict("RuleOut", "the ghost caught fire after passing through burning Holy Oil")
-		elseif payload.CaughtFire == false then
-			verdict("Support", "the ghost passed through burning Holy Oil without catching fire")
-		end
-	end)
-
-	function Processor:Destroy() self.Disconnect() end
-	return Processor
-end
-
-return Skinwalker
-
-end)())
 modules["ghost/ghosts/Specter.luau"] = pack((function()
 local Specter = {Name = "Specter", Index = 18}
 
@@ -10037,45 +10024,6 @@ end
 return Vex
 
 end)())
-modules["ghost/ghosts/Wendigo.luau"] = pack((function()
-local Wendigo = {Name = "Wendigo", Index = 23}
-
-function Wendigo.new(dependencies)
-	local Traffic = assert(dependencies.Traffic, "Wendigo requires Traffic")
-	local Processor = {Supported = false, RuledOut = false}
-	Processor.Disconnect = Traffic:Receive("Wendigo", function(signal, payload)
-		if Processor.RuledOut or signal ~= "WendigoSpeedResult"
-			or type(payload) ~= "table" or payload.Complete ~= true then return end
-		if payload.Matched == true then
-			if Processor.Supported then return end
-			Processor.Supported = true
-			Traffic("Support", {
-				Ghost = "Wendigo",
-				Confidence = 99,
-				Reason = string.format(
-					"state-change WalkSpeed %.3f matched expected %.3f at %.2f%% average Energy",
-					payload.Speed, payload.ExpectedSpeed, payload.AverageEnergy
-				),
-			}):SendTo("Verdict")
-		else
-			Processor.RuledOut = true
-			Traffic("RuleOut", {
-				Ghost = "Wendigo",
-				Confidence = 99,
-				Reason = string.format(
-					"state-change WalkSpeed %.3f did not match closest expected %.3f at %.2f%% average Energy",
-					payload.Speed, payload.ExpectedSpeed, payload.AverageEnergy
-				),
-			}):SendTo("Verdict")
-		end
-	end)
-	function Processor:Destroy() self.Disconnect() end
-	return Processor
-end
-
-return Wendigo
-
-end)())
 modules["ghost/ghosts/Wisp.luau"] = pack((function()
 local Wisp = {Name = "Wisp", Index = 24}
 
@@ -10164,6 +10112,45 @@ end
 return Wraith
 
 end)())
+modules["ghost/ghosts/Wretch.luau"] = pack((function()
+local Wretch = {Name = "Wretch", Index = 23}
+
+function Wretch.new(dependencies)
+	local Traffic = assert(dependencies.Traffic, "Wretch requires Traffic")
+	local Processor = {Supported = false, RuledOut = false}
+	Processor.Disconnect = Traffic:Receive("Wretch", function(signal, payload)
+		if Processor.RuledOut or signal ~= "WretchSpeedResult"
+			or type(payload) ~= "table" or payload.Complete ~= true then return end
+		if payload.Matched == true then
+			if Processor.Supported then return end
+			Processor.Supported = true
+			Traffic("Support", {
+				Ghost = "Wretch",
+				Confidence = 99,
+				Reason = string.format(
+					"state-change WalkSpeed %.3f matched expected %.3f at %.2f%% average Energy",
+					payload.Speed, payload.ExpectedSpeed, payload.AverageEnergy
+				),
+			}):SendTo("Verdict")
+		else
+			Processor.RuledOut = true
+			Traffic("RuleOut", {
+				Ghost = "Wretch",
+				Confidence = 99,
+				Reason = string.format(
+					"state-change WalkSpeed %.3f did not match closest expected %.3f at %.2f%% average Energy",
+					payload.Speed, payload.ExpectedSpeed, payload.AverageEnergy
+				),
+			}):SendTo("Verdict")
+		end
+	end)
+	function Processor:Destroy() self.Disconnect() end
+	return Processor
+end
+
+return Wretch
+
+end)())
 modules["ghost/traffic.luau"] = pack((function()
 return function()
 	local receivers = {}
@@ -10227,8 +10214,8 @@ local GHOSTS = {
 	"Aswang", "Banshee", "Demon", "Dullahan", "Dybbuk",
 	"Entity", "Ghoul", "Keres", "Leviathan", "Nightmare",
 	"Oni", "Phantom", "Ravager", "Revenant", "Shadow",
-	"Siren", "Skinwalker", "Specter", "Spirit", "Umbra",
-	"Vesper", "Vex", "Wendigo", "Wisp", "Wraith",
+	"Siren", "Doppelganger", "Specter", "Spirit", "Umbra",
+	"Vesper", "Vex", "Wretch", "Wisp", "Wraith",
 }
 
 return function(dependencies)
@@ -10303,23 +10290,37 @@ return function(dependencies)
 	local function triggerJournalClick(row)
 		local detection = row and row:FindFirstChild("Detection")
 		if not detection then return false end
-		if type(fireSignal) == "function"
-			and pcall(fireSignal, detection.MouseButton1Click) then
-			return true
-		end
-		local fired = false
+		-- The live controller still looks up EvidenceMarkedInJournal even after
+		-- the server removes it. A client-only placeholder lets that controller
+		-- finish its local state change; it is removed immediately afterward.
+		local remoteShim
 		pcall(function()
-			if type(getconnections) == "function" then
-				for _, connection in ipairs(getconnections(detection.MouseButton1Click)) do
-					if type(connection.Function) == "function" then
-						connection.Function()
-						fired = true
-					end
-				end
+			local events = game:GetService("ReplicatedStorage"):FindFirstChild("Events")
+			if events and not events:FindFirstChild("EvidenceMarkedInJournal") then
+				remoteShim = Instance.new("RemoteEvent")
+				remoteShim.Name = "EvidenceMarkedInJournal"
+				remoteShim.Parent = events
 			end
 		end)
-		if fired then return true end
-		return pcall(function() detection:Activate() end)
+		local fired = type(fireSignal) == "function"
+			and pcall(fireSignal, detection.MouseButton1Click)
+		if not fired then
+			pcall(function()
+				if type(getconnections) == "function" then
+					for _, connection in ipairs(getconnections(detection.MouseButton1Click)) do
+						if type(connection.Function) == "function" then
+							connection.Function()
+							fired = true
+						end
+					end
+				end
+			end)
+		end
+		if not fired then
+			fired = pcall(function() detection:Activate() end)
+		end
+		if remoteShim then remoteShim:Destroy() end
+		return fired
 	end
 
 	local function applyJournal(index, state)
@@ -10361,7 +10362,7 @@ return function(dependencies)
 		if type(EvidenceCatalog) ~= "table" then return true end
 		local ghost = GHOSTS[index]
 		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence)
-		if orb.Qualified then return ghost == "Skinwalker" end
+		if orb.Qualified then return ghost == "Doppelganger" end
 		for evidence in pairs(Verdict.Evidence) do
 			if not EvidenceCatalog.SupportsEvidence(ghost, evidence, {
 				IncludeFalseEvidence = true,
@@ -10418,7 +10419,7 @@ return function(dependencies)
 		local count = 0
 		for _ in pairs(Verdict.Evidence) do count += 1 end
 		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence)
-		if orb.Qualified then return indexes.Skinwalker end
+		if orb.Qualified then return indexes.Doppelganger end
 		if count ~= 3 then return nil end
 		local candidates = EvidenceCatalog.FilterCandidates(Verdict.Evidence, {}, {
 			NamesOnly = true,
@@ -11021,6 +11022,11 @@ function GuiLogic.DrawerList(patternDrawer, evidenceDrawer)
 	return {patternDrawer, evidenceDrawer}
 end
 
+function GuiLogic.DrawerOpensAfterGesture(wasOpen, dragged, startProgress, progress)
+	if not dragged then return not wasOpen end
+	return startProgress < 0.5 and progress >= 0.25 or progress > 0.75
+end
+
 local function viewportSize()
 	local camera = workspace.CurrentCamera
 	return camera and camera.ViewportSize or Vector2.new(1920, 1080)
@@ -11041,6 +11047,7 @@ function GuiLogic.new(dependencies)
 	local dragInput, dragStart, positionStart
 	local resizeInput, resizeStart, sizeStart
 	local activeDrawer, drawerInput, drawerStart, drawerStartProgress
+	local drawerDragged
 	local savedPosition, savedSize
 
 	local function connect(signal, callback)
@@ -11177,13 +11184,16 @@ function GuiLogic.new(dependencies)
 			if state.Tween then state.Tween:Cancel() end
 			activeDrawer, drawerInput, drawerStart = drawer, input, input.Position
 			drawerStartProgress = drawer.Clip.Size.X.Offset / drawer.Width
+			drawerDragged = false
 		end)
 	end
 
 	connect(inputService.InputChanged, function(input)
 		if activeDrawer and movement(input, drawerInput) then
+			local delta = input.Position - drawerStart
+			drawerDragged = drawerDragged or delta.Magnitude >= 6
 			local progress = math.clamp(
-				drawerStartProgress + (input.Position.X - drawerStart.X) / activeDrawer.Width,
+				drawerStartProgress + delta.X / activeDrawer.Width,
 				0,
 				1
 			)
@@ -11215,7 +11225,8 @@ function GuiLogic.new(dependencies)
 			activeDrawer, drawerInput = nil, nil
 			setDrawerOpen(
 				drawer,
-				drawerStartProgress < 0.5 and progress >= 0.25 or progress > 0.75,
+				GuiLogic.DrawerOpensAfterGesture(drawerState[drawer].Open, drawerDragged,
+					drawerStartProgress, progress),
 				true
 			)
 		end
@@ -11367,6 +11378,7 @@ modules["gui/lobby-settings.luau"] = pack((function()
 local LobbySettings = {}
 
 LobbySettings.JobSites = {
+	{Name = "Beach House", Size = "Small", LevelRequirement = 17, Description = "You've been selected for a complimentary one-way getaway to this extravagant Beach House.\n---\nMap by AlexW0ndxr & w4570"},
 	{Name = "Lincoln St", Size = "Small", Description = "We received a call from a family reporting paranormal activity at their house.\n———\nMap by w4570, AlexW0ndxr, & Disgruntled_Skeleton"},
 	{Name = "Fenway Drive", Size = "Small", Description = "A real estate agent called us concerned about an ominous feeling they had in one of their listings.\n———\nMap by AlexW0ndxr"},
 	{Name = "Juniper Road", Size = "Small", Description = "We've had multiple reports of a haunting on Juniper Road.\n———\nMap by w4570"},
@@ -11375,14 +11387,25 @@ LobbySettings.JobSites = {
 	{Name = "Cafe", Size = "Medium", LevelRequirement = 8, Description = "Popular coffee establishment HVNLY Coffee has had a ton of customers harmed by flying furniture.\n———\nMap by w4570"},
 	{Name = "Bridgewood Drive", Size = "Medium", LevelRequirement = 16, Description = "One of our high-end clients reported unusual activity at their mansion located in the forest.\n———\nMap by w4570"},
 	{Name = "Oakbridge Estates", Size = "Medium", LevelRequirement = 25, Description = "A haunting has been reported somewhere on this estate, though the exact origin within the property remains unknown.\n———\nMap by w4570"},
+	{Name = "Catacombs", Size = "Medium", LevelRequirement = 30, Description = "Investigate the underground catacombs and shrine."},
 	{Name = "Prison", Size = "Large", LevelRequirement = 9, Description = "The state had to shut down their prison due to several injuries caused by a ghost.\n———\nMap by w4570, Steven_Spectacle, & phazmas"},
 	{Name = "School", Size = "Large", LevelRequirement = 13, Description = "Several students have been injured by objects thrown seemingly by nothing.\n———\nMap by w4570"},
 	{Name = "Asylum", Size = "Large", LevelRequirement = 20, Description = "This 20th century insane asylum has long been subject of haunting rumors, and the state has decided to do something about it.\n———\nMap by w4570"},
 }
 LobbySettings.Difficulties = {"Easy", "Medium", "Hard", "Nightmare", "Custom"}
 
-function LobbySettings.JobSiteNames()
+function LobbySettings.JobSiteNames(player)
 	local names = {}
+	local locations = player and player:FindFirstChild("PlayerGui")
+	for _, name in ipairs({"ComputerScreen", "JobSite", "Content", "MapContainer", "Locations"}) do
+		locations = locations and locations:FindFirstChild(name)
+	end
+	if locations then
+		for _, location in ipairs(locations:GetChildren()) do
+			if location:IsA("Frame") then table.insert(names, location.Name) end
+		end
+		if #names > 0 then table.sort(names) return names end
+	end
 	for _, site in ipairs(LobbySettings.JobSites) do table.insert(names, site.Name) end
 	return names
 end
@@ -11411,7 +11434,9 @@ function LobbySettings.ReadCustomPresets(player)
 end
 
 function LobbySettings.ReadEquipmentPresets(player)
-	return presetNames(player, {"ComputerScreen", "Equipment", "PartyLog", "PresetList"})
+	local names = presetNames(player, {"ComputerScreen", "Equipment", "PartyLog", "PresetList"})
+	table.insert(names, 1, "Current equipment")
+	return names
 end
 
 function LobbySettings.ReadSelectedJobSite(player)
@@ -11433,11 +11458,21 @@ function LobbySettings.ReadSelectedJobSite(player)
 	return selected, count > 0
 end
 
+function LobbySettings.IsJobSiteUnlocked(player, name)
+	local location = findPath(player and player:FindFirstChild("PlayerGui"), {
+		"ComputerScreen", "JobSite", "Content", "MapContainer", "Locations", name,
+	})
+	if not location then return false end
+	local locked = location:FindFirstChild("Locked")
+	return not locked or not locked.Visible
+end
+
 function LobbySettings.ReadSelectedDifficulty(player)
 	local label = findPath(player and player:FindFirstChild("PlayerGui"), {
 		"ComputerScreen", "JobSite", "Content", "BottomBar", "DifficultyLabel",
 	})
-	local selected = label and tostring(label.Text or ""):match("^%s*Difficulty%s*%-%s*(.-)%s*$")
+	local text = label and tostring(label.Text or ""):gsub("<[^>]+>", "")
+	local selected = text and text:match("^%s*Difficulty%s*[:%-]%s*(.-)%s*$")
 	return selected, table.find(LobbySettings.Difficulties, selected) ~= nil
 end
 
@@ -11552,7 +11587,7 @@ function LobbySettings.Create(options)
 		return control
 	end
 
-	local job = dropdown("JobSite", 16, "JOB SITE", LobbySettings.JobSiteNames,
+	local job = dropdown("JobSite", 16, "JOB SITE", function() return LobbySettings.JobSiteNames(player) end,
 		function() return settings.JobSite end, function(value) settings.JobSite = value end)
 	local difficulty = dropdown("Difficulty", 54, "DIFFICULTY", function() return LobbySettings.Difficulties end,
 		function() return settings.Difficulty end, function(value) settings.Difficulty = value end)
@@ -11565,11 +11600,12 @@ function LobbySettings.Create(options)
 
 	local challengeButtons = {}
 	for index = 1, 3 do
+		local column = index - 1
 		local button = create("TextButton", {
 			Name = "Challenge" .. index, AutoButtonColor = false,
 			BackgroundColor3 = colors.Control, BorderSizePixel = 0,
-			Font = Enum.Font.GothamMedium, Position = UDim2.fromOffset(16 + (index - 1) * 130, 168),
-			Size = UDim2.fromOffset(120, 30), TextColor3 = colors.Text, TextSize = 10,
+			Font = Enum.Font.GothamMedium, Position = UDim2.new(column / 3, 16 - column * 8, 0, 168),
+			Size = UDim2.new(1 / 3, -16, 0, 30), TextColor3 = colors.Text, TextSize = 10,
 		}, content)
 		challengeButtons[index] = button
 		connect(button.MouseButton1Click, function()
@@ -11657,6 +11693,79 @@ return function(dependencies)
 		if self.Connection then self.Connection:Disconnect() end
 	end
 
+	return controller
+end
+
+end)())
+modules["logic/auto-spirit-box.luau"] = pack((function()
+return function(dependencies)
+	local player = assert(dependencies.Player, "auto-spirit-box requires Player")
+	local RunService = assert(dependencies.RunService, "auto-spirit-box requires RunService")
+	local ask = assert(dependencies.AskSpiritBox, "auto-spirit-box requires AskSpiritBox")
+	local interval = tonumber(dependencies.Interval) or 2.05
+	local button = dependencies.Button
+	local disabledColor = button and button.BackgroundColor3
+	local enabledColor = dependencies.EnabledColor or disabledColor
+	local controller = {Enabled = false, Accumulator = 0, QuestionIndex = 0}
+
+	local function questions()
+		local result = {}
+		local gui = player:FindFirstChild("PlayerGui")
+		local box = gui and gui:FindFirstChild("SpiritBoxQuestions")
+		local holder = box and box:FindFirstChild("Holder")
+		for _, name in ipairs({"Aggression", "Location", "Age"}) do
+			local category = holder and holder:FindFirstChild(name)
+			local detection = category and category:FindFirstChild("Detection")
+			local value = detection and detection.Text
+			if type(value) == "string" and value ~= "" then table.insert(result, value) end
+		end
+		if #result == 0 then result[1] = "Are you in the room with me?" end
+		return result
+	end
+
+	local function render()
+		if not button then return end
+		button.Text = controller.Enabled and "AUTO SPIRIT: ON" or "AUTO SPIRIT: OFF"
+		button.BackgroundColor3 = controller.Enabled and enabledColor or disabledColor
+	end
+
+	local function askNext()
+		local available = questions()
+		controller.QuestionIndex = controller.QuestionIndex % #available + 1
+		ask(available[controller.QuestionIndex])
+	end
+
+	function controller:SetEnabled(enabled)
+		self.Enabled = enabled == true
+		self.Accumulator = self.Enabled and interval or 0
+		render()
+		return self.Enabled
+	end
+
+	function controller:Toggle()
+		return self:SetEnabled(not self.Enabled)
+	end
+
+	function controller:Destroy()
+		self.Enabled = false
+		if self.ButtonConnection then self.ButtonConnection:Disconnect() end
+		if self.HeartbeatConnection then self.HeartbeatConnection:Disconnect() end
+	end
+
+	controller.HeartbeatConnection = RunService.Heartbeat:Connect(function(deltaTime)
+		if not controller.Enabled then return end
+		if type(controller.ShouldAsk) == "function" and not controller.ShouldAsk() then return end
+		controller.Accumulator += math.max(0, tonumber(deltaTime) or 0)
+		if controller.Accumulator < interval then return end
+		controller.Accumulator %= interval
+		askNext()
+	end)
+	if button then
+		controller.ButtonConnection = button.MouseButton1Click:Connect(function()
+			controller:Toggle()
+		end)
+	end
+	render()
 	return controller
 end
 
@@ -11799,7 +11908,7 @@ return function(dependencies)
 				local candidateScore = score(index)
 				if bestName == nil or candidateScore > bestScore
 					or (candidateScore == bestScore
-						and bestName == "Skinwalker" and name ~= "Skinwalker") then
+						and bestName == "Doppelganger" and name ~= "Doppelganger") then
 					bestName, bestScore = name, candidateScore
 				end
 			end
@@ -12154,79 +12263,6 @@ return function(dependencies)
 				elapsed = 0
 				synchronizeEnabled()
 			end
-		end)
-	end
-	render()
-	return controller
-end
-
-end)())
-modules["logic/auto-spirit-box.luau"] = pack((function()
-return function(dependencies)
-	local player = assert(dependencies.Player, "auto-spirit-box requires Player")
-	local RunService = assert(dependencies.RunService, "auto-spirit-box requires RunService")
-	local ask = assert(dependencies.AskSpiritBox, "auto-spirit-box requires AskSpiritBox")
-	local interval = tonumber(dependencies.Interval) or 2.05
-	local button = dependencies.Button
-	local disabledColor = button and button.BackgroundColor3
-	local enabledColor = dependencies.EnabledColor or disabledColor
-	local controller = {Enabled = false, Accumulator = 0, QuestionIndex = 0}
-
-	local function questions()
-		local result = {}
-		local gui = player:FindFirstChild("PlayerGui")
-		local box = gui and gui:FindFirstChild("SpiritBoxQuestions")
-		local holder = box and box:FindFirstChild("Holder")
-		for _, name in ipairs({"Aggression", "Location", "Age"}) do
-			local category = holder and holder:FindFirstChild(name)
-			local detection = category and category:FindFirstChild("Detection")
-			local value = detection and detection.Text
-			if type(value) == "string" and value ~= "" then table.insert(result, value) end
-		end
-		if #result == 0 then result[1] = "Are you in the room with me?" end
-		return result
-	end
-
-	local function render()
-		if not button then return end
-		button.Text = controller.Enabled and "AUTO SPIRIT: ON" or "AUTO SPIRIT: OFF"
-		button.BackgroundColor3 = controller.Enabled and enabledColor or disabledColor
-	end
-
-	local function askNext()
-		local available = questions()
-		controller.QuestionIndex = controller.QuestionIndex % #available + 1
-		ask(available[controller.QuestionIndex])
-	end
-
-	function controller:SetEnabled(enabled)
-		self.Enabled = enabled == true
-		self.Accumulator = self.Enabled and interval or 0
-		render()
-		return self.Enabled
-	end
-
-	function controller:Toggle()
-		return self:SetEnabled(not self.Enabled)
-	end
-
-	function controller:Destroy()
-		self.Enabled = false
-		if self.ButtonConnection then self.ButtonConnection:Disconnect() end
-		if self.HeartbeatConnection then self.HeartbeatConnection:Disconnect() end
-	end
-
-	controller.HeartbeatConnection = RunService.Heartbeat:Connect(function(deltaTime)
-		if not controller.Enabled then return end
-		if type(controller.ShouldAsk) == "function" and not controller.ShouldAsk() then return end
-		controller.Accumulator += math.max(0, tonumber(deltaTime) or 0)
-		if controller.Accumulator < interval then return end
-		controller.Accumulator %= interval
-		askNext()
-	end)
-	if button then
-		controller.ButtonConnection = button.MouseButton1Click:Connect(function()
-			controller:Toggle()
 		end)
 	end
 	render()
@@ -13193,19 +13229,28 @@ return function(dependencies)
 	end
 
 	local function waitForLobbyState(generation)
-		return waitUntil(generation, 4, function()
+		local missing = {}
+		local loaded, snapshot = waitUntil(generation, 4, function()
 			local job, jobReady = selectedJobSite()
 			local difficulty, difficultyReady = selectedDifficulty()
 			local challenges = challengeStates()
-			local challengeReady = true
-			for index = 1, 3 do
-				if type(challenges[index]) ~= "boolean" then challengeReady = false break end
-			end
 			local ready = Player:GetAttribute("IsReady")
-			return jobReady and difficultyReady and challengeReady and type(ready) == "boolean", {
-				JobSite = job, Difficulty = difficulty, Challenges = challenges, Ready = ready,
-			}
+			table.clear(missing)
+			if not jobReady then table.insert(missing, "Job Site") end
+			if not difficultyReady then table.insert(missing, "difficulty") end
+			for index = 1, 3 do
+				if type(challenges[index]) ~= "boolean" then
+					table.insert(missing, "challenge " .. index)
+				end
+			end
+			if type(ready) ~= "boolean" then table.insert(missing, "party readiness") end
+			if #missing > 0 then return false end
+			return true, {JobSite = job, Difficulty = difficulty, Challenges = challenges, Ready = ready}
 		end)
+		if not loaded and snapshot == "timed out" then
+			return false, "Lobby state did not load: " .. table.concat(missing, ", ") .. "."
+		end
+		return loaded, snapshot
 	end
 
 	local function run(generation, returnedToLobby)
@@ -13221,11 +13266,14 @@ return function(dependencies)
 
 		status("Waiting for lobby data...")
 		local ready, snapshot = waitForLobbyState(generation)
-		if not ready then return false, "Lobby state did not load." end
-		local jobSite = tostring(settings.JobSite or "School")
-		local difficulty = tostring(settings.Difficulty or "Nightmare")
+		if not ready then return false, snapshot end
+		local jobSite = tostring(settings.JobSite or snapshot.JobSite or "")
+		local difficulty = tostring(settings.Difficulty or snapshot.Difficulty or "")
 		local customPreset = tostring(settings.CustomPreset or "")
 		local equipmentPreset = tostring(settings.EquipmentPreset or "")
+		if SettingsApi.IsJobSiteUnlocked and not SettingsApi.IsJobSiteUnlocked(Player, jobSite) then
+			return false, "Job Site '" .. jobSite .. "' is locked. Select an unlocked map."
+		end
 		if difficulty ~= "Custom" then settings.GhostWalkSpeedMultiplier = nil end
 		if difficulty == "Custom" then
 			if customPreset == "" then return false, "Select a custom difficulty preset." end
@@ -13329,10 +13377,12 @@ return function(dependencies)
 			settings.CustomMultiplier = multiplier
 		end
 
-		status("Applying equipment...")
-		local equipmentFired, equipmentReason = dispatch(generation,
-			"ApplyEquipmentPreset", equipmentPreset)
-		if not equipmentFired then return false, equipmentReason end
+		if equipmentPreset ~= "Current equipment" then
+			status("Applying equipment...")
+			local equipmentFired, equipmentReason = dispatch(generation,
+				"ApplyEquipmentPreset", equipmentPreset)
+			if not equipmentFired then return false, equipmentReason end
+		end
 
 		local desiredChallenges = settings.Challenges or {}
 		local currentChallenges = challengeStates()
@@ -13466,12 +13516,18 @@ return function(dependencies)
 	local onTeleport = Player.OnTeleport
 	if onTeleport and onTeleport.Connect then
 		controller.TeleportConnection = onTeleport:Connect(function(state)
-			if tostring(state):find("Failed", 1, true) and controller.Running then
+			if tostring(state):find("Failed", 1, true) then
+				if not controller.Running then return end
 				controller.Teleporting = false
 				local generation = controller.Generation
 				controller.Running = false
-				status("Teleport failed; retrying...", true)
-				if controller.Enabled then scheduleRetry(generation, 4) end
+				if view and view.SetBusy then view:SetBusy(false) end
+				if controller.Enabled then
+					status("Teleport failed; retrying...", true)
+					scheduleRetry(generation, 4)
+				else
+					status("Teleport failed. Start Round to try again.", true)
+				end
 			else
 				controller.Teleporting = true
 			end
@@ -16296,10 +16352,10 @@ local function copySettings(source)
 	local challenges = type(source.Challenges) == "table" and source.Challenges or {}
 	return {
 		Auto = source.Auto == true,
-		JobSite = type(source.JobSite) == "string" and source.JobSite or "School",
-		Difficulty = type(source.Difficulty) == "string" and source.Difficulty or "Nightmare",
+		JobSite = type(source.JobSite) == "string" and source.JobSite or "",
+		Difficulty = type(source.Difficulty) == "string" and source.Difficulty or "",
 		CustomPreset = type(source.CustomPreset) == "string" and source.CustomPreset or "",
-		EquipmentPreset = type(source.EquipmentPreset) == "string" and source.EquipmentPreset or "green",
+		EquipmentPreset = type(source.EquipmentPreset) == "string" and source.EquipmentPreset or "Current equipment",
 		GhostWalkSpeedMultiplier = tonumber(source.GhostWalkSpeedMultiplier),
 		Challenges = {challenges[1] == true, challenges[2] == true, challenges[3] == true},
 		ChallengesConfigured = source.ChallengesConfigured == true,
@@ -16339,8 +16395,10 @@ return function(dependencies)
 				end
 			end
 		end
-		loaded = loaded or environment.DemonologyLobbySettings or handoff or {}
+		local cached = environment.DemonologyLobbySettings
+		loaded = loaded or (type(cached) == "table" and cached) or {}
 		if type(handoff) == "table" then
+			loaded = table.clone(loaded)
 			for key, value in pairs(handoff) do loaded[key] = value end
 		end
 		local settings = copySettings(loaded)
@@ -16363,7 +16421,8 @@ return function(dependencies)
 		local encoded, source = pcall(HttpService.JSONEncode, HttpService, settings)
 		if not encoded then return false, tostring(source) end
 		local written, failure = pcall(writeFile, FILE, source)
-		return written, written and nil or tostring(failure)
+		if not written then return false, tostring(failure) end
+		return true
 	end
 
 	return store
@@ -16459,10 +16518,10 @@ local chunk, compileError = compiler(source, "@DemonologyAutoLoop")
 assert(chunk, compileError)
 chunk()
 ]], token, context,
-			tostring(settings.JobSite or "School"),
-			tostring(settings.Difficulty or "Nightmare"),
+			tostring(settings.JobSite or ""),
+			tostring(settings.Difficulty or ""),
 			tostring(settings.CustomPreset or ""),
-			tostring(settings.EquipmentPreset or "green"),
+			tostring(settings.EquipmentPreset or "Current equipment"),
 			tostring(tonumber(settings.GhostWalkSpeedMultiplier) or "nil"),
 			tostring(challenges[1] == true), tostring(challenges[2] == true),
 			tostring(challenges[3] == true), tostring(settings.ChallengesConfigured == true),

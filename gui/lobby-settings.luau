@@ -1,6 +1,7 @@
 local LobbySettings = {}
 
 LobbySettings.JobSites = {
+	{Name = "Beach House", Size = "Small", LevelRequirement = 17, Description = "You've been selected for a complimentary one-way getaway to this extravagant Beach House.\n---\nMap by AlexW0ndxr & w4570"},
 	{Name = "Lincoln St", Size = "Small", Description = "We received a call from a family reporting paranormal activity at their house.\n———\nMap by w4570, AlexW0ndxr, & Disgruntled_Skeleton"},
 	{Name = "Fenway Drive", Size = "Small", Description = "A real estate agent called us concerned about an ominous feeling they had in one of their listings.\n———\nMap by AlexW0ndxr"},
 	{Name = "Juniper Road", Size = "Small", Description = "We've had multiple reports of a haunting on Juniper Road.\n———\nMap by w4570"},
@@ -9,14 +10,25 @@ LobbySettings.JobSites = {
 	{Name = "Cafe", Size = "Medium", LevelRequirement = 8, Description = "Popular coffee establishment HVNLY Coffee has had a ton of customers harmed by flying furniture.\n———\nMap by w4570"},
 	{Name = "Bridgewood Drive", Size = "Medium", LevelRequirement = 16, Description = "One of our high-end clients reported unusual activity at their mansion located in the forest.\n———\nMap by w4570"},
 	{Name = "Oakbridge Estates", Size = "Medium", LevelRequirement = 25, Description = "A haunting has been reported somewhere on this estate, though the exact origin within the property remains unknown.\n———\nMap by w4570"},
+	{Name = "Catacombs", Size = "Medium", LevelRequirement = 30, Description = "Investigate the underground catacombs and shrine."},
 	{Name = "Prison", Size = "Large", LevelRequirement = 9, Description = "The state had to shut down their prison due to several injuries caused by a ghost.\n———\nMap by w4570, Steven_Spectacle, & phazmas"},
 	{Name = "School", Size = "Large", LevelRequirement = 13, Description = "Several students have been injured by objects thrown seemingly by nothing.\n———\nMap by w4570"},
 	{Name = "Asylum", Size = "Large", LevelRequirement = 20, Description = "This 20th century insane asylum has long been subject of haunting rumors, and the state has decided to do something about it.\n———\nMap by w4570"},
 }
 LobbySettings.Difficulties = {"Easy", "Medium", "Hard", "Nightmare", "Custom"}
 
-function LobbySettings.JobSiteNames()
+function LobbySettings.JobSiteNames(player)
 	local names = {}
+	local locations = player and player:FindFirstChild("PlayerGui")
+	for _, name in ipairs({"ComputerScreen", "JobSite", "Content", "MapContainer", "Locations"}) do
+		locations = locations and locations:FindFirstChild(name)
+	end
+	if locations then
+		for _, location in ipairs(locations:GetChildren()) do
+			if location:IsA("Frame") then table.insert(names, location.Name) end
+		end
+		if #names > 0 then table.sort(names) return names end
+	end
 	for _, site in ipairs(LobbySettings.JobSites) do table.insert(names, site.Name) end
 	return names
 end
@@ -45,7 +57,9 @@ function LobbySettings.ReadCustomPresets(player)
 end
 
 function LobbySettings.ReadEquipmentPresets(player)
-	return presetNames(player, {"ComputerScreen", "Equipment", "PartyLog", "PresetList"})
+	local names = presetNames(player, {"ComputerScreen", "Equipment", "PartyLog", "PresetList"})
+	table.insert(names, 1, "Current equipment")
+	return names
 end
 
 function LobbySettings.ReadSelectedJobSite(player)
@@ -67,11 +81,21 @@ function LobbySettings.ReadSelectedJobSite(player)
 	return selected, count > 0
 end
 
+function LobbySettings.IsJobSiteUnlocked(player, name)
+	local location = findPath(player and player:FindFirstChild("PlayerGui"), {
+		"ComputerScreen", "JobSite", "Content", "MapContainer", "Locations", name,
+	})
+	if not location then return false end
+	local locked = location:FindFirstChild("Locked")
+	return not locked or not locked.Visible
+end
+
 function LobbySettings.ReadSelectedDifficulty(player)
 	local label = findPath(player and player:FindFirstChild("PlayerGui"), {
 		"ComputerScreen", "JobSite", "Content", "BottomBar", "DifficultyLabel",
 	})
-	local selected = label and tostring(label.Text or ""):match("^%s*Difficulty%s*%-%s*(.-)%s*$")
+	local text = label and tostring(label.Text or ""):gsub("<[^>]+>", "")
+	local selected = text and text:match("^%s*Difficulty%s*[:%-]%s*(.-)%s*$")
 	return selected, table.find(LobbySettings.Difficulties, selected) ~= nil
 end
 
@@ -186,7 +210,7 @@ function LobbySettings.Create(options)
 		return control
 	end
 
-	local job = dropdown("JobSite", 16, "JOB SITE", LobbySettings.JobSiteNames,
+	local job = dropdown("JobSite", 16, "JOB SITE", function() return LobbySettings.JobSiteNames(player) end,
 		function() return settings.JobSite end, function(value) settings.JobSite = value end)
 	local difficulty = dropdown("Difficulty", 54, "DIFFICULTY", function() return LobbySettings.Difficulties end,
 		function() return settings.Difficulty end, function(value) settings.Difficulty = value end)
@@ -199,11 +223,12 @@ function LobbySettings.Create(options)
 
 	local challengeButtons = {}
 	for index = 1, 3 do
+		local column = index - 1
 		local button = create("TextButton", {
 			Name = "Challenge" .. index, AutoButtonColor = false,
 			BackgroundColor3 = colors.Control, BorderSizePixel = 0,
-			Font = Enum.Font.GothamMedium, Position = UDim2.fromOffset(16 + (index - 1) * 130, 168),
-			Size = UDim2.fromOffset(120, 30), TextColor3 = colors.Text, TextSize = 10,
+			Font = Enum.Font.GothamMedium, Position = UDim2.new(column / 3, 16 - column * 8, 0, 168),
+			Size = UDim2.new(1 / 3, -16, 0, 30), TextColor3 = colors.Text, TextSize = 10,
 		}, content)
 		challengeButtons[index] = button
 		connect(button.MouseButton1Click, function()

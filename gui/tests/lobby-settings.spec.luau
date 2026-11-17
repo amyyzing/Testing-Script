@@ -1,7 +1,7 @@
 local LobbySettings = require("../lobby-settings")
 
 local names = LobbySettings.JobSiteNames()
-assert(#names == 11 and names[1] == "Lincoln St" and names[10] == "School",
+assert(names[1] == "Beach House" and table.find(names, "School") and table.find(names, "Catacombs"),
 	"Job Site list or order changed")
 for _, site in ipairs(LobbySettings.JobSites) do
 	assert((site.Size == "Small" or site.Size == "Medium" or site.Size == "Large")
@@ -35,7 +35,7 @@ local function challenge(index, text)
 	return node("Challenge" .. index, "Frame", {node("Toggle", "Frame", {label})})
 end
 local difficultyLabel = node("DifficultyLabel", "TextLabel")
-difficultyLabel.Text = "Difficulty - Custom"
+difficultyLabel.Text = "Difficulty: <font color=\"rgb(85, 170, 255)\">Custom</font>"
 local delete = node("Delete", "TextButton")
 local player = node("Player", "Player", {
 	node("PlayerGui", "PlayerGui", {
@@ -70,8 +70,11 @@ assert(jobReady and job == "School" and difficultyReady and difficulty == "Custo
 	"live Job Site or difficulty paths changed")
 assert(challenges[1] and challenges[2] == false and challenges[3],
 	"challenge ON/OFF paths changed")
+assert(table.find(LobbySettings.JobSiteNames(player), "School"),
+	"the map dropdown should read the current lobby")
 assert(LobbySettings.ReadCustomPresets(player)[1] == "john4"
-	and LobbySettings.ReadEquipmentPresets(player)[1] == "green",
+	and LobbySettings.ReadEquipmentPresets(player)[1] == "Current equipment"
+	and LobbySettings.ReadEquipmentPresets(player)[2] == "green",
 	"saved preset paths changed")
 assert(LobbySettings.CustomDifficultyMatches(player, {EvidenceGiven = 4}),
 	"custom difficulty index confirmation failed")

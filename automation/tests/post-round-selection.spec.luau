@@ -52,4 +52,11 @@ local ghost, score = post.CurrentIdentification()
 expect(ghost == "Aswang" and score == 99,
 	"the stable evidence-compatible high-confidence ghost should be eligible")
 
-print("post-round-selection.spec: evidence settle gate passed")
+local moduleEnvironment = getfenv(createPostRound)
+local originalGlobals = moduleEnvironment._G
+moduleEnvironment._G = {DemonologyRavagerLab = true}
+expect(post.CurrentIdentification() == nil,
+	"Ravager lab mode must suppress post-round identification completion")
+moduleEnvironment._G = originalGlobals
+
+print("post-round-selection.spec: evidence settle and Ravager lab gates passed")

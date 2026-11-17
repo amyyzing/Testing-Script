@@ -144,19 +144,28 @@ return function(dependencies)
 	end
 
 	local function waitForLobbyState(generation)
-		return waitUntil(generation, 4, function()
+		local missing = {}
+		local loaded, snapshot = waitUntil(generation, 4, function()
 			local job, jobReady = selectedJobSite()
 			local difficulty, difficultyReady = selectedDifficulty()
 			local challenges = challengeStates()
-			local challengeReady = true
-			for index = 1, 3 do
-				if type(challenges[index]) ~= "boolean" then challengeReady = false break end
-			end
 			local ready = Player:GetAttribute("IsReady")
-			return jobReady and difficultyReady and challengeReady and type(ready) == "boolean", {
-				JobSite = job, Difficulty = difficulty, Challenges = challenges, Ready = ready,
-			}
+			table.clear(missing)
+			if not jobReady then table.insert(missing, "Job Site") end
+			if not difficultyReady then table.insert(missing, "difficulty") end
+			for index = 1, 3 do
+				if type(challenges[index]) ~= "boolean" then
+					table.insert(missing, "challenge " .. index)
+				end
+			end
+			if type(ready) ~= "boolean" then table.insert(missing, "party readiness") end
+			if #missing > 0 then return false end
+			return true, {JobSite = job, Difficulty = difficulty, Challenges = challenges, Ready = ready}
 		end)
+		if not loaded and snapshot == "timed out" then
+			return false, "Lobby state did not load: " .. table.concat(missing, ", ") .. "."
+		end
+		return loaded, snapshot
 	end
 
 	local function run(generation, returnedToLobby)
@@ -172,11 +181,14 @@ return function(dependencies)
 
 		status("Waiting for lobby data...")
 		local ready, snapshot = waitForLobbyState(generation)
-		if not ready then return false, "Lobby state did not load." end
-		local jobSite = tostring(settings.JobSite or "School")
-		local difficulty = tostring(settings.Difficulty or "Nightmare")
+		if not ready then return false, snapshot end
+		local jobSite = tostring(settings.JobSite or snapshot.JobSite or "")
+		local difficulty = tostring(settings.Difficulty or snapshot.Difficulty or "")
 		local customPreset = tostring(settings.CustomPreset or "")
 		local equipmentPreset = tostring(settings.EquipmentPreset or "")
+		if SettingsApi.IsJobSiteUnlocked and not SettingsApi.IsJobSiteUnlocked(Player, jobSite) then
+			return false, "Job Site '" .. jobSite .. "' is locked. Select an unlocked map."
+		end
 		if difficulty ~= "Custom" then settings.GhostWalkSpeedMultiplier = nil end
 		if difficulty == "Custom" then
 			if customPreset == "" then return false, "Select a custom difficulty preset." end
@@ -280,10 +292,12 @@ return function(dependencies)
 			settings.CustomMultiplier = multiplier
 		end
 
-		status("Applying equipment...")
-		local equipmentFired, equipmentReason = dispatch(generation,
-			"ApplyEquipmentPreset", equipmentPreset)
-		if not equipmentFired then return false, equipmentReason end
+		if equipmentPreset ~= "Current equipment" then
+			status("Applying equipment...")
+			local equipmentFired, equipmentReason = dispatch(generation,
+				"ApplyEquipmentPreset", equipmentPreset)
+			if not equipmentFired then return false, equipmentReason end
+		end
 
 		local desiredChallenges = settings.Challenges or {}
 		local currentChallenges = challengeStates()
@@ -417,12 +431,18 @@ return function(dependencies)
 	local onTeleport = Player.OnTeleport
 	if onTeleport and onTeleport.Connect then
 		controller.TeleportConnection = onTeleport:Connect(function(state)
-			if tostring(state):find("Failed", 1, true) and controller.Running then
+			if tostring(state):find("Failed", 1, true) then
+				if not controller.Running then return end
 				controller.Teleporting = false
 				local generation = controller.Generation
 				controller.Running = false
-				status("Teleport failed; retrying...", true)
-				if controller.Enabled then scheduleRetry(generation, 4) end
+				if view and view.SetBusy then view:SetBusy(false) end
+				if controller.Enabled then
+					status("Teleport failed; retrying...", true)
+					scheduleRetry(generation, 4)
+				else
+					status("Teleport failed. Start Round to try again.", true)
+				end
 			else
 				controller.Teleporting = true
 			end

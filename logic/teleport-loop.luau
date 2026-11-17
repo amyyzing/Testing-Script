@@ -83,10 +83,10 @@ local chunk, compileError = compiler(source, "@DemonologyAutoLoop")
 assert(chunk, compileError)
 chunk()
 ]], token, context,
-			tostring(settings.JobSite or "School"),
-			tostring(settings.Difficulty or "Nightmare"),
+			tostring(settings.JobSite or ""),
+			tostring(settings.Difficulty or ""),
 			tostring(settings.CustomPreset or ""),
-			tostring(settings.EquipmentPreset or "green"),
+			tostring(settings.EquipmentPreset or "Current equipment"),
 			tostring(tonumber(settings.GhostWalkSpeedMultiplier) or "nil"),
 			tostring(challenges[1] == true), tostring(challenges[2] == true),
 			tostring(challenges[3] == true), tostring(settings.ChallengesConfigured == true),

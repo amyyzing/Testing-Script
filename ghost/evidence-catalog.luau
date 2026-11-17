@@ -153,14 +153,14 @@ local SOURCE = {
 	Revenant = "https://demonology.fandom.com/wiki/Revenant",
 	Shadow = "https://demonology.fandom.com/wiki/Shadow",
 	Siren = "https://demonology.fandom.com/wiki/Siren",
-	Skinwalker = "https://demonology.fandom.com/wiki/Skinwalker",
+	Doppelganger = "live-game:ReplicatedStorage.Modules.GhostInfo",
 	Specter = "https://demonology.fandom.com/wiki/Specter",
 	Spirit = "https://demonology.fandom.com/wiki/Spirit",
 	Wisp = "https://demonology.fandom.com/wiki/The_Wisp",
 	Umbra = "https://demonology.fandom.com/wiki/Umbra",
 	Vesper = "https://demonology.fandom.com/wiki/Vesper",
 	Vex = "https://demonology.fandom.com/wiki/Vex",
-	Wendigo = "https://demonology.fandom.com/wiki/Wendigo",
+	Wretch = "live-game:ReplicatedStorage.Modules.GhostInfo",
 	Wraith = "https://demonology.fandom.com/wiki/Wraith",
 }
 
@@ -288,13 +288,10 @@ local Profiles = {
 	}, {
 		note("A verified male VisualModel or a completed line-of-sight trial with no slowdown is a 99% negative.", SOURCE.Siren, "user-observed", false, "RuleOut"),
 	})),
-	profile("Skinwalker", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "user-observed", perks({
-		note("Ghost Orb forms a fourth evidence observation or completes an impossible three-evidence combination.", SOURCE.Skinwalker, "user-observed", false, "Trait"),
-		note("Spirit Box humming paired with a verified male VisualModel identifies a Siren-mimicking Skinwalker.", SOURCE.Skinwalker, "user-observed", false, "Ability"),
-	}, {
-		note("It can mimic Wisp by crossing qualified burning Holy Oil without catching fire, or mimic Umbra by having no HumanoidRootPart sound other than Hunting.", SOURCE.Skinwalker, "user-observed", false, "Ability"),
-	}, {
-		note("Catching fire after qualified Holy Oil passage is a 99% Skinwalker negative. Orb alone is not sufficient.", SOURCE.Skinwalker, "user-observed", false, "RuleOut"),
+	profile("Doppelganger", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "live-game", perks({
+		note("Ghost Orb forms a fourth evidence observation or completes an impossible three-evidence combination.", SOURCE.Doppelganger, "user-observed", false, "Trait"),
+	}, {}, {
+		note("No automatic Doppelganger behavior observation beyond its false Ghost Orb is currently trusted.", SOURCE.Doppelganger, "live-game", false, "Caveat"),
 	}), nil, {"GhostOrb"}),
 	profile("Specter", {"EMFLevel5", "FreezingTemperatures", "LaserProjector"}, "user-observed", perks({
 		note("Across a completed five-second arm trial, the non-hunting ghost remains stationary in its unchanged favourite room until the next hunt begins.", SOURCE.Specter, "user-observed", false, "Trait"),
@@ -319,10 +316,10 @@ local Profiles = {
 	}, {}, {
 		note("The replicated InvisibleOnLIDAR value does not exist on the fixed ghost model.", SOURCE.Vex, "user-observed", false, "RuleOut"),
 	})),
-	profile("Wendigo", {"GhostOrb", "GhostWriting", "LaserProjector"}, "user-observed", perks({
-		note("Two alternating settled hunt-state transitions match the WalkSpeed curve for average player Energy captured at each exact switch; the sanity spread must be large enough to exceed speed tolerance.", SOURCE.Wendigo, "user-observed", false, "Trait"),
+	profile("Wretch", {"GhostOrb", "GhostWriting", "LaserProjector"}, "live-game", perks({
+		note("Two alternating settled hunt-state transitions match the WalkSpeed curve for average player Energy captured at each exact switch; the sanity spread must be large enough to exceed speed tolerance.", SOURCE.Wretch, "user-observed", false, "Trait"),
 	}, {}, {
-		note("A qualified transition-time WalkSpeed does not match its same-transition average-Energy prediction. Live sanity changes between transitions do not change speed.", SOURCE.Wendigo, "user-observed", false, "RuleOut"),
+		note("A qualified transition-time WalkSpeed does not match its same-transition average-Energy prediction. Live sanity changes between transitions do not change speed.", SOURCE.Wretch, "user-observed", false, "RuleOut"),
 	})),
 	profile("Wisp", {"GhostOrb", "LaserProjector", "Wither"}, "user-observed", perks({
 		note("While hunting through burning Holy Oil, GhostWall.CanCollide is false.", SOURCE.Wisp, "user-observed", false, "Ability"),
@@ -362,7 +359,7 @@ local PerkConfidence = {
 	Demon = 99,
 	Dullahan = 99,
 	Entity = 99,
-	Skinwalker = 100,
+	Doppelganger = 100,
 	Keres = 99,
 	Leviathan = 99,
 	Oni = 99,
@@ -375,7 +372,7 @@ local PerkConfidence = {
 	Spirit = 99,
 	Umbra = 99,
 	Vex = 99,
-	Wendigo = 99,
+	Wretch = 99,
 	Wisp = 99,
 	Wraith = 99,
 }
@@ -385,7 +382,7 @@ local PerkTTL = {
 	Dullahan = 25,
 	Dybbuk = 120,
 	Entity = 30,
-	Skinwalker = 120,
+	Doppelganger = 120,
 	Leviathan = 30,
 	Oni = 25,
 	Phantom = 30,
@@ -394,7 +391,7 @@ local PerkTTL = {
 	Specter = 120,
 	Umbra = 60,
 	Vex = 2,
-	Wendigo = 20,
+	Wretch = 20,
 	Wisp = 120,
 	Wraith = 120,
 }
@@ -574,7 +571,7 @@ local function filterCandidates(evidence, ruleOuts, options)
 		end
 		if compatible then
 			for evidenceKey in pairs(disproved) do
-				-- A missing fake Orb does not disprove Skinwalker, so negative
+				-- A missing fake Orb does not disprove Doppelganger, so negative
 				-- evidence considers real evidence only.
 				if supportsEvidence(ghostProfile, evidenceKey, {RealOnly = true}) then
 					compatible = false
@@ -703,9 +700,9 @@ local function selectHighestConfidenceGuess(options)
 	local confirmedEvidence = collectEvidence(options.ConfirmedEvidence)
 	if next(confirmedEvidence) ~= nil then
 		local orbCombination = classifyOrbCombination(confirmedEvidence)
-		if orbCombination.Qualified and allowed.Skinwalker then
-			candidates = {"Skinwalker"}
-			allowed = {Skinwalker = true}
+		if orbCombination.Qualified and allowed.Doppelganger then
+			candidates = {"Doppelganger"}
+			allowed = {Doppelganger = true}
 		else
 			local fewestConflicts = math.huge
 			local evidenceCandidates = {}
@@ -713,14 +710,14 @@ local function selectHighestConfidenceGuess(options)
 				local conflicts = 0
 				for evidenceKey in pairs(confirmedEvidence) do
 					-- With fewer than three confirmed observations, Orb is still a
-					-- valid partial Skinwalker clue and must not push it behind every
+					-- valid partial Doppelganger clue and must not push it behind every
 					-- real-Orb ghost. At three observations a valid real combination
 					-- wins; impossible/fourth combinations are handled above.
-					local partialSkinwalkerOrb = name == "Skinwalker"
+					local partialDoppelgangerOrb = name == "Doppelganger"
 						and evidenceKey == "GhostOrb"
 						and orbCombination.OrbObserved
 						and orbCombination.EvidenceCount < 3
-					if not partialSkinwalkerOrb and not supportsEvidence(name, evidenceKey, {
+					if not partialDoppelgangerOrb and not supportsEvidence(name, evidenceKey, {
 						RealOnly = true,
 						IncludeFalseEvidence = false,
 					}) then
@@ -796,21 +793,21 @@ local function selectHighestConfidenceGuess(options)
 
 	local orbObserved = options.OrbObserved == true
 		or confirmedEvidence.GhostOrb == true
-	local skinwalkerTied = false
+	local doppelgangerTied = false
 	if #tied > 1 and not orbObserved then
 		for _, name in ipairs(tied) do
-			if name == "Skinwalker" then
-				skinwalkerTied = true
+			if name == "Doppelganger" then
+				doppelgangerTied = true
 				break
 			end
 		end
 	end
-	if skinwalkerTied then
+	if doppelgangerTied then
 		local redistributed = 0.5 / math.max(#tied - 1, 1)
 		local totalWeight = 0
 		local weights = {}
 		for index, name in ipairs(tied) do
-			local weight = name == "Skinwalker"
+			local weight = name == "Doppelganger"
 				and 0.5
 				or 1 + redistributed
 			weights[index] = weight

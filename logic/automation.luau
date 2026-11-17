@@ -135,7 +135,7 @@ return function(dependencies)
 				local candidateScore = score(index)
 				if bestName == nil or candidateScore > bestScore
 					or (candidateScore == bestScore
-						and bestName == "Skinwalker" and name ~= "Skinwalker") then
+						and bestName == "Doppelganger" and name ~= "Doppelganger") then
 					bestName, bestScore = name, candidateScore
 				end
 			end

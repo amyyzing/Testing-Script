@@ -1,16 +1,16 @@
-local Wendigo = {Name = "Wendigo", Index = 23}
+local Wretch = {Name = "Wretch", Index = 23}
 
-function Wendigo.new(dependencies)
-	local Traffic = assert(dependencies.Traffic, "Wendigo requires Traffic")
+function Wretch.new(dependencies)
+	local Traffic = assert(dependencies.Traffic, "Wretch requires Traffic")
 	local Processor = {Supported = false, RuledOut = false}
-	Processor.Disconnect = Traffic:Receive("Wendigo", function(signal, payload)
-		if Processor.RuledOut or signal ~= "WendigoSpeedResult"
+	Processor.Disconnect = Traffic:Receive("Wretch", function(signal, payload)
+		if Processor.RuledOut or signal ~= "WretchSpeedResult"
 			or type(payload) ~= "table" or payload.Complete ~= true then return end
 		if payload.Matched == true then
 			if Processor.Supported then return end
 			Processor.Supported = true
 			Traffic("Support", {
-				Ghost = "Wendigo",
+				Ghost = "Wretch",
 				Confidence = 99,
 				Reason = string.format(
 					"state-change WalkSpeed %.3f matched expected %.3f at %.2f%% average Energy",
@@ -20,7 +20,7 @@ function Wendigo.new(dependencies)
 		else
 			Processor.RuledOut = true
 			Traffic("RuleOut", {
-				Ghost = "Wendigo",
+				Ghost = "Wretch",
 				Confidence = 99,
 				Reason = string.format(
 					"state-change WalkSpeed %.3f did not match closest expected %.3f at %.2f%% average Energy",
@@ -33,4 +33,4 @@ function Wendigo.new(dependencies)
 	return Processor
 end
 
-return Wendigo
+return Wretch

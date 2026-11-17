@@ -135,25 +135,25 @@ local exactVerdict = createVerdict({
 for _, evidence in ipairs({"GhostWriting", "GhostOrb", "LaserProjector"}) do
 	exactTraffic("EvidenceState", {Evidence = evidence, State = true}):SendTo("Verdict")
 end
-expect(exactVerdict:GetEvidenceResolvedGhost() == "Wendigo",
-	"Inscription, Ghost Orb, and Laser should resolve only Wendigo")
+expect(exactVerdict:GetEvidenceResolvedGhost() == "Wretch",
+	"Inscription, Ghost Orb, and Laser should resolve only Wretch")
 local exactSnapshot = exactVerdict:Snapshot()
 expect(#exactSnapshot.Selected == 1
-		and exactSnapshot.Lists[exactSnapshot.Selected[1]] == "Wendigo"
+		and exactSnapshot.Lists[exactSnapshot.Selected[1]] == "Wretch"
 		and #exactSnapshot["ruled-out"] == 24
 		and #exactSnapshot.Unknown == 0,
 	"abilities and exact evidence should produce one selected and no unknown ghosts")
 table.clear(exactOrder)
-expect(exactVerdict:SyncJournal("Wendigo"),
+expect(exactVerdict:SyncJournal("Wretch"),
 	"the exact three-evidence ghost should synchronize once")
-expect(exactOrder[#exactOrder] == "Wendigo:true" and exactStates.Wendigo == true,
-	"all ruled-out rows must be handled before selecting Wendigo last")
+expect(exactOrder[#exactOrder] == "Wretch:true" and exactStates.Wretch == true,
+	"all ruled-out rows must be handled before selecting Wretch last")
 local selectedRows = 0
 for _, state in pairs(exactStates) do
 	if state == true then selectedRows += 1 end
 end
 expect(selectedRows == 1,
-	"the exact evidence sync must leave only Wendigo selected")
+	"the exact evidence sync must leave only Wretch selected")
 
 local raceTraffic = createTraffic()
 local raceVerdict
@@ -183,7 +183,7 @@ local combinedVerdict = createVerdict({
 	Traffic = combinedTraffic,
 	EvidenceCatalog = EvidenceCatalog,
 })
-combinedTraffic("Support", {Ghost = "Wendigo", Confidence = 60}):SendTo("Verdict")
+combinedTraffic("Support", {Ghost = "Wretch", Confidence = 60}):SendTo("Verdict")
 combinedTraffic("RuleOut", {Ghost = "Leviathan", Confidence = 99}):SendTo("Verdict")
 combinedTraffic("EvidenceState", {Evidence = "GhostWriting", State = true}):SendTo("Verdict")
 combinedTraffic("EvidenceState", {Evidence = "GhostOrb", State = true}):SendTo("Verdict")
@@ -192,7 +192,7 @@ local partitioned = {}
 for _, index in ipairs(combined.Selected) do partitioned[index] = (partitioned[index] or 0) + 1 end
 for _, index in ipairs(combined["ruled-out"]) do partitioned[index] = (partitioned[index] or 0) + 1 end
 for _, index in ipairs(combined.Unknown) do partitioned[index] = (partitioned[index] or 0) + 1 end
-expect(combined.Lists[combined.Selected[1]] == "Wendigo"
+expect(combined.Lists[combined.Selected[1]] == "Wretch"
 		and table.find(combined["ruled-out"], 9) ~= nil,
 	"ability rule-outs and partial evidence must corroborate the selected ghost")
 for index in ipairs(combined.Lists) do

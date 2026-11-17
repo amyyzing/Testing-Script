@@ -2,8 +2,8 @@ local GHOSTS = {
 	"Aswang", "Banshee", "Demon", "Dullahan", "Dybbuk",
 	"Entity", "Ghoul", "Keres", "Leviathan", "Nightmare",
 	"Oni", "Phantom", "Ravager", "Revenant", "Shadow",
-	"Siren", "Skinwalker", "Specter", "Spirit", "Umbra",
-	"Vesper", "Vex", "Wendigo", "Wisp", "Wraith",
+	"Siren", "Doppelganger", "Specter", "Spirit", "Umbra",
+	"Vesper", "Vex", "Wretch", "Wisp", "Wraith",
 }
 
 return function(dependencies)
@@ -78,23 +78,37 @@ return function(dependencies)
 	local function triggerJournalClick(row)
 		local detection = row and row:FindFirstChild("Detection")
 		if not detection then return false end
-		if type(fireSignal) == "function"
-			and pcall(fireSignal, detection.MouseButton1Click) then
-			return true
-		end
-		local fired = false
+		-- The live controller still looks up EvidenceMarkedInJournal even after
+		-- the server removes it. A client-only placeholder lets that controller
+		-- finish its local state change; it is removed immediately afterward.
+		local remoteShim
 		pcall(function()
-			if type(getconnections) == "function" then
-				for _, connection in ipairs(getconnections(detection.MouseButton1Click)) do
-					if type(connection.Function) == "function" then
-						connection.Function()
-						fired = true
-					end
-				end
+			local events = game:GetService("ReplicatedStorage"):FindFirstChild("Events")
+			if events and not events:FindFirstChild("EvidenceMarkedInJournal") then
+				remoteShim = Instance.new("RemoteEvent")
+				remoteShim.Name = "EvidenceMarkedInJournal"
+				remoteShim.Parent = events
 			end
 		end)
-		if fired then return true end
-		return pcall(function() detection:Activate() end)
+		local fired = type(fireSignal) == "function"
+			and pcall(fireSignal, detection.MouseButton1Click)
+		if not fired then
+			pcall(function()
+				if type(getconnections) == "function" then
+					for _, connection in ipairs(getconnections(detection.MouseButton1Click)) do
+						if type(connection.Function) == "function" then
+							connection.Function()
+							fired = true
+						end
+					end
+				end
+			end)
+		end
+		if not fired then
+			fired = pcall(function() detection:Activate() end)
+		end
+		if remoteShim then remoteShim:Destroy() end
+		return fired
 	end
 
 	local function applyJournal(index, state)
@@ -136,7 +150,7 @@ return function(dependencies)
 		if type(EvidenceCatalog) ~= "table" then return true end
 		local ghost = GHOSTS[index]
 		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence)
-		if orb.Qualified then return ghost == "Skinwalker" end
+		if orb.Qualified then return ghost == "Doppelganger" end
 		for evidence in pairs(Verdict.Evidence) do
 			if not EvidenceCatalog.SupportsEvidence(ghost, evidence, {
 				IncludeFalseEvidence = true,
@@ -193,7 +207,7 @@ return function(dependencies)
 		local count = 0
 		for _ in pairs(Verdict.Evidence) do count += 1 end
 		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence)
-		if orb.Qualified then return indexes.Skinwalker end
+		if orb.Qualified then return indexes.Doppelganger end
 		if count ~= 3 then return nil end
 		local candidates = EvidenceCatalog.FilterCandidates(Verdict.Evidence, {}, {
 			NamesOnly = true,

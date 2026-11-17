@@ -1,8 +1,8 @@
 local createTraffic = require("../traffic")
 local createVerdict = require("../verdict")
 local createSpeedFilter = require("../filter/speed-filter")
-local createWendigoSpeed = require("../dormant-trackers/wendigo-speed")
-local Wendigo = require("../ghosts/Wendigo")
+local createWretchSpeed = require("../dormant-trackers/wretch-speed")
+local Wretch = require("../ghosts/Wretch")
 
 local function expect(condition, message)
 	if not condition then error(message, 2) end
@@ -25,13 +25,13 @@ local function harness(energies, mapSize, speed)
 	local display = {}
 	local Traffic = createTraffic()
 	Traffic:Receive("SpeedArrayLog", function(signal, payload)
-		if signal ~= "WendigoEnergySnapshot" and signal ~= "WendigoSpeedSample" then return end
+		if signal ~= "WretchEnergySnapshot" and signal ~= "WretchSpeedSample" then return end
 		table.insert(display, {Signal = signal, Payload = payload})
 	end)
 	local Verdict = createVerdict({Traffic = Traffic})
-	local processor = Wendigo.new({Traffic = Traffic})
+	local processor = Wretch.new({Traffic = Traffic})
 	local filter = createSpeedFilter({Traffic = Traffic, Workspace = World})
-	local tracker = createWendigoSpeed({
+	local tracker = createWretchSpeed({
 		Traffic = Traffic,
 		Players = Players,
 		Humanoid = Humanoid,
@@ -63,14 +63,14 @@ expect(startup.Verdict.Confidence[23] == nil and #startup.Display == 0,
 	"the initial non-hunting state should only establish a baseline")
 startup.Traffic:Broadcast("HuntingState", {Hunting = true, Time = 1})
 expect(#startup.Display == 1
-	and startup.Display[1].Signal == "WendigoEnergySnapshot"
+	and startup.Display[1].Signal == "WretchEnergySnapshot"
 	and startup.Display[1].Payload.AverageEnergy == 100,
 	"the first transition into hunting should start Energy tracking")
 startup.RunDelayed()
 expect(startup.Verdict.Confidence[23] == 99,
 	"the first hunt should match 100 Energy to base 9 with a configured multiplier")
 expect(#startup.Display == 2
-	and startup.Display[2].Signal == "WendigoSpeedSample"
+	and startup.Display[2].Signal == "WretchSpeedSample"
 	and startup.Display[2].Payload.Speed == 18,
 	"the settled state speed should be logged after its Energy snapshot")
 startup.Traffic:Broadcast("HuntingState", {Hunting = false, Time = 2})
@@ -117,4 +117,4 @@ expect(table.find(rejected.Verdict.RuledOut, 23),
 	"Energy 0 should expect base 14 and reject an impossible hunting speed")
 rejected:Destroy()
 
-print("wendigo.spec: first-hunt gate and transition Energy speed checks passed")
+print("wretch.spec: first-hunt gate and transition Energy speed checks passed")

@@ -40,7 +40,14 @@ function remotes:Get(name)
 		if name == "ChangeStatus" then state.Ready = not state.Ready end
 	end
 end
+local teleportChanged
 local player = {
+	OnTeleport = {
+		Connect = function(_, callback)
+			teleportChanged = callback
+			return {Disconnect = function() teleportChanged = nil end}
+		end,
+	},
 	GetAttribute = function(_, name)
 		if name == "IsReady" then return state.Ready end
 	end,
@@ -54,9 +61,10 @@ local SettingsApi = {
 		return true
 	end,
 }
+local busy
 local view = {
 	SetStatus = function() end,
-	SetBusy = function() end,
+	SetBusy = function(_, value) busy = value end,
 }
 local settings = {
 	Auto = true,
@@ -67,6 +75,7 @@ local settings = {
 	Challenges = {true, false, true},
 	ChallengesConfigured = true,
 }
+local jobReady = true
 local controller = createLobbyAutomation({
 	Player = player,
 	Remotes = remotes,
@@ -77,7 +86,7 @@ local controller = createLobbyAutomation({
 		table.insert(calls, "Queue:" .. context)
 		return true
 	end,
-	ReadSelectedJobSite = function() return state.JobSite, true end,
+	ReadSelectedJobSite = function() return state.JobSite, jobReady end,
 	ReadSelectedDifficulty = function() return state.Difficulty, true end,
 	ReadChallengeStates = function() return table.clone(state.Challenges) end,
 	CustomDifficultyMatches = function(payload) return payload.Applied == 1 end,
@@ -101,4 +110,16 @@ for index = 2, #dispatchTimes do
 		"lobby server remotes were dispatched less than 0.75 seconds apart")
 end
 
-print("lobby-automation.spec: confirmed prior lobby sequence and handoff order passed")
+controller:SetLoopEnabled(false)
+assert(controller:Start(false, false) and busy == true, "manual start should wait for teleport")
+teleportChanged("Enum.TeleportState.Failed")
+assert(not controller.Running and busy == false, "failed manual teleport should unlock Start Round")
+assert(controller.Status == "Teleport failed. Start Round to try again.",
+	"manual failure should show the user how to retry")
+
+jobReady = false
+assert(controller:Start(false, false), "manual start should be available after failure")
+assert(controller.Status == "Lobby state did not load: Job Site.",
+	"the timeout should name the lobby data that failed to load")
+
+print("lobby-automation.spec: lobby sequence, handoff, and failure recovery passed")

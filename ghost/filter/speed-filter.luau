@@ -66,7 +66,7 @@ return function(dependencies)
 		return result
 	end
 
-	local function inspectWendigo(payload)
+	local function inspectWretch(payload)
 		local energy = tonumber(payload.AverageEnergy)
 		local speed = tonumber(payload.Speed)
 		if not energy or not speed then return {Complete = false} end
@@ -102,8 +102,8 @@ return function(dependencies)
 			result.DistinctPairs = payload.DistinctPairs
 			result.Samples = payload.Samples
 			Traffic("SpeedFilterResult", result):SendTo("Dullahan", "Oni")
-		elseif signal == "WendigoSpeedSample" then
-			Traffic("WendigoSpeedResult", inspectWendigo(payload)):SendTo("Wendigo")
+		elseif signal == "WretchSpeedSample" then
+			Traffic("WretchSpeedResult", inspectWretch(payload)):SendTo("Wretch")
 		end
 	end)
 

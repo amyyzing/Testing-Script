@@ -6,10 +6,10 @@ local function copySettings(source)
 	local challenges = type(source.Challenges) == "table" and source.Challenges or {}
 	return {
 		Auto = source.Auto == true,
-		JobSite = type(source.JobSite) == "string" and source.JobSite or "School",
-		Difficulty = type(source.Difficulty) == "string" and source.Difficulty or "Nightmare",
+		JobSite = type(source.JobSite) == "string" and source.JobSite or "",
+		Difficulty = type(source.Difficulty) == "string" and source.Difficulty or "",
 		CustomPreset = type(source.CustomPreset) == "string" and source.CustomPreset or "",
-		EquipmentPreset = type(source.EquipmentPreset) == "string" and source.EquipmentPreset or "green",
+		EquipmentPreset = type(source.EquipmentPreset) == "string" and source.EquipmentPreset or "Current equipment",
 		GhostWalkSpeedMultiplier = tonumber(source.GhostWalkSpeedMultiplier),
 		Challenges = {challenges[1] == true, challenges[2] == true, challenges[3] == true},
 		ChallengesConfigured = source.ChallengesConfigured == true,
@@ -49,8 +49,10 @@ return function(dependencies)
 				end
 			end
 		end
-		loaded = loaded or environment.DemonologyLobbySettings or handoff or {}
+		local cached = environment.DemonologyLobbySettings
+		loaded = loaded or (type(cached) == "table" and cached) or {}
 		if type(handoff) == "table" then
+			loaded = table.clone(loaded)
 			for key, value in pairs(handoff) do loaded[key] = value end
 		end
 		local settings = copySettings(loaded)
@@ -73,7 +75,8 @@ return function(dependencies)
 		local encoded, source = pcall(HttpService.JSONEncode, HttpService, settings)
 		if not encoded then return false, tostring(source) end
 		local written, failure = pcall(writeFile, FILE, source)
-		return written, written and nil or tostring(failure)
+		if not written then return false, tostring(failure) end
+		return true
 	end
 
 	return store

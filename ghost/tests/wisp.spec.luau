@@ -6,7 +6,6 @@ local createHolyOilPass = require("../discardable-trackers/holy-oil-pass")
 local createCatchFire = require("../discardable-trackers/catch-fire")
 local createFavouriteHuntRoom = require("../dormant-trackers/favourite-hunt-room")
 local Wisp = require("../ghosts/Wisp")
-local Skinwalker = require("../ghosts/Skinwalker")
 
 local function expect(condition, message)
 	if not condition then error(message, 2) end
@@ -110,7 +109,6 @@ local function oilHarness(canCollide)
 	local Traffic = createTraffic()
 	local Verdict = createVerdict({Traffic = Traffic})
 	local wisp = Wisp.new({Traffic = Traffic})
-	local skinwalker = Skinwalker.new({Traffic = Traffic})
 	local catchFire = createCatchFire({
 		Traffic = Traffic,
 		Ghost = Ghost,
@@ -131,7 +129,6 @@ local function oilHarness(canCollide)
 		OilPass = oilPass,
 		CatchFire = catchFire,
 		Wisp = wisp,
-		Skinwalker = skinwalker,
 		RunDelayed = function()
 			local pending = delayed
 			delayed = {}
@@ -143,7 +140,6 @@ local function oilHarness(canCollide)
 			oilPass:Destroy()
 			catchFire:Destroy()
 			wisp:Destroy()
-			skinwalker:Destroy()
 		end,
 	}
 end
@@ -159,7 +155,7 @@ expect(nonCollidable.OilPass.Result == "unneeded"
 nonCollidable.Wall.Touched:Fire(nonCollidable.GhostPart)
 nonCollidable.RunDelayed()
 expect(nonCollidable.Verdict.Confidence[17] == nil,
-	"discarded fire probes must not produce a Skinwalker result")
+	"discarded fire probes must not produce a Doppelganger result")
 nonCollidable.Destroy()
 
 local noFire = oilHarness(true)
@@ -168,14 +164,13 @@ expect(table.find(noFire.Verdict.RuledOut, 24),
 	"a collidable burning GhostWall should rule Wisp out")
 noFire.Wall.Touched:Fire(noFire.GhostPart)
 noFire.RunDelayed()
-expect(noFire.Verdict.Confidence[17] == 99 and noFire.CatchFire.Result == false,
-	"passing through burning Holy Oil without Fire should support Skinwalker")
+expect(noFire.Verdict.Confidence[17] == nil and noFire.CatchFire.Result == false,
+	"passing through burning Holy Oil without Fire must not infer Doppelganger")
 noFire.Destroy()
 
 local fireTraffic = createTraffic()
 local fireVerdict = createVerdict({Traffic = fireTraffic})
 local fireWisp = Wisp.new({Traffic = fireTraffic})
-local fireSkinwalker = Skinwalker.new({Traffic = fireTraffic})
 local fireGhost = node("Ghost", "Model")
 local fireDelayed = {}
 local fireProbe = createCatchFire({
@@ -185,12 +180,11 @@ local fireProbe = createCatchFire({
 })
 fireTraffic("HolyOilPassed", {Passed = true}):SendTo("CatchFire")
 fireGhost:Add(node("Fire", "ParticleEmitter"))
-expect(fireVerdict.Confidence[24] == 99 and table.find(fireVerdict.RuledOut, 17),
-	"a Fire emitter appearing after Holy Oil contact should support Wisp and rule Skinwalker out")
+expect(fireVerdict.Confidence[24] == 99 and not table.find(fireVerdict.RuledOut, 17),
+	"a Fire emitter appearing after Holy Oil contact should support Wisp without ruling Doppelganger out")
 for _, callback in ipairs(fireDelayed) do callback() end
 fireProbe:Destroy()
 fireWisp:Destroy()
-fireSkinwalker:Destroy()
 
 local roomTraffic = createTraffic()
 local roomVerdict = createVerdict({Traffic = roomTraffic})

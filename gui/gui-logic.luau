@@ -6,6 +6,11 @@ function GuiLogic.DrawerList(patternDrawer, evidenceDrawer)
 	return {patternDrawer, evidenceDrawer}
 end
 
+function GuiLogic.DrawerOpensAfterGesture(wasOpen, dragged, startProgress, progress)
+	if not dragged then return not wasOpen end
+	return startProgress < 0.5 and progress >= 0.25 or progress > 0.75
+end
+
 local function viewportSize()
 	local camera = workspace.CurrentCamera
 	return camera and camera.ViewportSize or Vector2.new(1920, 1080)
@@ -26,6 +31,7 @@ function GuiLogic.new(dependencies)
 	local dragInput, dragStart, positionStart
 	local resizeInput, resizeStart, sizeStart
 	local activeDrawer, drawerInput, drawerStart, drawerStartProgress
+	local drawerDragged
 	local savedPosition, savedSize
 
 	local function connect(signal, callback)
@@ -162,13 +168,16 @@ function GuiLogic.new(dependencies)
 			if state.Tween then state.Tween:Cancel() end
 			activeDrawer, drawerInput, drawerStart = drawer, input, input.Position
 			drawerStartProgress = drawer.Clip.Size.X.Offset / drawer.Width
+			drawerDragged = false
 		end)
 	end
 
 	connect(inputService.InputChanged, function(input)
 		if activeDrawer and movement(input, drawerInput) then
+			local delta = input.Position - drawerStart
+			drawerDragged = drawerDragged or delta.Magnitude >= 6
 			local progress = math.clamp(
-				drawerStartProgress + (input.Position.X - drawerStart.X) / activeDrawer.Width,
+				drawerStartProgress + delta.X / activeDrawer.Width,
 				0,
 				1
 			)
@@ -200,7 +209,8 @@ function GuiLogic.new(dependencies)
 			activeDrawer, drawerInput = nil, nil
 			setDrawerOpen(
 				drawer,
-				drawerStartProgress < 0.5 and progress >= 0.25 or progress > 0.75,
+				GuiLogic.DrawerOpensAfterGesture(drawerState[drawer].Open, drawerDragged,
+					drawerStartProgress, progress),
 				true
 			)
 		end

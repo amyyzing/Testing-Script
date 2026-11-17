@@ -30,6 +30,11 @@ return function(package: any)
 	local ROUND_JOURNAL_SETTLE_SECONDS = Pre.JournalSettleSeconds
 	local disable = function() return false end
 
+local function ravagerLabEnabled()
+	local environment = (getgenv and getgenv()) or _G
+	return environment.DemonologyRavagerLab == true
+end
+
 local function journalSelectionMatchesFinalState(ghostName)
 	local ghostTypes = perkTrackerState.findJournalGhostTypes()
 	if not ghostTypes then
@@ -356,6 +361,9 @@ local function finishTimedRound(generation)
 end
 
 local function currentConfidentRoundIdentification()
+	if ravagerLabEnabled() then
+		return nil
+	end
 	if doRoundState.completionClaimed then
 		return nil
 	end
@@ -441,6 +449,9 @@ local function startRoundIdentificationWatchdog(generation)
 end
 
 local function startRoundTimeoutWatchdog(generation)
+	if ravagerLabEnabled() then
+		return
+	end
 	doRoundState.timeoutThread = task.delay(180, function()
 		if not doRoundOperationActive(generation)
 			or doRoundState.completionClaimed then

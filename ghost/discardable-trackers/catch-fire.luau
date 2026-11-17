@@ -32,7 +32,7 @@ return function(dependencies)
 		Traffic("HolyOilFireResult", {
 			HolyOil = payload.HolyOil,
 			CaughtFire = caughtFire,
-		}):SendTo("Wisp", "Skinwalker")
+		}):SendTo("Wisp")
 	end
 
 	local function probe(payload)

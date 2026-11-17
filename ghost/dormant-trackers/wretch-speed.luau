@@ -1,9 +1,9 @@
 return function(dependencies)
-	local Traffic = assert(dependencies.Traffic, "wendigo-speed requires Traffic")
-	local Players = assert(dependencies.Players, "wendigo-speed requires Players")
-	local Humanoid = assert(dependencies.Humanoid, "wendigo-speed requires Humanoid")
+	local Traffic = assert(dependencies.Traffic, "wretch-speed requires Traffic")
+	local Players = assert(dependencies.Players, "wretch-speed requires Players")
+	local Humanoid = assert(dependencies.Humanoid, "wretch-speed requires Humanoid")
 	local delay = dependencies.DelayTask or (task and task.delay)
-	assert(type(delay) == "function", "wendigo-speed requires task.delay")
+	assert(type(delay) == "function", "wretch-speed requires task.delay")
 	local settleDelay = tonumber(dependencies.SettleDelay) or 0.1
 	local Tracker = {
 		Kind = "dormant",
@@ -26,7 +26,7 @@ return function(dependencies)
 		return total / #players
 	end
 
-	Tracker.Disconnect = Traffic:Receive("WendigoSpeed", function(signal, payload)
+	Tracker.Disconnect = Traffic:Receive("WretchSpeed", function(signal, payload)
 		if signal ~= "HuntingState" or type(payload) ~= "table"
 			or type(payload.Hunting) ~= "boolean" then return end
 		local hunting = payload.Hunting
@@ -44,7 +44,7 @@ return function(dependencies)
 		if not energy then return end
 		Tracker.TransitionCount += 1
 		local transition = Tracker.TransitionCount
-		Traffic("WendigoEnergySnapshot", {
+		Traffic("WretchEnergySnapshot", {
 			Transition = transition,
 			Hunting = hunting,
 			AverageEnergy = energy,
@@ -54,7 +54,7 @@ return function(dependencies)
 		local token = Tracker.Token
 		delay(settleDelay, function()
 			if not Tracker.Running or Tracker.Token ~= token then return end
-			Traffic("WendigoSpeedSample", {
+			Traffic("WretchSpeedSample", {
 				Transition = transition,
 				Hunting = hunting,
 				AverageEnergy = energy,
