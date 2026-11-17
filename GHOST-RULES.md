@@ -15,7 +15,7 @@ server-only behavior automatically.
 | Aswang | Salt slowdown, speed increase after kills | Qualified salt/kill speed windows |
 | Banshee | Breaks 1–3 glass objects, custom wail | New glass bursts provide support, not certainty |
 | Demon | Spins burning crosses, increased cross range | Qualified cross motion |
-| Dullahan | Headless in photos, LOS acceleration of 0.1/s | Repeated rising speed supports; flat uncontrolled trials cannot exclude |
+| Dullahan | LOS acceleration 0.1/s | Three timed micro-increment ramps corroborate; duplicate notifications and large speed jumps are ignored |
 | Dybbuk | Throws corpses; journal describes Music Box stun | Evidence matching; physics motion alone is not accepted as a ghost throw |
 | Entity | Teleports itself or an object, with smoke on object teleport | Qualified object relocation plus smoke |
 | Ghoul | Cannot disable electronics; reacts to chat | Qualifies disabling observations away from living players |
