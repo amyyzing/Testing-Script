@@ -1,5 +1,25 @@
 if not game:IsLoaded() then game.Loaded:Wait() end
 
+local startupEnvironment = (getgenv and getgenv()) or _G
+local existingStartup = startupEnvironment.DemonologyStartup
+local forceReload = startupEnvironment.DemonologyForceReload == true
+startupEnvironment.DemonologyForceReload = nil
+if existingStartup and existingStartup.Game == game then
+	if existingStartup.Loading then
+		repeat task.wait(0.05) until not existingStartup.Loading
+		if existingStartup.Error then error(existingStartup.Error, 0) end
+		return existingStartup.Session
+	end
+	if not forceReload and existingStartup.Session and not existingStartup.Session.Destroyed then
+		if existingStartup.Session.MCPResume then existingStartup.Session.MCPResume:Arm() end
+		return existingStartup.Session
+	end
+end
+local startup = {Game = game, Loading = true}
+startupEnvironment.DemonologyStartup = startup
+local startingSession = startupEnvironment.DemonologySession
+
+local function initialize()
 local BASE_URL = "https://raw.githubusercontent.com/amyyzing/Testing-Script/refs/heads/main/"
 local VERSION = tostring(os.time())
 local BUNDLE_PATH = "dist/modules.luau"
@@ -251,6 +271,11 @@ if not table.find(LobbySettings.Difficulties, settings.Difficulty) then
 	settings.Difficulty = LobbySettings.ReadSelectedDifficulty(player) or "Easy"
 end
 session.Settings, session.SettingsStore = settings, settingsStore
+session.MCPResume = loadModule("logic/mcp-teleport.luau")({
+	Environment = environment,
+	ModuleUrl = BASE_URL .. "logic/mcp-teleport.luau",
+	Player = player,
+})
 local teleportLoop = createTeleportLoop({
 	Environment = environment,
 	ArmOnEnable = Services.Workspace:FindFirstChild("Ghost") ~= nil,
@@ -680,3 +705,19 @@ task.delay(0.2, function()
 end)
 
 return session
+end -- initialize
+
+local initialized, result = xpcall(initialize, debug.traceback)
+if initialized then
+	startup.Session = result
+	result.Game, result.Ready = game, true
+else
+	startup.Error = tostring(result)
+	local partial = startupEnvironment.DemonologySession
+	if partial and partial ~= startingSession and type(partial.Destroy) == "function" then
+		pcall(partial.Destroy, partial)
+	end
+end
+startup.Loading = false
+if not initialized then error(result, 0) end
+return result

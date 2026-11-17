@@ -45,12 +45,14 @@ local environment = (getgenv and getgenv()) or _G
 if environment.DemonologyLoopEnabled == false then return end
 if not game:IsLoaded() then game.Loaded:Wait() end
 local arrival = tostring(game.JobId)
-if environment.DemonologyArrivalJob == arrival then return end
-local previous = environment.DemonologySession
-if previous and type(previous.Destroy) == "function" then
-	pcall(previous.Destroy, previous)
-end
-environment.DemonologySession = nil
+if environment.DemonologyArrivalGame == game and environment.DemonologyArrivalJob == arrival then return end
+local activeArrival = environment.DemonologyArrivalLoading
+if activeArrival and activeArrival.Game == game then return end
+local current = environment.DemonologySession
+if current and current.Game == game and current.Ready and not current.Destroyed then return end
+local owner = {Game = game}
+environment.DemonologyArrivalLoading = owner
+local completed, failure = xpcall(function()
 environment.DemonologyLoopEnabled = true
 local token = %q
 if environment.DemonologyHandoffToken == token then return end
@@ -94,7 +96,11 @@ if not ok then
 	error(result, 0)
 end
 environment.DemonologyArrivalJob = arrival
+environment.DemonologyArrivalGame = game
 environment.DemonologyHandoffToken = token
+end, debug.traceback)
+if environment.DemonologyArrivalLoading == owner then environment.DemonologyArrivalLoading = nil end
+if not completed then error(failure, 0) end
 ]], token, context,
 			tostring(settings.JobSite or ""),
 			tostring(settings.Difficulty or ""),

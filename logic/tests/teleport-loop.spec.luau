@@ -18,7 +18,7 @@ assert(loop:Queue("AttemptStart"), "enabled loop should queue")
 assert(queued:find('Context = "AttemptStart"', 1, true), "context was not handed off")
 assert(queued:find("task.wait(4)", 1, true), "queued execution must wait four seconds")
 assert(queued:find("for attempt = 1, 3", 1, true), "queued download must retry transient failures")
-assert(queued:find("previous.Destroy", 1, true), "queued handoff must clean the previous session")
+assert(not queued:find("previous.Destroy", 1, true), "queued handoffs must leave session cleanup to the serialized loader")
 assert(queued:find("DemonologyLoopEnabled", 1, true), "queued source must remain cancellable")
 assert(queued:find('JobSite = "Prison"', 1, true), "settings were not captured in the handoff")
 
@@ -62,9 +62,22 @@ setfenv(runArrival, globals)
 assert(not pcall(runArrival) and downloads == 3, "failed downloads should exhaust bounded retries")
 assert(arrived.DemonologyArrivalJob == nil and arrived.DemonologyHandoffToken == nil,
 	"a failed arrival must remain retryable")
+assert(arrived.DemonologyArrivalLoading == nil, "failed arrival must release the startup lock")
 failDownload = false
 assert(pcall(runArrival))
 assert(executions == 1 and arrived.DemonologyAutoHandoff.Context == "ReturnToLobby",
 	"unexpected round exits should resume the lobby")
 assert(pcall(runArrival) and executions == 1, "repeated queued scripts should not load twice")
+arrived = {}
+executions = 0
+globals.game.HttpGet = function()
+	coroutine.yield("download pending")
+	return "return true"
+end
+local pending = coroutine.create(runArrival)
+assert(coroutine.resume(pending))
+assert(arrived.DemonologyArrivalLoading and executions == 0, "arrival must claim its lock before downloading")
+assert(pcall(runArrival) and executions == 0, "overlapping queued arrivals must not initialize a second loader")
+assert(coroutine.resume(pending) and executions == 1, "the original arrival must finish once")
+assert(arrived.DemonologyArrivalLoading == nil, "successful arrival must release its lock")
 print("teleport-loop.spec: death return, failed download retry and arrival deduplication passed")
