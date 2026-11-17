@@ -4,7 +4,7 @@ local startupEnvironment = (getgenv and getgenv()) or _G
 local existingStartup = startupEnvironment.DemonologyStartup
 local forceReload = startupEnvironment.DemonologyForceReload == true
 startupEnvironment.DemonologyForceReload = nil
-if existingStartup and existingStartup.Game == game then
+if existingStartup and existingStartup.Game == game and existingStartup.JobId == tostring(game.JobId) then
 	if existingStartup.Loading then
 		repeat task.wait(0.05) until not existingStartup.Loading
 		if existingStartup.Error then error(existingStartup.Error, 0) end
@@ -15,7 +15,7 @@ if existingStartup and existingStartup.Game == game then
 		return existingStartup.Session
 	end
 end
-local startup = {Game = game, Loading = true}
+local startup = {Game = game, JobId = tostring(game.JobId), Loading = true}
 startupEnvironment.DemonologyStartup = startup
 local startingSession = startupEnvironment.DemonologySession
 
@@ -40,6 +40,7 @@ local Services = {
 	Workspace = game:GetService("Workspace"),
 	HttpService = game:GetService("HttpService"),
 	VirtualUser = game:GetService("VirtualUser"),
+	TeleportService = game:GetService("TeleportService"),
 }
 local player = Services.Players.LocalPlayer
 
@@ -281,6 +282,8 @@ local teleportLoop = createTeleportLoop({
 	ArmOnEnable = Services.Workspace:FindFirstChild("Ghost") ~= nil,
 	LoaderUrl = BASE_URL .. "loader.luau",
 	ReadSettings = function() return settings end,
+	TeleportService = Services.TeleportService,
+	Player = player,
 })
 session.TeleportLoop = teleportLoop
 
@@ -710,7 +713,7 @@ end -- initialize
 local initialized, result = xpcall(initialize, debug.traceback)
 if initialized then
 	startup.Session = result
-	result.Game, result.Ready = game, true
+	result.Game, result.JobId, result.Ready = game, tostring(game.JobId), true
 else
 	startup.Error = tostring(result)
 	local partial = startupEnvironment.DemonologySession

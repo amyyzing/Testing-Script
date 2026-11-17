@@ -35,6 +35,9 @@ assert(not pcall(runLoader) and environment.DemonologyStartup.Loading == false,
  "failed initialization must release the startup lock")
 initializer = function() calls += 1 return {Destroyed = false} end
 assert(runLoader().Ready and calls == 3, "failed initialization must remain retryable")
+game.JobId = "next-server"
+assert(runLoader().JobId == "next-server" and calls == 4,
+ "new server must initialize even if the executor reuses the game object")
 print("loader-startup.spec: concurrent startup, reuse, explicit refresh and failed retry passed")
 '@
 $source = $setup + "`n" + $parts[0] + "`nlocal function initialize() return initializer() end -- initialize`n" + $footer + "`n" + $checks

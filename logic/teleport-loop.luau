@@ -19,6 +19,10 @@ return function(dependencies)
 	function controller:SetEnabled(enabled)
 		self.Enabled = enabled == true
 		environment.DemonologyLoopEnabled = self.Enabled
+		if dependencies.TeleportService then
+			pcall(dependencies.TeleportService.SetTeleportSetting,
+				dependencies.TeleportService, "DemonologyAutomation", self.Enabled)
+		end
 		if self.Enabled and dependencies.ArmOnEnable then
 			local ok, failure = self:Queue("Teleport")
 			self.LastError = ok and nil or failure
@@ -29,6 +33,7 @@ return function(dependencies)
 	function controller:Destroy()
 		self:SetEnabled(false)
 		self.QueuedContext = nil
+		if self.Connection then self.Connection:Disconnect() end
 	end
 
 	function controller:Queue(context)
@@ -44,13 +49,17 @@ return function(dependencies)
 local environment = (getgenv and getgenv()) or _G
 if environment.DemonologyLoopEnabled == false then return end
 if not game:IsLoaded() then game.Loaded:Wait() end
+local readSetting, enabled = pcall(function()
+	return game:GetService("TeleportService"):GetTeleportSetting("DemonologyAutomation")
+end)
+if readSetting and enabled == false then return end
 local arrival = tostring(game.JobId)
 if environment.DemonologyArrivalGame == game and environment.DemonologyArrivalJob == arrival then return end
 local activeArrival = environment.DemonologyArrivalLoading
-if activeArrival and activeArrival.Game == game then return end
+if activeArrival and activeArrival.Game == game and activeArrival.JobId == arrival then return end
 local current = environment.DemonologySession
-if current and current.Game == game and current.Ready and not current.Destroyed then return end
-local owner = {Game = game}
+if current and current.Game == game and current.JobId == arrival and current.Ready and not current.Destroyed then return end
+local owner = {Game = game, JobId = arrival}
 environment.DemonologyArrivalLoading = owner
 local completed, failure = xpcall(function()
 environment.DemonologyLoopEnabled = true
@@ -116,5 +125,14 @@ if not completed then error(failure, 0) end
 		return true
 	end
 
+	local player = dependencies.Player
+	if player and player.OnTeleport then
+		controller.Connection = player.OnTeleport:Connect(function(state)
+			if tostring(state) == "Enum.TeleportState.Failed" then
+				controller.QueuedContext = nil
+				if controller.Enabled then controller:Queue("Teleport") end
+			end
+		end)
+	end
 	return controller
 end

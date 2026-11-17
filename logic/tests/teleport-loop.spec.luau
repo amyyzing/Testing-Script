@@ -80,4 +80,20 @@ assert(arrived.DemonologyArrivalLoading and executions == 0, "arrival must claim
 assert(pcall(runArrival) and executions == 0, "overlapping queued arrivals must not initialize a second loader")
 assert(coroutine.resume(pending) and executions == 1, "the original arrival must finish once")
 assert(arrived.DemonologyArrivalLoading == nil, "successful arrival must release its lock")
+local saved
+local service = {
+	SetTeleportSetting = function(_, _, value) saved = value end,
+	GetTeleportSetting = function() return saved end,
+}
+local persisted = createTeleportLoop({Environment = {}, TeleportService = service,
+	LoaderUrl = "https://example.test/loader.luau", QueueOnTeleport = function() end})
+persisted:SetEnabled(true)
+assert(saved == true, "enabled state must survive the old Lua environment")
+persisted:SetEnabled(false)
+assert(saved == false, "disabled state must cancel a previously queued continuation")
+globals.game.GetService = function() return service end
+arrived = {}
+executions = 0
+assert(pcall(runArrival) and executions == 0 and arrived.DemonologyArrivalLoading == nil,
+	"a cancelled loop must stay cancelled in a fresh arrival environment")
 print("teleport-loop.spec: death return, failed download retry and arrival deduplication passed")

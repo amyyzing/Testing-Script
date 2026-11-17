@@ -21,6 +21,7 @@ local function dependencies(game, recover)
 		BridgeURL = environment.BridgeURL, AuthToken = environment.MCPAuthToken,
 		QueueOnTeleport = function(source) table.insert(queued, source) end,
 		Wait = function() end,
+		Spawn = function(callback) callback() end,
 		Compile = function() return function()
 			environment.MCP_Loaded = true
 			environment.MCP_ClientIdentityKey = "1:" .. game.JobId .. ":42"
@@ -40,7 +41,24 @@ assert(nextResume ~= first and nextResume.Recovered and requests == 3,
 assert(#queued == 2, "arrival must arm another hop without requiring the GUI")
 assert(createResume(dependencies(nextWorld, true)) == nextResume and requests == 3,
 	"repeated recovery must reuse the current connector")
+nextWorld.JobId = "another-server"
+local persistent = dependencies(nextWorld, true)
+persistent.Compile = function() return function()
+	environment.MCP_Loaded = true
+	environment.MCP_ClientIdentityKey = "1:another-server:42"
+	coroutine.yield("connector polling")
+end end
+local runtimeThread
+persistent.Spawn = function(callback)
+	runtimeThread = coroutine.create(callback)
+	assert(coroutine.resume(runtimeThread))
+end
+local changedJob = createResume(persistent)
+assert(changedJob ~= nextResume and changedJob.Recovered and #queued == 3,
+	"a changed job must recover even if the executor reuses the same game object")
+assert(coroutine.status(runtimeThread) == "suspended",
+	"the long-running connector must not block recovery completion")
 local missing = createResume({Environment = {}, Game = {}, Player = player,
-	ModuleUrl = "https://repo.example/module", Wait = function() end})
+	ModuleUrl = "https://repo.example/module", Wait = function() end, Spawn = function(callback) callback() end})
 assert(not missing.Queued and missing.LastError, "unsupported queue API must report unavailability")
 print("mcp-teleport.spec: independent multi-hop queue, stale flags, retries and duplicate prevention passed")

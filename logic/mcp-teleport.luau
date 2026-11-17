@@ -3,15 +3,16 @@ return function(dependencies)
 	local world = dependencies.Game or game
 	local wait = dependencies.Wait or task.wait
 	local compile = dependencies.Compile or loadstring or load
+	local spawn = dependencies.Spawn or task.spawn
 	local existing = environment.DemonologyMCPResume
-	if existing and existing.Game == world then
+	if existing and existing.Game == world and existing.JobId == tostring(world.JobId) then
 		existing:Arm()
 		if dependencies.Recover and existing.Recover then
 			existing:Recover(dependencies.BridgeURL, dependencies.AuthToken)
 		end
 		return existing
 	end
-	local controller = {Game = world, Enabled = true, Queued = false}
+	local controller = {Game = world, JobId = tostring(world.JobId), Enabled = true, Queued = false}
 	environment.DemonologyMCPResume = controller
 	local moduleUrl = assert(dependencies.ModuleUrl, "MCP resume requires its module URL")
 	local queue = dependencies.QueueOnTeleport or environment.queue_on_teleport or environment.queueonteleport
@@ -33,10 +34,11 @@ return function(dependencies)
 if not game:IsLoaded() then game.Loaded:Wait() end
 local environment = (getgenv and getgenv()) or _G
 local current = environment.DemonologyMCPResume
-if current and current.Game == game and (current.Recovered or current.Recovering) then return end
+local job = tostring(game.JobId)
+if current and current.Game == game and current.JobId == job and (current.Recovered or current.Recovering) then return end
 local loading = environment.DemonologyMCPResumeLoading
-if loading and loading.Game == game then return end
-local owner = {Game = game}
+if loading and loading.Game == game and loading.JobId == job then return end
+local owner = {Game = game, JobId = job}
 environment.DemonologyMCPResumeLoading = owner
 local ok, failure = xpcall(function()
 local source
@@ -94,7 +96,7 @@ if not ok then error(failure, 0) end
 				pcall(function()
 					local source = world:HttpGet(url)
 					local chunk = assert(compile(source, "@MCPConnector"))
-					chunk()
+					spawn(function() pcall(chunk) end)
 				end)
 			end
 			if not environment.MCP_Loaded then wait(math.min(attempt * 0.5, 5)) end

@@ -13747,15 +13747,16 @@ return function(dependencies)
 	local world = dependencies.Game or game
 	local wait = dependencies.Wait or task.wait
 	local compile = dependencies.Compile or loadstring or load
+	local spawn = dependencies.Spawn or task.spawn
 	local existing = environment.DemonologyMCPResume
-	if existing and existing.Game == world then
+	if existing and existing.Game == world and existing.JobId == tostring(world.JobId) then
 		existing:Arm()
 		if dependencies.Recover and existing.Recover then
 			existing:Recover(dependencies.BridgeURL, dependencies.AuthToken)
 		end
 		return existing
 	end
-	local controller = {Game = world, Enabled = true, Queued = false}
+	local controller = {Game = world, JobId = tostring(world.JobId), Enabled = true, Queued = false}
 	environment.DemonologyMCPResume = controller
 	local moduleUrl = assert(dependencies.ModuleUrl, "MCP resume requires its module URL")
 	local queue = dependencies.QueueOnTeleport or environment.queue_on_teleport or environment.queueonteleport
@@ -13777,10 +13778,11 @@ return function(dependencies)
 if not game:IsLoaded() then game.Loaded:Wait() end
 local environment = (getgenv and getgenv()) or _G
 local current = environment.DemonologyMCPResume
-if current and current.Game == game and (current.Recovered or current.Recovering) then return end
+local job = tostring(game.JobId)
+if current and current.Game == game and current.JobId == job and (current.Recovered or current.Recovering) then return end
 local loading = environment.DemonologyMCPResumeLoading
-if loading and loading.Game == game then return end
-local owner = {Game = game}
+if loading and loading.Game == game and loading.JobId == job then return end
+local owner = {Game = game, JobId = job}
 environment.DemonologyMCPResumeLoading = owner
 local ok, failure = xpcall(function()
 local source
@@ -13838,7 +13840,7 @@ if not ok then error(failure, 0) end
 				pcall(function()
 					local source = world:HttpGet(url)
 					local chunk = assert(compile(source, "@MCPConnector"))
-					chunk()
+					spawn(function() pcall(chunk) end)
 				end)
 			end
 			if not environment.MCP_Loaded then wait(math.min(attempt * 0.5, 5)) end
@@ -16794,6 +16796,10 @@ return function(dependencies)
 	function controller:SetEnabled(enabled)
 		self.Enabled = enabled == true
 		environment.DemonologyLoopEnabled = self.Enabled
+		if dependencies.TeleportService then
+			pcall(dependencies.TeleportService.SetTeleportSetting,
+				dependencies.TeleportService, "DemonologyAutomation", self.Enabled)
+		end
 		if self.Enabled and dependencies.ArmOnEnable then
 			local ok, failure = self:Queue("Teleport")
 			self.LastError = ok and nil or failure
@@ -16804,6 +16810,7 @@ return function(dependencies)
 	function controller:Destroy()
 		self:SetEnabled(false)
 		self.QueuedContext = nil
+		if self.Connection then self.Connection:Disconnect() end
 	end
 
 	function controller:Queue(context)
@@ -16819,13 +16826,17 @@ return function(dependencies)
 local environment = (getgenv and getgenv()) or _G
 if environment.DemonologyLoopEnabled == false then return end
 if not game:IsLoaded() then game.Loaded:Wait() end
+local readSetting, enabled = pcall(function()
+	return game:GetService("TeleportService"):GetTeleportSetting("DemonologyAutomation")
+end)
+if readSetting and enabled == false then return end
 local arrival = tostring(game.JobId)
 if environment.DemonologyArrivalGame == game and environment.DemonologyArrivalJob == arrival then return end
 local activeArrival = environment.DemonologyArrivalLoading
-if activeArrival and activeArrival.Game == game then return end
+if activeArrival and activeArrival.Game == game and activeArrival.JobId == arrival then return end
 local current = environment.DemonologySession
-if current and current.Game == game and current.Ready and not current.Destroyed then return end
-local owner = {Game = game}
+if current and current.Game == game and current.JobId == arrival and current.Ready and not current.Destroyed then return end
+local owner = {Game = game, JobId = arrival}
 environment.DemonologyArrivalLoading = owner
 local completed, failure = xpcall(function()
 environment.DemonologyLoopEnabled = true
@@ -16891,6 +16902,15 @@ if not completed then error(failure, 0) end
 		return true
 	end
 
+	local player = dependencies.Player
+	if player and player.OnTeleport then
+		controller.Connection = player.OnTeleport:Connect(function(state)
+			if tostring(state) == "Enum.TeleportState.Failed" then
+				controller.QueuedContext = nil
+				if controller.Enabled then controller:Queue("Teleport") end
+			end
+		end)
+	end
 	return controller
 end
 
