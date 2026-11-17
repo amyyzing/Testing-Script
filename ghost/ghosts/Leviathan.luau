@@ -5,14 +5,21 @@ function Leviathan.new(dependencies)
 	local Processor = {Resolved = false}
 
 	Processor.Disconnect = Traffic:Receive("Leviathan", function(signal, payload)
-		if Processor.Resolved or signal ~= "FlickerArrayResult"
-			or type(payload) ~= "table" or (tonumber(payload.Count) or 0) < 7
+		if Processor.Resolved or type(payload) ~= "table" then return end
+		if signal == "NativeGlitch" and type(payload.Token) == "number" and payload.Token > 0 then
+			Processor.Resolved = true
+			Traffic("Support", {
+				Ghost = "Leviathan", Confidence = 99,
+				Reason = "an electronic item received the native LeviathanGlitch attribute",
+			}):SendTo("Verdict")
+			return
+		end
+		if signal ~= "FlickerArrayResult" or (tonumber(payload.Count) or 0) < 7
 			or (tonumber(payload.Duration) or math.huge)
 				>= (tonumber(payload.Window) or 2) then return end
-		Processor.Resolved = true
 		Traffic("Support", {
 			Ghost = "Leviathan",
-			Confidence = 99,
+			Confidence = 35,
 			Reason = string.format(
 				"%s switched %d times within %.2f seconds",
 				tostring(payload.ItemName or "an eligible electronic item"),

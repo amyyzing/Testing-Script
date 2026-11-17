@@ -224,12 +224,12 @@ local Profiles = {
 		note("An eligible Cross that finishes burning without floating and rotating is a 99% negative.", SOURCE.Demon, "user-observed", false, "RuleOut"),
 	})),
 	profile("Dullahan", {"FreezingTemperatures", "LaserProjector", "Wither"}, "user-observed", perks({
-		note("After seven complete invisible/visible pairs exclude valid Phantom and exactly-flat patterns, any upward speed step of nonzero magnitude identifies Dullahan; decreases and resets are ignored.", SOURCE.Dullahan, "user-observed", false, "Trait"),
+		note("The current LineOfSightSpeedIncreasePerSecond flag is 0.1. Repeated rising visible speed provides supporting evidence, not certainty from arbitrary distinct speeds.", SOURCE.Dullahan, "live-game", false, "Trait"),
 	}, {}, {
-		note("A valid Phantom pattern or one exactly-flat seven-pair sequence rules Dullahan out. Decreases and resets are ignored; an invalid stable A/B sequence still supports Dullahan when its tracked direction contains a nonzero rise.", SOURCE.Dullahan, "user-observed", false, "RuleOut"),
+		note("Flat speed without verified sustained target line of sight cannot rule Dullahan out. Decreases or resets make this uncontrolled trial inconclusive.", SOURCE.Dullahan, "live-game", false, "Caveat"),
 	})),
 	profile("Dybbuk", {"FreezingTemperatures", "Handprints", "Wither"}, "tracker-pending", perks({}, {}, {
-		note("No automatic Dybbuk behavior observation is currently trusted.", SOURCE.Dybbuk, "tracker-pending", false, "Caveat"),
+		note("The current CanThrowCorpses flag and journal confirm corpse throwing and a Music Box stun. Ordinary corpse motion is not a reliable automatic identification.", SOURCE.Dybbuk, "live-game", false, "Caveat"),
 	})),
 	profile("Entity", {"Handprints", "LaserProjector", "SpiritBox"}, "user-observed", perks({
 		note("A confirmed object teleport is accompanied by a SmokeHolder appearing anywhere in Workspace.", SOURCE.Entity, "user-observed", true, "Ability"),
@@ -248,20 +248,20 @@ local Profiles = {
 		note("No speed decrease after a qualified unique kill, or a verified male VisualModel, is a 99% negative.", SOURCE.Keres, "user-observed", false, "RuleOut"),
 	})),
 	profile("Leviathan", {"GhostOrb", "GhostWriting", "Handprints"}, "user-observed", perks({
-		note("A Spirit Box, Laser Projector, or Blacklight cleanly toggles at least seven times within 2.5 seconds.", SOURCE.Leviathan, "user-observed", true, "Ability"),
+		note("An electronic item receives the native LeviathanGlitch attribute. An ordinary seven-toggle burst provides only weak support.", SOURCE.Leviathan, "live-game", true, "Ability"),
 	}, {}, {
 		note("One isolated toggle or an automation-caused toggle is not Leviathan evidence.", SOURCE.Leviathan, "user-observed", true, "Caveat"),
 	})),
 	profile("Nightmare", {"EMFLevel5", "GhostOrb", "SpiritBox"}, "tracker-pending", perks({}, {}, {
-		note("No automatic Nightmare behavior observation is currently trusted.", SOURCE.Nightmare, "tracker-pending", false, "Caveat"),
+		note("The current ability plays false throw or glass-shatter sounds; dark rooms increase hunt probability. Neither one sound nor one hunt is a reliable automatic identification.", SOURCE.Nightmare, "live-game", false, "Caveat"),
 	})),
 	profile("Oni", {"FreezingTemperatures", "LaserProjector", "SpiritBox"}, "user-observed", perks({
-		note("A complete seven-pair flat hunting window normalizes to base WalkSpeed 13.5 after map and configured-speed factors are removed.", SOURCE.Oni, "user-observed", false, "Trait"),
+		note("The current WalkSpeedDuringHunts flag is 14. A matching flat hunting window supports Oni but can also match Wretch's low-Energy speed.", SOURCE.Oni, "live-game", false, "Trait"),
 	}, {}, {
-		note("A complete qualified flat hunting window that does not normalize to 13.5 is a 99% negative. Non-hunting speed is expected to normalize to 11.", SOURCE.Oni, "user-observed", false, "RuleOut"),
+		note("A mismatch against an inferred difficulty multiplier is only a weak negative, not a rule-out.", SOURCE.Oni, "live-game", false, "Caveat"),
 	})),
 	profile("Phantom", {"EMFLevel5", "GhostOrb", "Handprints"}, "user-observed", perks({
-		note("Across exactly seven hunt blink pairs, the same visible A and invisible B repeat and one allowed hunting multiplier fits map-normalized absolute bases 11 and 13.5. Ratio alone is insufficient.", SOURCE.Phantom, "user-observed", true, "Trait"),
+		note("The current WalkSpeedWhileBlinking flag is 13.5. Seven hunt blink pairs must repeat a stable visible speed and a strictly faster invisible speed.", SOURCE.Phantom, "live-game", true, "Trait"),
 	}, {}, {
 		note("Any complete seven-pair window that is flat, drifting, decrease-only, or a stable A/B with invalid absolute bases rules Phantom out unless a confirmed unique Phantom match is already locked.", SOURCE.Phantom, "user-observed", true, "RuleOut"),
 	})),
@@ -276,9 +276,9 @@ local Profiles = {
 		note("If the hunt is still active 1.5 seconds after a valid multiplayer kill, Revenant is ruled out at 99%.", SOURCE.Revenant, "user-observed", false, "RuleOut"),
 	})),
 	profile("Shadow", {"EMFLevel5", "GhostWriting", "LaserProjector"}, "user-observed", perks({
-		note("After the round begins, seven actual unrounded cooling changes from the room occupied by the ghost have a direct arithmetic average below 0.08 C.", SOURCE.Shadow, "user-observed", false, "Trait"),
+		note("The current TemperatureAlterCoefficient is 0.5. Slow cooling provides weak support, since room conditions affect absolute temperature changes.", SOURCE.Shadow, "live-game", false, "Trait"),
 	}, {}, {
-		note("A complete seven-change average greater than or equal to 0.08 C rules Shadow out. Temperature increases and unchanged readings are ignored.", SOURCE.Shadow, "user-observed", false, "RuleOut"),
+		note("An uncontrolled cooling average cannot rule Shadow out. Temperature increases and unchanged readings are ignored.", SOURCE.Shadow, "live-game", false, "Caveat"),
 	})),
 	profile("Siren", {"EMFLevel5", "SpiritBox", "Wither"}, "user-observed", perks({
 		note("The Spirit Box responds with - HUMMING -.", SOURCE.Siren, "user-observed", true, "Ability"),
@@ -291,7 +291,7 @@ local Profiles = {
 	profile("Doppelganger", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "live-game", perks({
 		note("Ghost Orb forms a fourth evidence observation or completes an impossible three-evidence combination.", SOURCE.Doppelganger, "user-observed", false, "Trait"),
 	}, {}, {
-		note("No automatic Doppelganger behavior observation beyond its false Ghost Orb is currently trusted.", SOURCE.Doppelganger, "live-game", false, "Caveat"),
+		note("SpiritCandle is shared with Spirit and supports both candidates. False Ghost Orb evidence remains the distinguishing evidence path.", SOURCE.Doppelganger, "live-game", false, "Caveat"),
 	}), nil, {"GhostOrb"}),
 	profile("Specter", {"EMFLevel5", "FreezingTemperatures", "LaserProjector"}, "user-observed", perks({
 		note("Across a completed five-second arm trial, the non-hunting ghost remains stationary in its unchanged favourite room until the next hunt begins.", SOURCE.Specter, "user-observed", false, "Trait"),
@@ -304,17 +304,17 @@ local Profiles = {
 		note("A stable qualified Holy Oil fire colour that is not blue is a 99% negative.", SOURCE.Spirit, "user-observed", true, "RuleOut"),
 	})),
 	profile("Umbra", {"GhostOrb", "Handprints", "LaserProjector"}, "user-observed", perks({
-		note("A one-time HumanoidRootPart scan finds no Sound object other than Hunting.", SOURCE.Umbra, "user-observed", true, "Trait"),
+		note("The current NoFootStepSounds flag suppresses footsteps. Absence of a replicated footstep Sound provides weak support only.", SOURCE.Umbra, "live-game", false, "Trait"),
 	}, {}, {
-		note("Finding any other HumanoidRootPart Sound object is a 99% negative.", SOURCE.Umbra, "user-observed", true, "RuleOut"),
+		note("A footstep Sound contradicts silent footsteps; unrelated voice or effect Sounds do not.", SOURCE.Umbra, "live-game", false, "RuleOut"),
 	})),
 	profile("Vesper", {"GhostWriting", "Handprints", "Wither"}, "tracker-pending", perks({}, {}, {
-		note("No automatic Vesper behavior observation is currently trusted.", SOURCE.Vesper, "tracker-pending", false, "Caveat"),
+		note("The current HuntBySound and HearsVoicesAnywhere flags confirm sound-based hunting through walls. Ordinary pursuit alone cannot identify Vesper.", SOURCE.Vesper, "live-game", false, "Caveat"),
 	})),
 	profile("Vex", {"FreezingTemperatures", "GhostOrb", "Wither"}, "user-observed", perks({
-		note("The replicated InvisibleOnLIDAR value exists on the fixed ghost model.", SOURCE.Vex, "user-observed", false, "Trait"),
+		note("The replicated InvisibleOnLIDAR flag is true. Late-arriving values are observed.", SOURCE.Vex, "live-game", false, "Trait"),
 	}, {}, {
-		note("The replicated InvisibleOnLIDAR value does not exist on the fixed ghost model.", SOURCE.Vex, "user-observed", false, "RuleOut"),
+		note("A missing or false replicated flag is not an automatic Vex rule-out.", SOURCE.Vex, "live-game", false, "Caveat"),
 	})),
 	profile("Wretch", {"GhostOrb", "GhostWriting", "LaserProjector"}, "live-game", perks({
 		note("Two alternating settled hunt-state transitions match the WalkSpeed curve for average player Energy captured at each exact switch; the sanity spread must be large enough to exceed speed tolerance.", SOURCE.Wretch, "user-observed", false, "Trait"),

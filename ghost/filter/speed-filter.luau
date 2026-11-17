@@ -3,7 +3,7 @@ return function(dependencies)
 	local World = dependencies.Workspace or workspace
 	local epsilon = tonumber(dependencies.SpeedEpsilon) or 0.05
 	local customMultipliers = {0.5, 0.75, 1, 1.25, 1.5, 2}
-	local baseSpeeds = {11, 13.5}
+	local baseSpeeds = {11, 14}
 	local Filter = {Kind = "filter", Running = true}
 
 	local function mapMultiplier()

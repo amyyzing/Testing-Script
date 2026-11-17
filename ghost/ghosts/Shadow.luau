@@ -12,13 +12,14 @@ function Shadow.new(dependencies)
 		if not average then return end
 		Processor.Resolved = true
 		local supported = average < threshold - 0.000001
-		Traffic(supported and "Support" or "RuleOut", {
+		if not supported then return end
+		Traffic("Support", {
 			Ghost = "Shadow",
-			Confidence = 99,
+			Confidence = 35,
 			Reason = string.format(
-				"room temperature changes averaged %.4f, %s 0.08",
+				"room temperature changes averaged %.4f, %s %.4f; room conditions are uncontrolled",
 				average,
-				supported and "below" or "at or above"
+				supported and "below" or "at or above", threshold
 			),
 		}):SendTo("Verdict")
 	end)

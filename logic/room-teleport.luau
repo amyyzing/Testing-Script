@@ -392,6 +392,11 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	local function assessCandidate(candidate)
 		candidate.Position = candidate.FloorPosition
 			+ Vector3.new(0, standingOffset, 0)
+		local localRoot = candidate.BoundingPart.CFrame:PointToObjectSpace(candidate.Position)
+		if not safelyInsideXZ(candidate.Position, candidate.BoundingPart)
+			or math.abs(localRoot.Y) > candidate.BoundingPart.Size.Y * 0.5 then
+			return false
+		end
 		if targetPosition and maximumTargetDistance then
 			local targetOffset = Vector3.new(
 				candidate.Position.X - targetPosition.X,
@@ -928,7 +933,8 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 			candidate.Position + destinationLook
 		)
 		local moved = pcall(function()
-			character:PivotTo(destination)
+			local rootToPivot = root.CFrame:ToObjectSpace(character:GetPivot())
+			character:PivotTo(destination * rootToPivot)
 		end)
 		if not moved then
 			return false
@@ -954,7 +960,9 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 		local footprintInspection = inspectFootprint(
 			settledFloorPosition
 		)
-		if not footprintInspection.CenterSupported
+		local localRoot = candidate.BoundingPart.CFrame:PointToObjectSpace(root.Position)
+		if math.abs(localRoot.Y) > candidate.BoundingPart.Size.Y * 0.5
+			or not footprintInspection.CenterSupported
 			or not safelyInsideXZ(
 				root.Position,
 				candidate.BoundingPart
@@ -1122,7 +1130,14 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 		end
 	end)
 
+	local localRoot = selected.BoundingPart.CFrame:PointToObjectSpace(root.Position)
+	local finalFloor = inspectFootprint(root.Position - Vector3.new(0, standingOffset, 0))
+	local inside = safelyInsideXZ(root.Position, selected.BoundingPart)
+		and math.abs(localRoot.Y) <= selected.BoundingPart.Size.Y * 0.5
 	destroyBodyGeometryProbe()
+	if not inside or not finalFloor.CenterSupported then
+		return false, "destination moved outside the room or lost floor support after settling"
+	end
 	return true, nil
 end
 

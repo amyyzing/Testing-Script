@@ -10,7 +10,7 @@ return function(dependencies)
 
 	local otherSound
 	for _, child in ipairs(root:GetChildren()) do
-		if child:IsA("Sound") and child.Name ~= "Hunting" then
+		if child:IsA("Sound") and string.lower(child.Name):find("footstep", 1, true) then
 			otherSound = child
 			break
 		end

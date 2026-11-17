@@ -17,7 +17,8 @@ assert(bundle.__compiled == true, "bundle should contain initialized modules")
 assert(type(bundle["logic/movement.luau"]) == "function", "movement module missing")
 assert(type(bundle["ghost/verdict.luau"]) == "function", "verdict module missing")
 assert(bundle.__nil ~= nil, "nil module sentinel missing")
-assert(bundle["ghost/ghosts/Banshee.luau"] == bundle.__nil, "nil module was not bundled")
+assert(type(bundle["ghost/ghosts/Banshee.luau"]) == "table", "Banshee processor missing")
+assert(bundle["ghost/ghosts/Dybbuk.luau"] == bundle.__nil, "nil module was not bundled")
 print("module-bundle.spec: compiled bundle passed")
 '@
 

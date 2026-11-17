@@ -9,10 +9,10 @@ function Umbra.new(dependencies)
 		Processor.Checked = true
 		Traffic(payload.HasOtherSound and "RuleOut" or "Support", {
 			Ghost = "Umbra",
-			Confidence = payload.HasOtherSound and 99 or 95,
+			Confidence = payload.HasOtherSound and 99 or 35,
 			Reason = payload.HasOtherSound
-				and "HumanoidRootPart contained a Sound other than Hunting on the immediate check"
-				or "HumanoidRootPart contained no Sound other than Hunting on the immediate check",
+				and "HumanoidRootPart contained a footstep Sound"
+				or "no footstep Sound was replicated on the initial scan; not conclusive",
 		}):SendTo("Verdict")
 	end)
 	function Processor:Destroy() self.Disconnect() end

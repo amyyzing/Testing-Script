@@ -96,8 +96,8 @@ expect(lastResult.Samples == 14 and filter.SampleCount == 14,
 	"exactly fourteen visibility samples should form the seven pairs")
 expect(#displayedSamples == 14 and displayedSamples[14].Index == 14,
 	"the speed log should receive all fourteen visibility samples before completion")
-expect(Verdict:Snapshot()["ruled-out"][1] == 4,
-	"seven repeated visible/invisible pairs should rule out Dullahan")
+expect(not table.find(Verdict:Snapshot()["ruled-out"], 4),
+	"flat hunt speed without a controlled line-of-sight trial must not exclude Dullahan")
 expect(visibility:Count() == 0,
 	"the sampler should disconnect immediately after exactly seven pairs")
 for _ = 1, 10 do sample(30, true) end
@@ -115,8 +115,12 @@ sendPair(22.9, 23.1)
 for _ = 1, 4 do sendPair(22, 22.3) end
 expect(lastResult and lastResult.DistinctPairs == 3,
 	"seven visibility pairs should retain distinct speeds regardless of decreases")
-expect(Verdict:Snapshot().Selected[1] == 4,
-	"three distinct pairs should support Dullahan")
+expect(Verdict.Confidence[4] == nil,
+	"three arbitrary distinct pairs with decreases must not identify Dullahan")
+Traffic("SpeedFilterResult", {Complete = true, DistinctPairs = 3,
+	Pairs = {{v = 11}, {v = 11.1}, {v = 11.2}},
+}):SendTo("Dullahan")
+expect(Verdict.Confidence[4] == 65, "repeated rising speed should provide supporting evidence")
 
 Traffic("HuntingState", {Hunting = false}):SendTo("SevenPair")
 Ghost.Transparency = nil

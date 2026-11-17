@@ -14,7 +14,7 @@ function Phantom.new(dependencies)
 		local visible = first and tonumber(first.v)
 		local invisible = first and tonumber(first.i)
 		local supported = visible ~= nil and invisible ~= nil
-			and math.abs(visible - invisible) > epsilon
+			and invisible > visible + epsilon
 		for _, pair in ipairs(payload.Pairs) do
 			if not supported or pair.MixedVisibility ~= true
 				or math.abs((tonumber(pair.v) or math.huge) - visible) > epsilon

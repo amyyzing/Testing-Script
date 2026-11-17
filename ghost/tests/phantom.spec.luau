@@ -68,6 +68,9 @@ expect(arbitrarySnapshot.Selected[1] == 12,
 local sameSnapshot = run(22, 22)
 expect(table.find(sameSnapshot["ruled-out"], 12),
 	"an A / A pattern should rule out Phantom")
+local reverseSnapshot = run(9, 5)
+expect(table.find(reverseSnapshot["ruled-out"], 12),
+	"speeding up while visible instead of invisible contradicts Phantom's current behavior")
 
 local inconsistentSnapshot = run({5, 5, 6, 5, 5, 5, 5}, 9)
 expect(table.find(inconsistentSnapshot["ruled-out"], 12),

@@ -152,7 +152,7 @@ local function findRoomAt(position, previousRoom)
 end
 
 	local teleportControl = {}
-	local teleportToRoom = createRoomTeleport({
+	local performRoomTeleport = createRoomTeleport({
 		Services = Services,
 		Player = player,
 		RuntimeIsActive = runtimeIsActive,
@@ -160,6 +160,19 @@ end
 		GetGhostModel = getGhostModel,
 		Control = teleportControl,
 	})
+	local lastTeleport
+	local function teleportToRoom(room, options)
+		local ok, reason = performRoomTeleport(room, options)
+		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		lastTeleport = {
+			Room = room and room.Name,
+			Success = ok,
+			Reason = reason,
+			Position = root and root.Position,
+			Time = os.clock(),
+		}
+		return ok, reason
+	end
 	local perkTrackerState = {
 		teleportSequence = 0,
 		teleportToRoomBoundingBoxCenter = teleportToRoom,
@@ -337,6 +350,7 @@ end
 		InstanceIsInsideRoom = instanceIsInsideRoom,
 		FindRoomAt = findRoomAt,
 		TeleportToRoom = teleportToRoom,
+		GetLastTeleport = function() return lastTeleport end,
 		TeleportToBaseCamp = perkTrackerState.teleportToBaseCamp,
 		CaptureBaseCampEscapePivot = captureBaseCampEscapePivot,
 		FastTeleportToBaseCamp = fastTeleportToBaseCamp,

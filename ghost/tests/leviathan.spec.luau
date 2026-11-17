@@ -55,8 +55,10 @@ switch(itemA, "Spirit Box", 21.8, false)
 expect(#results == 1 and results[1].Count == 7
 	and math.abs(results[1].Duration - 1.8) < 0.0001,
 	"seven switches in less than two seconds should resolve the flicker array")
-expect(Verdict.Confidence[9] == 99 and Verdict.Selected[1] == 9,
-	"a completed flicker array should support and select Leviathan")
+expect(Verdict.Confidence[9] == 35,
+	"a switch burst without the native attribute should offer only weak support")
+Traffic("NativeGlitch", {Token = 123}):SendTo("Leviathan")
+expect(Verdict.Confidence[9] == 99, "the native glitch attribute should identify Leviathan")
 
 flicker:Destroy()
 leviathan:Destroy()

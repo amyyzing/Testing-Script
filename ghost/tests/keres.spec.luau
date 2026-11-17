@@ -67,8 +67,11 @@ Verdict:Reset()
 local maleGhost = {VisualModel = "FutureModel"}
 function maleGhost:GetAttribute(name) return self[name] end
 createModelGender({Traffic = Traffic, Ghost = maleGhost})
-expect(table.find(Verdict.RuledOut, 8),
-	"a male VisualModel should rule out Keres")
+expect(not table.find(Verdict.RuledOut, 8) and Verdict.Confidence[8] == nil,
+	"an unfamiliar VisualModel must remain unknown instead of defaulting to male")
+maleGhost.Gender = "Male"
+createModelGender({Traffic = Traffic, Ghost = maleGhost})
+expect(table.find(Verdict.RuledOut, 8), "an explicit male Gender should rule out Keres")
 
 keres:Destroy()
 print("keres.spec: permanent post-kill speed decrease passed")

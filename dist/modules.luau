@@ -5576,6 +5576,69 @@ return function(dependencies)
 end
 
 end)())
+modules["ghost/active-trackers/native-events.luau"] = pack((function()
+return function(dependencies)
+	local Traffic = assert(dependencies.Traffic, "native-events requires Traffic")
+	local World = dependencies.Workspace or workspace
+	local clock = dependencies.Clock or os.clock
+	local tracker = {Connections = {}, Bound = {}, Glass = {}, Running = true}
+	local function connect(signal, callback)
+		table.insert(tracker.Connections, signal:Connect(callback))
+	end
+	local function bind(object, added)
+		local name = string.lower(object.Name)
+		local eligible = object:GetAttribute("ItemName") ~= nil
+			or (object.HasTag and (object:HasTag("Candle") or object:HasTag("Lantern")))
+			or object:GetAttribute("SpiritCandle") == true
+			or object:GetAttribute("LeviathanGlitch") ~= nil
+			or (object.Parent and object.Parent.Name == "Items")
+			or name:find("candle", 1, true) or name:find("lantern", 1, true)
+		local glass = object:IsA("Model") and object.Name == "BrokenGlass"
+			and object.Parent and object.Parent.Name == "BrokenGlass"
+		if not eligible and not glass then return end
+		if tracker.Bound[object] then return end
+		tracker.Bound[object] = true
+		local previousGlitch, candleSeen
+		local function update()
+			if not tracker.Running or not object:IsDescendantOf(World) then return end
+			local glitch = object:GetAttribute("LeviathanGlitch")
+			if type(glitch) == "number" and glitch > 0 and glitch ~= previousGlitch then
+				Traffic("NativeGlitch", {Item = object, Token = glitch}):SendTo("Leviathan")
+			end
+			previousGlitch = glitch
+			if not candleSeen and object:GetAttribute("SpiritCandle") == true then
+				candleSeen = true
+				Traffic("SpiritCandle", {Item = object}):SendTo("Spirit", "Doppelganger")
+			end
+		end
+		if eligible and (object:IsA("Model") or object:IsA("BasePart")) then
+			connect(object:GetAttributeChangedSignal("LeviathanGlitch"), update)
+			connect(object:GetAttributeChangedSignal("SpiritCandle"), update)
+			update()
+		end
+		if added and glass then
+			local now = clock()
+			local recent = {}
+			for _, time in ipairs(tracker.Glass) do
+				if now - time <= 5 then table.insert(recent, time) end
+			end
+			table.insert(recent, now)
+			tracker.Glass = recent
+			if #recent >= 2 then Traffic("GlassBurst", {Count = #recent}):SendTo("Banshee") end
+		end
+	end
+	for _, object in ipairs(World:GetDescendants()) do bind(object, false) end
+	connect(World.DescendantAdded, function(object) bind(object, true) end)
+	function tracker:Destroy()
+		self.Running = false
+		for _, connection in ipairs(self.Connections) do connection:Disconnect() end
+		table.clear(self.Connections)
+		table.clear(self.Bound)
+	end
+	return tracker
+end
+
+end)())
 modules["ghost/active-trackers/player-speed.luau"] = pack((function()
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "player-speed requires Traffic")
@@ -6273,7 +6336,7 @@ return function(dependencies)
 
 	local otherSound
 	for _, child in ipairs(root:GetChildren()) do
-		if child:IsA("Sound") and child.Name ~= "Hunting" then
+		if child:IsA("Sound") and string.lower(child.Name):find("footstep", 1, true) then
 			otherSound = child
 			break
 		end
@@ -6539,23 +6602,51 @@ modules["ghost/discardable-trackers/lidar.luau"] = pack((function()
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "lidar requires Traffic")
 	local Ghost = assert(dependencies.Ghost, "lidar requires Ghost")
-	local value = Ghost:GetAttribute("InvisibleOnLIDAR")
-	local exists = value ~= nil
-	if not exists then
+	local Tracker = {Kind = "active", Running = true, Connections = {}}
+	local function scan()
+		if not Tracker.Running then return end
+		local value = Ghost:GetAttribute("InvisibleOnLIDAR")
+		local exists = value ~= nil
 		for _, object in ipairs(Ghost:GetDescendants()) do
 			local attribute = object:GetAttribute("InvisibleOnLIDAR")
-			if attribute ~= nil then
-				exists, value = true, attribute
-				break
-			elseif object.Name == "InvisibleOnLIDAR" and object:IsA("ValueBase") then
-				exists, value = true, object.Value
-				break
+			local member = object.Name == "InvisibleOnLIDAR" and object:IsA("ValueBase")
+			local observed = attribute
+			if member then observed = object.Value end
+			if attribute ~= nil or member then
+				exists = true
+				if observed == true then value = true break end
+				if value == nil then value = observed end
 			end
 		end
+		Tracker.Exists, Tracker.Value = exists, value
+		Traffic("LidarState", {Exists = exists, Value = value}):SendTo("Vex")
 	end
-	local Tracker = {Kind = "discardable", Running = false, Exists = exists, Value = value}
-	Traffic("LidarState", {Exists = exists, Value = value}):SendTo("Vex")
-	function Tracker:Destroy() end
+	local function connect(signal)
+		if signal then table.insert(Tracker.Connections, signal:Connect(scan)) end
+	end
+	local function bind(object)
+		if object.GetAttributeChangedSignal then
+			connect(object:GetAttributeChangedSignal("InvisibleOnLIDAR"))
+		end
+		if object.Name == "InvisibleOnLIDAR" and object:IsA("ValueBase")
+			and object.GetPropertyChangedSignal then
+			connect(object:GetPropertyChangedSignal("Value"))
+		end
+	end
+	bind(Ghost)
+	for _, object in ipairs(Ghost:GetDescendants()) do bind(object) end
+	if Ghost.DescendantAdded then
+		table.insert(Tracker.Connections, Ghost.DescendantAdded:Connect(function(object)
+			bind(object)
+			scan()
+		end))
+	end
+	scan()
+	function Tracker:Destroy()
+		self.Running = false
+		for _, connection in ipairs(self.Connections) do connection:Disconnect() end
+		table.clear(self.Connections)
+	end
 	return Tracker
 end
 
@@ -6569,8 +6660,7 @@ return function(dependencies)
 	local gender = Ghost:GetAttribute("Sex") or Ghost:GetAttribute("Gender")
 	local visualModel = Ghost:GetAttribute("VisualModel")
 	if gender ~= "Female" and gender ~= "Male" then
-		gender = type(visualModel) == "string" and visualModel ~= ""
-			and (FEMALE_MODELS[visualModel] and "Female" or "Male") or nil
+		gender = FEMALE_MODELS[visualModel] and "Female" or nil
 	end
 	local Tracker = {
 		Kind = "discardable",
@@ -8138,12 +8228,12 @@ local Profiles = {
 		note("An eligible Cross that finishes burning without floating and rotating is a 99% negative.", SOURCE.Demon, "user-observed", false, "RuleOut"),
 	})),
 	profile("Dullahan", {"FreezingTemperatures", "LaserProjector", "Wither"}, "user-observed", perks({
-		note("After seven complete invisible/visible pairs exclude valid Phantom and exactly-flat patterns, any upward speed step of nonzero magnitude identifies Dullahan; decreases and resets are ignored.", SOURCE.Dullahan, "user-observed", false, "Trait"),
+		note("The current LineOfSightSpeedIncreasePerSecond flag is 0.1. Repeated rising visible speed provides supporting evidence, not certainty from arbitrary distinct speeds.", SOURCE.Dullahan, "live-game", false, "Trait"),
 	}, {}, {
-		note("A valid Phantom pattern or one exactly-flat seven-pair sequence rules Dullahan out. Decreases and resets are ignored; an invalid stable A/B sequence still supports Dullahan when its tracked direction contains a nonzero rise.", SOURCE.Dullahan, "user-observed", false, "RuleOut"),
+		note("Flat speed without verified sustained target line of sight cannot rule Dullahan out. Decreases or resets make this uncontrolled trial inconclusive.", SOURCE.Dullahan, "live-game", false, "Caveat"),
 	})),
 	profile("Dybbuk", {"FreezingTemperatures", "Handprints", "Wither"}, "tracker-pending", perks({}, {}, {
-		note("No automatic Dybbuk behavior observation is currently trusted.", SOURCE.Dybbuk, "tracker-pending", false, "Caveat"),
+		note("The current CanThrowCorpses flag and journal confirm corpse throwing and a Music Box stun. Ordinary corpse motion is not a reliable automatic identification.", SOURCE.Dybbuk, "live-game", false, "Caveat"),
 	})),
 	profile("Entity", {"Handprints", "LaserProjector", "SpiritBox"}, "user-observed", perks({
 		note("A confirmed object teleport is accompanied by a SmokeHolder appearing anywhere in Workspace.", SOURCE.Entity, "user-observed", true, "Ability"),
@@ -8162,20 +8252,20 @@ local Profiles = {
 		note("No speed decrease after a qualified unique kill, or a verified male VisualModel, is a 99% negative.", SOURCE.Keres, "user-observed", false, "RuleOut"),
 	})),
 	profile("Leviathan", {"GhostOrb", "GhostWriting", "Handprints"}, "user-observed", perks({
-		note("A Spirit Box, Laser Projector, or Blacklight cleanly toggles at least seven times within 2.5 seconds.", SOURCE.Leviathan, "user-observed", true, "Ability"),
+		note("An electronic item receives the native LeviathanGlitch attribute. An ordinary seven-toggle burst provides only weak support.", SOURCE.Leviathan, "live-game", true, "Ability"),
 	}, {}, {
 		note("One isolated toggle or an automation-caused toggle is not Leviathan evidence.", SOURCE.Leviathan, "user-observed", true, "Caveat"),
 	})),
 	profile("Nightmare", {"EMFLevel5", "GhostOrb", "SpiritBox"}, "tracker-pending", perks({}, {}, {
-		note("No automatic Nightmare behavior observation is currently trusted.", SOURCE.Nightmare, "tracker-pending", false, "Caveat"),
+		note("The current ability plays false throw or glass-shatter sounds; dark rooms increase hunt probability. Neither one sound nor one hunt is a reliable automatic identification.", SOURCE.Nightmare, "live-game", false, "Caveat"),
 	})),
 	profile("Oni", {"FreezingTemperatures", "LaserProjector", "SpiritBox"}, "user-observed", perks({
-		note("A complete seven-pair flat hunting window normalizes to base WalkSpeed 13.5 after map and configured-speed factors are removed.", SOURCE.Oni, "user-observed", false, "Trait"),
+		note("The current WalkSpeedDuringHunts flag is 14. A matching flat hunting window supports Oni but can also match Wretch's low-Energy speed.", SOURCE.Oni, "live-game", false, "Trait"),
 	}, {}, {
-		note("A complete qualified flat hunting window that does not normalize to 13.5 is a 99% negative. Non-hunting speed is expected to normalize to 11.", SOURCE.Oni, "user-observed", false, "RuleOut"),
+		note("A mismatch against an inferred difficulty multiplier is only a weak negative, not a rule-out.", SOURCE.Oni, "live-game", false, "Caveat"),
 	})),
 	profile("Phantom", {"EMFLevel5", "GhostOrb", "Handprints"}, "user-observed", perks({
-		note("Across exactly seven hunt blink pairs, the same visible A and invisible B repeat and one allowed hunting multiplier fits map-normalized absolute bases 11 and 13.5. Ratio alone is insufficient.", SOURCE.Phantom, "user-observed", true, "Trait"),
+		note("The current WalkSpeedWhileBlinking flag is 13.5. Seven hunt blink pairs must repeat a stable visible speed and a strictly faster invisible speed.", SOURCE.Phantom, "live-game", true, "Trait"),
 	}, {}, {
 		note("Any complete seven-pair window that is flat, drifting, decrease-only, or a stable A/B with invalid absolute bases rules Phantom out unless a confirmed unique Phantom match is already locked.", SOURCE.Phantom, "user-observed", true, "RuleOut"),
 	})),
@@ -8190,9 +8280,9 @@ local Profiles = {
 		note("If the hunt is still active 1.5 seconds after a valid multiplayer kill, Revenant is ruled out at 99%.", SOURCE.Revenant, "user-observed", false, "RuleOut"),
 	})),
 	profile("Shadow", {"EMFLevel5", "GhostWriting", "LaserProjector"}, "user-observed", perks({
-		note("After the round begins, seven actual unrounded cooling changes from the room occupied by the ghost have a direct arithmetic average below 0.08 C.", SOURCE.Shadow, "user-observed", false, "Trait"),
+		note("The current TemperatureAlterCoefficient is 0.5. Slow cooling provides weak support, since room conditions affect absolute temperature changes.", SOURCE.Shadow, "live-game", false, "Trait"),
 	}, {}, {
-		note("A complete seven-change average greater than or equal to 0.08 C rules Shadow out. Temperature increases and unchanged readings are ignored.", SOURCE.Shadow, "user-observed", false, "RuleOut"),
+		note("An uncontrolled cooling average cannot rule Shadow out. Temperature increases and unchanged readings are ignored.", SOURCE.Shadow, "live-game", false, "Caveat"),
 	})),
 	profile("Siren", {"EMFLevel5", "SpiritBox", "Wither"}, "user-observed", perks({
 		note("The Spirit Box responds with - HUMMING -.", SOURCE.Siren, "user-observed", true, "Ability"),
@@ -8205,7 +8295,7 @@ local Profiles = {
 	profile("Doppelganger", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "live-game", perks({
 		note("Ghost Orb forms a fourth evidence observation or completes an impossible three-evidence combination.", SOURCE.Doppelganger, "user-observed", false, "Trait"),
 	}, {}, {
-		note("No automatic Doppelganger behavior observation beyond its false Ghost Orb is currently trusted.", SOURCE.Doppelganger, "live-game", false, "Caveat"),
+		note("SpiritCandle is shared with Spirit and supports both candidates. False Ghost Orb evidence remains the distinguishing evidence path.", SOURCE.Doppelganger, "live-game", false, "Caveat"),
 	}), nil, {"GhostOrb"}),
 	profile("Specter", {"EMFLevel5", "FreezingTemperatures", "LaserProjector"}, "user-observed", perks({
 		note("Across a completed five-second arm trial, the non-hunting ghost remains stationary in its unchanged favourite room until the next hunt begins.", SOURCE.Specter, "user-observed", false, "Trait"),
@@ -8218,17 +8308,17 @@ local Profiles = {
 		note("A stable qualified Holy Oil fire colour that is not blue is a 99% negative.", SOURCE.Spirit, "user-observed", true, "RuleOut"),
 	})),
 	profile("Umbra", {"GhostOrb", "Handprints", "LaserProjector"}, "user-observed", perks({
-		note("A one-time HumanoidRootPart scan finds no Sound object other than Hunting.", SOURCE.Umbra, "user-observed", true, "Trait"),
+		note("The current NoFootStepSounds flag suppresses footsteps. Absence of a replicated footstep Sound provides weak support only.", SOURCE.Umbra, "live-game", false, "Trait"),
 	}, {}, {
-		note("Finding any other HumanoidRootPart Sound object is a 99% negative.", SOURCE.Umbra, "user-observed", true, "RuleOut"),
+		note("A footstep Sound contradicts silent footsteps; unrelated voice or effect Sounds do not.", SOURCE.Umbra, "live-game", false, "RuleOut"),
 	})),
 	profile("Vesper", {"GhostWriting", "Handprints", "Wither"}, "tracker-pending", perks({}, {}, {
-		note("No automatic Vesper behavior observation is currently trusted.", SOURCE.Vesper, "tracker-pending", false, "Caveat"),
+		note("The current HuntBySound and HearsVoicesAnywhere flags confirm sound-based hunting through walls. Ordinary pursuit alone cannot identify Vesper.", SOURCE.Vesper, "live-game", false, "Caveat"),
 	})),
 	profile("Vex", {"FreezingTemperatures", "GhostOrb", "Wither"}, "user-observed", perks({
-		note("The replicated InvisibleOnLIDAR value exists on the fixed ghost model.", SOURCE.Vex, "user-observed", false, "Trait"),
+		note("The replicated InvisibleOnLIDAR flag is true. Late-arriving values are observed.", SOURCE.Vex, "live-game", false, "Trait"),
 	}, {}, {
-		note("The replicated InvisibleOnLIDAR value does not exist on the fixed ghost model.", SOURCE.Vex, "user-observed", false, "RuleOut"),
+		note("A missing or false replicated flag is not an automatic Vex rule-out.", SOURCE.Vex, "live-game", false, "Caveat"),
 	})),
 	profile("Wretch", {"GhostOrb", "GhostWriting", "LaserProjector"}, "live-game", perks({
 		note("Two alternating settled hunt-state transitions match the WalkSpeed curve for average player Energy captured at each exact switch; the sanity spread must be large enough to exceed speed tolerance.", SOURCE.Wretch, "user-observed", false, "Trait"),
@@ -9267,7 +9357,7 @@ return function(dependencies)
 	local World = dependencies.Workspace or workspace
 	local epsilon = tonumber(dependencies.SpeedEpsilon) or 0.05
 	local customMultipliers = {0.5, 0.75, 1, 1.25, 1.5, 2}
-	local baseSpeeds = {11, 13.5}
+	local baseSpeeds = {11, 14}
 	local Filter = {Kind = "filter", Running = true}
 
 	local function mapMultiplier()
@@ -9442,6 +9532,24 @@ return Aswang
 
 end)())
 modules["ghost/ghosts/Banshee.luau"] = pack((function()
+local Banshee = {Name = "Banshee", Index = 2}
+
+function Banshee.new(dependencies)
+	local Traffic = assert(dependencies.Traffic, "Banshee requires Traffic")
+	local processor = {}
+	processor.Disconnect = Traffic:Receive("Banshee", function(signal, payload)
+		if signal ~= "GlassBurst" or type(payload) ~= "table"
+			or (tonumber(payload.Count) or 0) < 2 then return end
+		Traffic("Support", {
+			Ghost = "Banshee", Confidence = 65,
+			Reason = "multiple new broken-glass models appeared within five seconds; supporting rather than unique evidence",
+		}):SendTo("Verdict")
+	end)
+	function processor:Destroy() self.Disconnect() end
+	return processor
+end
+
+return Banshee
 
 end)())
 modules["ghost/ghosts/Demon.luau"] = pack((function()
@@ -9472,8 +9580,18 @@ end)())
 modules["ghost/ghosts/Doppelganger.luau"] = pack((function()
 local Doppelganger = {Name = "Doppelganger", Index = 17}
 
-function Doppelganger.new()
-	return {Destroy = function() end}
+function Doppelganger.new(dependencies)
+	local Traffic = assert(dependencies.Traffic, "Doppelganger requires Traffic")
+	local processor = {}
+	processor.Disconnect = Traffic:Receive("Doppelganger", function(signal, payload)
+		if signal ~= "SpiritCandle" or type(payload) ~= "table" then return end
+		Traffic("Support", {
+			Ghost = "Doppelganger", Confidence = 60,
+			Reason = "a candle received SpiritCandle; this ability is shared with Spirit",
+		}):SendTo("Verdict")
+	end)
+	function processor:Destroy() self.Disconnect() end
+	return processor
 end
 
 return Doppelganger
@@ -9490,13 +9608,22 @@ function Dullahan.new(dependencies)
 		if signal ~= "SpeedFilterResult" or type(payload) ~= "table"
 			or payload.Complete ~= true then return end
 		local distinct = tonumber(payload.DistinctPairs) or 0
-		local supported = distinct >= 3
-		Traffic(supported and "Support" or "RuleOut", {
+		if distinct < 3 then return end
+		local previous, rises = nil, 0
+		for _, pair in ipairs(payload.Pairs or {}) do
+			local speed = tonumber(pair.v)
+			if not speed then return end
+			if previous then
+				if speed < previous - 0.05 then return end
+				if speed > previous + 0.05 then rises += 1 end
+			end
+			previous = speed
+		end
+		if rises < 2 then return end
+		Traffic("Support", {
 			Ghost = "Dullahan",
-			Confidence = 99,
-			Reason = supported
-				and "seven hunting pairs contained at least three distinct speed pairs"
-				or "seven hunting pairs contained fewer than three distinct speed pairs",
+			Confidence = 65,
+			Reason = "visible hunt speed rose repeatedly; supporting Dullahan, but an uncontrolled line-of-sight trial is not conclusive",
 		}):SendTo("Verdict")
 	end)
 
@@ -9624,14 +9751,21 @@ function Leviathan.new(dependencies)
 	local Processor = {Resolved = false}
 
 	Processor.Disconnect = Traffic:Receive("Leviathan", function(signal, payload)
-		if Processor.Resolved or signal ~= "FlickerArrayResult"
-			or type(payload) ~= "table" or (tonumber(payload.Count) or 0) < 7
+		if Processor.Resolved or type(payload) ~= "table" then return end
+		if signal == "NativeGlitch" and type(payload.Token) == "number" and payload.Token > 0 then
+			Processor.Resolved = true
+			Traffic("Support", {
+				Ghost = "Leviathan", Confidence = 99,
+				Reason = "an electronic item received the native LeviathanGlitch attribute",
+			}):SendTo("Verdict")
+			return
+		end
+		if signal ~= "FlickerArrayResult" or (tonumber(payload.Count) or 0) < 7
 			or (tonumber(payload.Duration) or math.huge)
 				>= (tonumber(payload.Window) or 2) then return end
-		Processor.Resolved = true
 		Traffic("Support", {
 			Ghost = "Leviathan",
-			Confidence = 99,
+			Confidence = 35,
 			Reason = string.format(
 				"%s switched %d times within %.2f seconds",
 				tostring(payload.ItemName or "an eligible electronic item"),
@@ -9663,16 +9797,16 @@ function Oni.new(dependencies)
 			or type(payload) ~= "table" or payload.Complete ~= true then return end
 		if payload.HasBothStates ~= true then return end
 		Processor.Resolved = true
-		local supported = payload.Identical == true and payload.BaseSpeed == 13.5
-		Traffic(supported and "Support" or "RuleOut", {
+		local supported = payload.Identical == true and payload.BaseSpeed == 14
+		Traffic(supported and "Support" or "Negative", {
 			Ghost = "Oni",
-			Confidence = 99,
+			Confidence = supported and 65 or 35,
 			Reason = supported
 				and string.format(
-					"all seven hunting pairs held visible and invisible speed at scaled 13.5 base (%d%%)",
+					"all seven hunting pairs held visible and invisible speed at scaled 14 base (%d%%); also possible for Wretch",
 					math.floor((payload.CustomMultiplier or 1) * 100 + 0.5)
 				)
-				or "seven hunting pairs did not hold visible and invisible speed at scaled 13.5 base",
+				or "seven hunting pairs did not match the inferred scaled 14 base; custom speed remains uncertain",
 		}):SendTo("Verdict")
 	end)
 
@@ -9700,7 +9834,7 @@ function Phantom.new(dependencies)
 		local visible = first and tonumber(first.v)
 		local invisible = first and tonumber(first.i)
 		local supported = visible ~= nil and invisible ~= nil
-			and math.abs(visible - invisible) > epsilon
+			and invisible > visible + epsilon
 		for _, pair in ipairs(payload.Pairs) do
 			if not supported or pair.MixedVisibility ~= true
 				or math.abs((tonumber(pair.v) or math.huge) - visible) > epsilon
@@ -9842,13 +9976,14 @@ function Shadow.new(dependencies)
 		if not average then return end
 		Processor.Resolved = true
 		local supported = average < threshold - 0.000001
-		Traffic(supported and "Support" or "RuleOut", {
+		if not supported then return end
+		Traffic("Support", {
 			Ghost = "Shadow",
-			Confidence = 99,
+			Confidence = 35,
 			Reason = string.format(
-				"room temperature changes averaged %.4f, %s 0.08",
+				"room temperature changes averaged %.4f, %s %.4f; room conditions are uncontrolled",
 				average,
-				supported and "below" or "at or above"
+				supported and "below" or "at or above", threshold
 			),
 		}):SendTo("Verdict")
 	end)
@@ -9949,6 +10084,13 @@ function Spirit.new(dependencies)
 	local Traffic = assert(dependencies.Traffic, "Spirit requires Traffic")
 	local Processor = {}
 	Processor.Disconnect = Traffic:Receive("Spirit", function(signal, payload)
+		if signal == "SpiritCandle" and type(payload) == "table" then
+			Traffic("Support", {
+				Ghost = "Spirit", Confidence = 60,
+				Reason = "a candle received SpiritCandle; this ability is shared with Doppelganger",
+			}):SendTo("Verdict")
+			return
+		end
 		if signal ~= "HolyOilColour" or type(payload) ~= "table" then return end
 		if payload.Kind == "Spirit" then
 			Traffic("Support", {
@@ -9983,10 +10125,10 @@ function Umbra.new(dependencies)
 		Processor.Checked = true
 		Traffic(payload.HasOtherSound and "RuleOut" or "Support", {
 			Ghost = "Umbra",
-			Confidence = payload.HasOtherSound and 99 or 95,
+			Confidence = payload.HasOtherSound and 99 or 35,
 			Reason = payload.HasOtherSound
-				and "HumanoidRootPart contained a Sound other than Hunting on the immediate check"
-				or "HumanoidRootPart contained no Sound other than Hunting on the immediate check",
+				and "HumanoidRootPart contained a footstep Sound"
+				or "no footstep Sound was replicated on the initial scan; not conclusive",
 		}):SendTo("Verdict")
 	end)
 	function Processor:Destroy() self.Disconnect() end
@@ -10008,13 +10150,12 @@ function Vex.new(dependencies)
 	Processor.Disconnect = Traffic:Receive("Vex", function(signal, payload)
 		if Processor.Checked or signal ~= "LidarState" or type(payload) ~= "table"
 			or type(payload.Exists) ~= "boolean" then return end
+		if payload.Exists ~= true or payload.Value ~= true then return end
 		Processor.Checked = true
-		Traffic(payload.Exists and "Support" or "RuleOut", {
+		Traffic("Support", {
 			Ghost = "Vex",
 			Confidence = 99,
-			Reason = payload.Exists
-				and "the InvisibleOnLIDAR replicated member exists, regardless of its value"
-				or "the InvisibleOnLIDAR replicated member does not exist",
+			Reason = "the replicated InvisibleOnLIDAR flag is true",
 		}):SendTo("Verdict")
 	end)
 	function Processor:Destroy() self.Disconnect() end
@@ -10156,6 +10297,51 @@ function Wretch.new(dependencies)
 end
 
 return Wretch
+
+end)())
+modules["ghost/live-evidence.luau"] = pack((function()
+return function(dependencies)
+	local Catalog = assert(dependencies.Catalog, "live-evidence requires Catalog")
+	local Storage = assert(dependencies.ReplicatedStorage, "live-evidence requires ReplicatedStorage")
+	local load = dependencies.Require or require
+	local result = {Updated = {}, Skipped = {}}
+	local modules = Storage:FindFirstChild("Modules")
+	local types = modules and modules:FindFirstChild("GhostTypes")
+	local evidenceModule = modules and modules:FindFirstChild("EvidenceTypes")
+	if not types or not evidenceModule then return result end
+	local ok, definitions = pcall(load, evidenceModule)
+	if not ok or type(definitions) ~= "table" then return result end
+	local keys = {}
+	for name, value in pairs(definitions) do
+		local key = Catalog.NormalizeEvidence(name)
+		if key and (type(value) == "number" or type(value) == "string") then keys[value] = key end
+	end
+	for _, profile in ipairs(Catalog.Profiles) do
+		local module = types:FindFirstChild(profile.Name)
+		local loaded, native = false, nil
+		if module and module:IsA("ModuleScript") then loaded, native = pcall(load, module) end
+		local evidence, set, display = {}, {}, {}
+		local valid = loaded and type(native) == "table" and type(native.Evidence) == "table"
+		if valid then
+			for _, value in ipairs(native.Evidence) do
+				local key = keys[value] or Catalog.NormalizeEvidence(value)
+				if not key or set[key] then valid = false break end
+				set[key] = true
+				table.insert(evidence, key)
+				table.insert(display, Catalog.Evidence[key].DisplayName)
+			end
+		end
+		if valid and #evidence == 3 then
+			profile.Evidence, profile.EvidenceSet = evidence, set
+			profile.EvidenceDisplay, profile.DisplayEvidence = display, display
+			profile.SourceStatus = "live-game"
+			table.insert(result.Updated, profile.Name)
+		else
+			table.insert(result.Skipped, profile.Name)
+		end
+	end
+	return result
+end
 
 end)())
 modules["ghost/traffic.luau"] = pack((function()
@@ -13710,7 +13896,7 @@ local function findRoomAt(position, previousRoom)
 end
 
 	local teleportControl = {}
-	local teleportToRoom = createRoomTeleport({
+	local performRoomTeleport = createRoomTeleport({
 		Services = Services,
 		Player = player,
 		RuntimeIsActive = runtimeIsActive,
@@ -13718,6 +13904,19 @@ end
 		GetGhostModel = getGhostModel,
 		Control = teleportControl,
 	})
+	local lastTeleport
+	local function teleportToRoom(room, options)
+		local ok, reason = performRoomTeleport(room, options)
+		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		lastTeleport = {
+			Room = room and room.Name,
+			Success = ok,
+			Reason = reason,
+			Position = root and root.Position,
+			Time = os.clock(),
+		}
+		return ok, reason
+	end
 	local perkTrackerState = {
 		teleportSequence = 0,
 		teleportToRoomBoundingBoxCenter = teleportToRoom,
@@ -13895,6 +14094,7 @@ end
 		InstanceIsInsideRoom = instanceIsInsideRoom,
 		FindRoomAt = findRoomAt,
 		TeleportToRoom = teleportToRoom,
+		GetLastTeleport = function() return lastTeleport end,
 		TeleportToBaseCamp = perkTrackerState.teleportToBaseCamp,
 		CaptureBaseCampEscapePivot = captureBaseCampEscapePivot,
 		FastTeleportToBaseCamp = fastTeleportToBaseCamp,
@@ -15611,6 +15811,11 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	local function assessCandidate(candidate)
 		candidate.Position = candidate.FloorPosition
 			+ Vector3.new(0, standingOffset, 0)
+		local localRoot = candidate.BoundingPart.CFrame:PointToObjectSpace(candidate.Position)
+		if not safelyInsideXZ(candidate.Position, candidate.BoundingPart)
+			or math.abs(localRoot.Y) > candidate.BoundingPart.Size.Y * 0.5 then
+			return false
+		end
 		if targetPosition and maximumTargetDistance then
 			local targetOffset = Vector3.new(
 				candidate.Position.X - targetPosition.X,
@@ -16147,7 +16352,8 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 			candidate.Position + destinationLook
 		)
 		local moved = pcall(function()
-			character:PivotTo(destination)
+			local rootToPivot = root.CFrame:ToObjectSpace(character:GetPivot())
+			character:PivotTo(destination * rootToPivot)
 		end)
 		if not moved then
 			return false
@@ -16173,7 +16379,9 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 		local footprintInspection = inspectFootprint(
 			settledFloorPosition
 		)
-		if not footprintInspection.CenterSupported
+		local localRoot = candidate.BoundingPart.CFrame:PointToObjectSpace(root.Position)
+		if math.abs(localRoot.Y) > candidate.BoundingPart.Size.Y * 0.5
+			or not footprintInspection.CenterSupported
 			or not safelyInsideXZ(
 				root.Position,
 				candidate.BoundingPart
@@ -16341,7 +16549,14 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 		end
 	end)
 
+	local localRoot = selected.BoundingPart.CFrame:PointToObjectSpace(root.Position)
+	local finalFloor = inspectFootprint(root.Position - Vector3.new(0, standingOffset, 0))
+	local inside = safelyInsideXZ(root.Position, selected.BoundingPart)
+		and math.abs(localRoot.Y) <= selected.BoundingPart.Size.Y * 0.5
 	destroyBodyGeometryProbe()
+	if not inside or not finalFloor.CenterSupported then
+		return false, "destination moved outside the room or lost floor support after settling"
+	end
 	return true, nil
 end
 

@@ -9,16 +9,16 @@ function Oni.new(dependencies)
 			or type(payload) ~= "table" or payload.Complete ~= true then return end
 		if payload.HasBothStates ~= true then return end
 		Processor.Resolved = true
-		local supported = payload.Identical == true and payload.BaseSpeed == 13.5
-		Traffic(supported and "Support" or "RuleOut", {
+		local supported = payload.Identical == true and payload.BaseSpeed == 14
+		Traffic(supported and "Support" or "Negative", {
 			Ghost = "Oni",
-			Confidence = 99,
+			Confidence = supported and 65 or 35,
 			Reason = supported
 				and string.format(
-					"all seven hunting pairs held visible and invisible speed at scaled 13.5 base (%d%%)",
+					"all seven hunting pairs held visible and invisible speed at scaled 14 base (%d%%); also possible for Wretch",
 					math.floor((payload.CustomMultiplier or 1) * 100 + 0.5)
 				)
-				or "seven hunting pairs did not hold visible and invisible speed at scaled 13.5 base",
+				or "seven hunting pairs did not match the inferred scaled 14 base; custom speed remains uncertain",
 		}):SendTo("Verdict")
 	end)
 

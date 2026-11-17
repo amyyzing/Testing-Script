@@ -128,7 +128,7 @@ expect(#positive.Temperature.Changes == 7,
 expect(#positive.Progress == 7 and positive.Progress[7].Count == 7
 	and math.abs(positive.Progress[7].Average - 0.05) < 0.000001,
 	"every cooling change must publish the current unrounded Shadow average")
-expect(positive.Verdict.Selected[1] == 15 and positive.Verdict.Confidence[15] == 99,
+expect(positive.Verdict.Selected[1] == 15 and positive.Verdict.Confidence[15] == 35,
 	"seven cooling changes averaging below 0.08 should support Shadow")
 positive.GhostRoom:Destroy()
 positive.RoundStarted:Destroy()
@@ -146,8 +146,8 @@ negative.Heartbeat:Fire(0.25)
 expect(negative.Temperature.Room == secondRoom and #negative.Temperature.Changes == 0,
 	"moving to a new ghost room should reset the previous room's temperature array")
 for index = 1, 7 do secondRoom:SetTemperature(20 - index * 0.1) end
-expect(table.find(negative.Verdict.RuledOut, 15),
-	"seven cooling changes averaging above 0.08 should rule out Shadow")
+expect(not table.find(negative.Verdict.RuledOut, 15),
+	"an uncontrolled cooling rate must not exclude Shadow")
 expect(firstRoom:GetAttributeChangedSignal("Temperature"):Count() == 0,
 	"room-temperature should disconnect from the room the ghost left")
 negative.GhostRoom:Destroy()
@@ -161,8 +161,8 @@ threshold.RoundStarted:Start()
 for index = 1, 7 do
 	thresholdRoom:SetTemperature(10 - index * 0.08)
 end
-expect(table.find(threshold.Verdict.RuledOut, 15),
-	"an average equal to 0.08 must rule Shadow out instead of remaining unresolved")
+expect(not table.find(threshold.Verdict.RuledOut, 15),
+	"an average at the heuristic threshold must remain inconclusive")
 threshold.GhostRoom:Destroy()
 threshold.RoundStarted:Destroy()
 threshold.Temperature:Destroy()

@@ -112,8 +112,13 @@ local Remotes = createRemotes.new({LoadModule = loadModule})
 loading:SetStage("Loading verdict", 4, 10)
 local createVerdict = loadModule("ghost/verdict.luau")
 local GhostCatalog = loadModule("ghost/evidence-catalog.luau")
+local liveEvidence = loadModule("ghost/live-evidence.luau")({
+	Catalog = GhostCatalog,
+	ReplicatedStorage = Services.ReplicatedStorage,
+})
 local markJournal = Remotes:Get("EvidenceMarkedInJournal")
 loading:SetStage("Loading ghost processors", 5, 10)
+local Banshee = loadModule("ghost/ghosts/Banshee.luau")
 local Aswang = loadModule("ghost/ghosts/Aswang.luau")
 local Demon = loadModule("ghost/ghosts/Demon.luau")
 local Dullahan = loadModule("ghost/ghosts/Dullahan.luau")
@@ -142,6 +147,7 @@ local createGhostRoom = loadModule("ghost/active-trackers/ghost-room.luau")
 local createHuntingState = loadModule("ghost/dormant-trackers/hunting-state.luau")
 local createItemTeleport = loadModule("ghost/active-trackers/item-teleport.luau")
 local createItemState = loadModule("ghost/active-trackers/item-state.luau")
+local createNativeEvents = loadModule("ghost/active-trackers/native-events.luau")
 local createKillCount = loadModule("ghost/active-trackers/kill-count.luau")
 local createPlayerSpeed = loadModule("ghost/active-trackers/player-speed.luau")
 local createSaltHit = loadModule("ghost/active-trackers/salt-hit.luau")
@@ -213,6 +219,7 @@ local presenter = GuiLogic.new({
 })
 
 session = {
+	LiveEvidence = liveEvidence,
 	Destroyed = false,
 	Connections = {},
 	Trackers = {},
@@ -271,6 +278,7 @@ local movement = createMovement({
 	CreateRoomTeleport = createRoomTeleport,
 })
 local teleportToBaseCamp = movement.TeleportToBaseCamp
+session.Movement = movement
 movement.CaptureBaseCampEscapePivot()
 session.TeleportToBaseCamp = teleportToBaseCamp
 session.Bright = remember(createBright({
@@ -420,6 +428,7 @@ local function startTrackers()
 			LocalShowSubtitle = Remotes:Get("LocalShowSubtitle"),
 		}))
 		remember(Aswang.new({Traffic = Traffic}))
+		remember(Banshee.new({Traffic = Traffic}))
 		remember(Demon.new({Traffic = Traffic}))
 		remember(Dullahan.new({Traffic = Traffic}))
 		remember(Entity.new({Traffic = Traffic}))
@@ -440,6 +449,7 @@ local function startTrackers()
 		remember(Wretch.new({Traffic = Traffic}))
 		remember(Wisp.new({Traffic = Traffic}))
 		remember(Wraith.new({Traffic = Traffic}))
+		remember(createNativeEvents({Traffic = Traffic, Workspace = Services.Workspace}))
 		remember(createFlickerArray({Traffic = Traffic}))
 		remember(createSpeedFilter({
 			Traffic = Traffic,

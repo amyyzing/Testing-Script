@@ -76,28 +76,28 @@ local function run(rawSpeed, visibilityMode, mapSize)
 	return snapshot, filtered
 end
 
-local oniSnapshot, oniFilter = run(13.5 * 1.05 * 2)
+local oniSnapshot, oniFilter = run(14 * 1.05 * 2)
 expect(oniSnapshot.Selected[1] == 11 and oniFilter.Identical
-	and oniFilter.BaseSpeed == 13.5 and oniFilter.CustomMultiplier == 2
+	and oniFilter.BaseSpeed == 14 and oniFilter.CustomMultiplier == 2
 	and oniFilter.MapMultiplier == 1.05,
-	"seven identical 13.5-base visible/invisible pairs should support Oni after scaling")
+	"seven identical current 14-base visible/invisible pairs should support Oni after scaling")
 
-local smallSnapshot, smallFilter = run(27, nil, "Small")
-expect(smallSnapshot.Selected[1] == 11 and smallFilter.BaseSpeed == 13.5
+local smallSnapshot, smallFilter = run(28, nil, "Small")
+expect(smallSnapshot.Selected[1] == 11 and smallFilter.BaseSpeed == 14
 	and smallFilter.CustomMultiplier == 2 and smallFilter.MapMultiplier == 1,
-	"27 hunting WalkSpeed on a Small map should support the 200 percent Oni mode")
+	"28 hunting WalkSpeed on a Small map should support the 200 percent Oni mode")
 
 local normalSnapshot, normalFilter = run(22, nil, "Small")
-expect(table.find(normalSnapshot["ruled-out"], 11) and normalFilter.BaseSpeed == 11,
-	"seven identical normal 11-base hunting pairs should rule out Oni")
+expect(not table.find(normalSnapshot["ruled-out"], 11) and normalFilter.BaseSpeed == 11,
+	"an inferred mismatch should not hard-exclude Oni")
 
-local visibleSnapshot, visibleFilter = run(13.5 * 1.05, "all-visible")
+local visibleSnapshot, visibleFilter = run(14 * 1.05, "all-visible")
 expect(#visibleSnapshot.Selected == 0 and #visibleSnapshot["ruled-out"] == 0
 	and visibleFilter == nil,
 	"one unchanged visibility state should never finish an Oni comparison")
 
-local invalidSnapshot, invalidFilter = run(13.5 * 1.05 * 1.75)
-expect(table.find(invalidSnapshot["ruled-out"], 11) and invalidFilter.BaseSpeed == nil,
-	"the unsupported 175 percent custom speed must not pass the speed filter")
+local invalidSnapshot, invalidFilter = run(14 * 1.05 * 1.75)
+expect(not table.find(invalidSnapshot["ruled-out"], 11) and invalidFilter.BaseSpeed == nil,
+	"an unsupported multiplier should remain inconclusive")
 
 print("oni.spec: visibility-driven map and custom-speed filtering passed")

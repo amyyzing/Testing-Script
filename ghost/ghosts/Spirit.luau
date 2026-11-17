@@ -4,6 +4,13 @@ function Spirit.new(dependencies)
 	local Traffic = assert(dependencies.Traffic, "Spirit requires Traffic")
 	local Processor = {}
 	Processor.Disconnect = Traffic:Receive("Spirit", function(signal, payload)
+		if signal == "SpiritCandle" and type(payload) == "table" then
+			Traffic("Support", {
+				Ghost = "Spirit", Confidence = 60,
+				Reason = "a candle received SpiritCandle; this ability is shared with Doppelganger",
+			}):SendTo("Verdict")
+			return
+		end
 		if signal ~= "HolyOilColour" or type(payload) ~= "table" then return end
 		if payload.Kind == "Spirit" then
 			Traffic("Support", {

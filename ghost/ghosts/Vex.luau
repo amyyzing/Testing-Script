@@ -6,13 +6,12 @@ function Vex.new(dependencies)
 	Processor.Disconnect = Traffic:Receive("Vex", function(signal, payload)
 		if Processor.Checked or signal ~= "LidarState" or type(payload) ~= "table"
 			or type(payload.Exists) ~= "boolean" then return end
+		if payload.Exists ~= true or payload.Value ~= true then return end
 		Processor.Checked = true
-		Traffic(payload.Exists and "Support" or "RuleOut", {
+		Traffic("Support", {
 			Ghost = "Vex",
 			Confidence = 99,
-			Reason = payload.Exists
-				and "the InvisibleOnLIDAR replicated member exists, regardless of its value"
-				or "the InvisibleOnLIDAR replicated member does not exist",
+			Reason = "the replicated InvisibleOnLIDAR flag is true",
 		}):SendTo("Verdict")
 	end)
 	function Processor:Destroy() self.Disconnect() end

@@ -6,8 +6,7 @@ return function(dependencies)
 	local gender = Ghost:GetAttribute("Sex") or Ghost:GetAttribute("Gender")
 	local visualModel = Ghost:GetAttribute("VisualModel")
 	if gender ~= "Female" and gender ~= "Male" then
-		gender = type(visualModel) == "string" and visualModel ~= ""
-			and (FEMALE_MODELS[visualModel] and "Female" or "Male") or nil
+		gender = FEMALE_MODELS[visualModel] and "Female" or nil
 	end
 	local Tracker = {
 		Kind = "discardable",

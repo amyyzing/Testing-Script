@@ -24,8 +24,8 @@ end
 
 local presentVerdict, presentTracker = run(false)
 expect(presentTracker.Exists == true and presentTracker.Value == false
-	and presentVerdict.Confidence[22] == 99,
-	"a present false InvisibleOnLIDAR attribute should support Vex")
+	and presentVerdict.Confidence[22] == nil,
+	"a present false InvisibleOnLIDAR attribute must not identify Vex")
 
 local member = {
 	Name = "InvisibleOnLIDAR",
@@ -35,11 +35,13 @@ local member = {
 }
 local memberVerdict, memberTracker = run(nil, {member})
 expect(memberTracker.Exists == true and memberTracker.Value == nil
-	and memberVerdict.Confidence[22] == 99,
-	"a present InvisibleOnLIDAR ValueBase should support Vex even when its value is nil")
+	and memberVerdict.Confidence[22] == nil,
+	"a member without a true value must remain inconclusive")
 
 local missingVerdict, missingTracker = run(nil)
-expect(missingTracker.Exists == false and table.find(missingVerdict.RuledOut, 22),
-	"a genuinely absent InvisibleOnLIDAR member should rule Vex out")
+expect(missingTracker.Exists == false and not table.find(missingVerdict.RuledOut, 22),
+	"a missing replicated flag must not rule Vex out")
+local trueVerdict = run(true)
+expect(trueVerdict.Confidence[22] == 99, "a true invisibility flag should support Vex")
 
 print("vex.spec: one-shot InvisibleOnLIDAR existence check passed")

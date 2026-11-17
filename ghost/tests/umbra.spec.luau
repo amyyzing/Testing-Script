@@ -30,7 +30,7 @@ local function run(children)
 end
 
 local silentVerdict, silentTracker = run({object("Hunting", "Sound"), object("RootRigAttachment", "Attachment")})
-expect(silentTracker.HasOtherSound == false and silentVerdict.Confidence[20] == 95,
+expect(silentTracker.HasOtherSound == false and silentVerdict.Confidence[20] == 35,
 	"Hunting alone should support Umbra after the one immediate scan")
 
 local audibleVerdict, audibleTracker = run({object("Hunting", "Sound"), object("Footsteps", "Sound")})
@@ -38,7 +38,10 @@ expect(audibleTracker.HasOtherSound == true and table.find(audibleVerdict.RuledO
 	"a direct HRP Sound other than Hunting should rule Umbra out")
 
 local nestedVerdict, nestedTracker = run({object("FootstepContainer", "Folder")})
-expect(nestedTracker.HasOtherSound == false and nestedVerdict.Confidence[20] == 95,
+expect(nestedTracker.HasOtherSound == false and nestedVerdict.Confidence[20] == 35,
 	"the scan should inspect only direct children of HumanoidRootPart")
+local voiceVerdict, voiceTracker = run({object("Voice", "Sound")})
+expect(voiceTracker.HasOtherSound == false and not table.find(voiceVerdict.RuledOut, 20),
+	"an unrelated voice Sound must not exclude a ghost with silent footsteps")
 
 print("umbra.spec: one-shot HumanoidRootPart Sound scan passed")
