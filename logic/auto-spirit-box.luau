@@ -15,11 +15,11 @@ return function(dependencies)
 		local holder = box and box:FindFirstChild("Holder")
 		for _, name in ipairs({"Aggression", "Location", "Age"}) do
 			local category = holder and holder:FindFirstChild(name)
-			local detection = category and category:FindFirstChild("Detection")
-			local value = detection and detection.Text
-			if type(value) == "string" and value ~= "" then table.insert(result, value) end
+			local index = category and category:GetAttribute("QuestionIndex")
+			if type(index) == "number" and index >= 1 and index % 1 == 0 then
+				table.insert(result, {Category = name, Index = index})
+			end
 		end
-		if #result == 0 then result[1] = "Are you in the room with me?" end
 		return result
 	end
 
@@ -31,8 +31,10 @@ return function(dependencies)
 
 	local function askNext()
 		local available = questions()
+		if #available == 0 then return end
 		controller.QuestionIndex = controller.QuestionIndex % #available + 1
-		ask(available[controller.QuestionIndex])
+		local question = available[controller.QuestionIndex]
+		ask(question.Category, question.Index)
 	end
 
 	function controller:SetEnabled(enabled)
