@@ -226,13 +226,18 @@ local settingsStore = createSettingsStore({
 	HttpService = Services.HttpService,
 })
 local settings = settingsStore:Load(handoff and handoff.Settings)
-if not table.find(LobbySettings.JobSiteNames(player), settings.JobSite) then
+local inLobby = Services.Workspace:FindFirstChild("Ghost") == nil
+if not table.find(LobbySettings.JobSiteNames(player), settings.JobSite)
+	or (inLobby and not LobbySettings.IsJobSiteUnlocked(player, settings.JobSite)) then
 	settings.JobSite = LobbySettings.ReadSelectedJobSite(player) or ""
 	if settings.JobSite == "" then
 		for _, name in ipairs(LobbySettings.JobSiteNames(player)) do
 			if LobbySettings.IsJobSiteUnlocked(player, name) then settings.JobSite = name break end
 		end
 	end
+end
+if inLobby and not table.find(LobbySettings.ReadEquipmentPresets(player), settings.EquipmentPreset) then
+	settings.EquipmentPreset = "Current equipment"
 end
 if not table.find(LobbySettings.Difficulties, settings.Difficulty) then
 	settings.Difficulty = LobbySettings.ReadSelectedDifficulty(player) or "Easy"
