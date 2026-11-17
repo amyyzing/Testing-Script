@@ -37,6 +37,7 @@ return function(dependencies: any)
 	end
 local DROPPED_ROOM_ITEMS = {
 	"Spirit Box",
+	"Spirit Book",
 	"Laser Projector",
 	"Video Camera",
 	"Blacklight",

@@ -2678,6 +2678,7 @@ return function(dependencies: any)
 	end
 local DROPPED_ROOM_ITEMS = {
 	"Spirit Box",
+	"Spirit Book",
 	"Laser Projector",
 	"Video Camera",
 	"Blacklight",
@@ -14985,6 +14986,7 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 		local corePlacementNames = {
 			[normalizeItemName("Cross")] = true,
 			[normalizeItemName("Spirit Box")] = true,
+			[normalizeItemName("Spirit Book")] = true,
 			[normalizeItemName("Laser Projector")] = true,
 			[normalizeItemName("Flower Pot")] = true,
 			[normalizeItemName("EMF Reader")] = true,
@@ -14998,6 +15000,7 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 		local coreOrder = {
 			"Cross",
 			"Spirit Box",
+			"Spirit Book",
 			"Laser Projector",
 			"Flower Pot",
 			"EMF Reader",
@@ -15005,6 +15008,7 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 			"Video Camera",
 		}
 		local optionalCoreNames = {
+			[normalizeItemName("Spirit Book")] = true,
 			[normalizeItemName("Cross")] = true,
 			[normalizeItemName("EMF Reader")] = true,
 			[normalizeItemName("Blacklight")] = true,
@@ -15551,7 +15555,7 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 				message = "Returned to Base Camp. Issues: "
 					.. table.concat(failedItems, ", ")
 			else
-				message = "The seven room items were placed; Salt Canister and Holy Oil were retained when available."
+				message = "Available room items were placed; Salt Canister and Holy Oil were retained when available."
 			end
 			pcall(function()
 				game:GetService("StarterGui"):SetCore(
