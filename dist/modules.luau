@@ -13723,7 +13723,7 @@ end
 
 end)())
 modules["logic/mcp-teleport.luau"] = pack((function()
-local VERSION = 3
+local VERSION = 4
 return function(dependencies)
 	local environment = dependencies.Environment or (getgenv and getgenv()) or _G
 	local world = dependencies.Game or game
@@ -13733,9 +13733,10 @@ return function(dependencies)
 	local existing = environment.DemonologyMCPResume
 	if existing and existing.Version == VERSION and existing.Enabled ~= false
 		and existing.Game == world and existing.JobId == tostring(world.JobId) then
-		existing:Arm()
 		if dependencies.Recover and existing.Recover then
 			existing:Recover(dependencies.BridgeURL, dependencies.AuthToken, dependencies.ArrivalId)
+		else
+			existing:Arm()
 		end
 		return existing
 	end
@@ -13755,9 +13756,9 @@ return function(dependencies)
 		if self.Queued then return true end
 		if not self.Enabled then return false end
 		if type(queue) ~= "function" then self.LastError = "queue_on_teleport is unavailable" return false end
-		local bridge = dependencies.BridgeURL or environment.BridgeURL or environment.bridgeurl
+		local bridge = environment.BridgeURL or environment.bridgeurl or dependencies.BridgeURL
 		if type(bridge) ~= "string" or bridge == "" then return false end
-		local token = dependencies.AuthToken or environment.MCPAuthToken or environment.BridgeAuthToken or ""
+		local token = environment.MCPAuthToken or environment.BridgeAuthToken or dependencies.AuthToken or ""
 		self.ArmGeneration = (self.ArmGeneration or 0) + 1
 		local arrivalId = table.concat({self.JobId, tostring(os.time()), tostring(os.clock()), tostring(self.ArmGeneration)}, ":")
 		local source = string.format([[
@@ -13795,7 +13796,6 @@ if not ok then error(failure, 0) end
 		self.Enabled = false
 		if self.Connection then self.Connection:Disconnect() end
 	end
-	controller:Arm()
 	local player = dependencies.Player or world:GetService("Players").LocalPlayer
 	if player and player.OnTeleport then
 		controller.Connection = player.OnTeleport:Connect(function(state)
@@ -13844,7 +13844,11 @@ if not ok then error(failure, 0) end
 		self.LastError = not self.Recovered and "MCP connector did not finish initializing" or nil
 		self:Arm()
 	end
-	if dependencies.Recover then controller:Recover(dependencies.BridgeURL, dependencies.AuthToken, dependencies.ArrivalId) end
+	if dependencies.Recover then
+		controller:Recover(dependencies.BridgeURL, dependencies.AuthToken, dependencies.ArrivalId)
+	else
+		controller:Arm()
+	end
 	return controller
 end
 

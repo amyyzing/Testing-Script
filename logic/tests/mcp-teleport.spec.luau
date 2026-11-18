@@ -3,6 +3,7 @@ local environment = {BridgeURL = "https://bridge.example", MCPAuthToken = "fixtu
 local queued = {}
 local player = {UserId = 42}
 local requests, failures = 0, 2
+local expectedURL = "https://bridge.example/script.luau?token=fixture"
 local world = {PlaceId = 1, JobId = "round"}
 function world:GetService(name)
 	if name == "Players" then return {LocalPlayer = player} end
@@ -10,7 +11,7 @@ function world:GetService(name)
 end
 function world:HttpGet(url)
 	requests += 1
-	assert(url == "https://bridge.example/script.luau?token=fixture", "resume must reuse the authenticated bridge")
+	assert(url == expectedURL, "resume must reuse the authenticated bridge")
 	if requests <= failures then error("transient failure") end
 	return "connector"
 end
@@ -82,4 +83,25 @@ destroyed:Destroy()
 local reopened = createResume(cachedDependencies)
 assert(reopened ~= destroyed and reopened.Enabled and reopened.Queued,
 	"revisiting a cached destroyed controller must create a live controller and arm the next hop")
+
+local arrivalEnvironment = {BridgeURL = "https://bridge.example", MCPAuthToken = "fixture"}
+local arrivalWorld = {PlaceId = 1, JobId = "arrival", GetService = world.GetService, HttpGet = world.HttpGet}
+local arrival = dependencies(arrivalWorld, true)
+arrival.Environment, arrival.ArrivalId = arrivalEnvironment, "arrival-one"
+arrival.Compile = function() return function() arrivalEnvironment.MCP_Loaded = true end end
+local beforeArrival = #queued
+local arriving = createResume(arrival)
+assert(arriving.Recovered and #queued == beforeArrival + 1,
+	"an incoming recovery must enqueue exactly one next-hop bootstrap")
+
+expectedURL = "https://updated.example/script.luau?token=updated-fixture"
+arriving:Recover("https://updated.example", "updated-fixture", "arrival-two")
+assert(arriving.Recovered and queued[#queued]:find("updated-fixture", 1, true)
+	and queued[#queued]:find("https://updated.example", 1, true),
+	"a reused controller must queue the refreshed bridge and credential")
+arrivalEnvironment.MCPAuthToken = "manual-fixture"
+arriving.Queued = false
+arriving:Arm()
+assert(queued[#queued]:find("manual-fixture", 1, true),
+	"manual reconnect credentials must replace captured stale credentials on the next hop")
 print("mcp-teleport.spec: independent multi-hop queue, stale flags, retries and duplicate prevention passed")
