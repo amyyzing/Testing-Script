@@ -6759,11 +6759,17 @@ return function(dependencies)
 		return false
 	end
 
-	local function finish(id, disturbed, graceComplete)
+	local function release(id)
 		local probe = Tracker.Active[id]
 		if not probe then return end
 		Tracker.Active[id] = nil
 		for _, connection in ipairs(probe.Connections) do connection:Disconnect() end
+		return probe
+	end
+
+	local function finish(id, disturbed, graceComplete)
+		local probe = release(id)
+		if not probe then return end
 		Traffic("SaltStateAfterHit", {
 			ContactId = id,
 			Salt = probe.Payload.Salt,
@@ -6788,7 +6794,7 @@ return function(dependencies)
 
 	local function runOnce(payload)
 		local id, salt = payload.ContactId, payload.Salt
-		if Tracker.Active[id] then return end
+		if Tracker.Active[id] or not salt or not salt.Parent then return end
 		local now = clock()
 		local createdAt = tonumber(payload.SaltCreatedAt) or now
 		local waitSeconds = math.max(delaySeconds, createdAt + graceSeconds - now)
@@ -6804,6 +6810,9 @@ return function(dependencies)
 			return
 		end
 		watch(id, salt)
+		if salt.AncestryChanged then
+			table.insert(Tracker.Active[id].Connections, salt.AncestryChanged:Connect(function() release(id) end))
+		end
 		for _, object in ipairs(salt:GetDescendants()) do watch(id, object) end
 		table.insert(Tracker.Active[id].Connections, salt.DescendantAdded:Connect(function(object)
 			watch(id, object)
@@ -6811,6 +6820,7 @@ return function(dependencies)
 		end))
 		delay(waitSeconds, function()
 			if Tracker.Running and Tracker.Active[id] then
+				if not salt.Parent then release(id) return end
 				local disturbed = isSaltDisturbed(salt)
 				finish(id, disturbed, not disturbed)
 			end

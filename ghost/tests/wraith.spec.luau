@@ -26,6 +26,8 @@ end
 local function salt(name)
 	local object = {
 		Name = name,
+		Parent = {},
+		AncestryChanged = signal(),
 		DescendantAdded = signal(),
 		NameChanged = signal(),
 		DisturbedChanged = signal(),
@@ -94,5 +96,16 @@ disturbed:SetName("DisturbedSaltPile")
 expect(table.find(negative.Verdict.RuledOut, 25),
 	"a direct salt hit becoming disturbed should rule Wraith out immediately")
 negative.Destroy()
+
+local missing = harness()
+local removed = salt("SaltPile")
+missing.Traffic("SaltHit", {ContactId = 3, Salt = removed, SaltCreatedAt = 0}):SendTo("SaltStateAfterHit")
+removed.Parent = nil
+removed.AncestryChanged:Fire()
+missing.SetTime(4)
+missing.Delayed[1].Callback()
+expect(missing.Verdict.Confidence[25] == nil and not table.find(missing.Verdict.RuledOut, 25),
+	"losing the observed pile cannot support or exclude Wraith")
+missing.Destroy()
 
 print("wraith.spec: direct salt hit and four-second creation grace passed")

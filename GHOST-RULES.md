@@ -10,6 +10,11 @@ fallback profile rather than installing a partial one. Behavior rules below
 still require review when the game changes; refreshing evidence does not refresh
 server-only behavior automatically.
 
+Checks have separate directions. A necessary condition shared by other ghosts
+does not provide positive support just because it holds. A qualified contradiction
+can exclude it. Missing random activations stay inconclusive, and a missing or
+reparented observation target cannot count as a successful negative observation.
+
 | Ghost | Current source behavior | Automatic handling and limits |
 | --- | --- | --- |
 | Aswang | Salt slowdown, speed increase after kills | Qualified salt/kill speed windows |
@@ -36,7 +41,7 @@ server-only behavior automatically.
 | Vex | Invisible on LIDAR, walks through walls | True replicated flag supports; late values are watched and absence is inconclusive |
 | Wretch | Energy-dependent speed 9–14; native CantHuntNearLitCandle flag | Known scale requires meaningful Energy change; unknown scale requires three Energy levels sharing one scale. Post-kill samples are ignored. Missing hunts near candles never support it; candle exclusion awaits qualified native proximity and hunt conditions |
 | Wisp | Hunt starts in favourite room, ignores oil, lights candles | Hunt location is negative-only: an outside start excludes, while repeated inside starts add no support. Read GhostWall.CanCollide only after Holy Oil is burning; default unlit walls are non-collidable for other ghosts too |
-| Wraith | Energy drain coefficient 1.5; journal confirms undisturbed salt | Qualified direct salt contact; missing salt events do not identify it |
+| Wraith | Energy drain coefficient 1.5; journal confirms undisturbed salt | Qualified direct salt contact; missing salt events do not identify it. Removal or reparenting cancels a pending salt observation without a verdict |
 
 The test suite validates code contracts and representative observations. It is
 not a claim that all 25 ghosts have each been tested in a live round.

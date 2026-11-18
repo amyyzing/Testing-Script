@@ -24,11 +24,13 @@ end
 local function object(name)
 	local value = {
 		Name = name,
+		Parent = {},
 		Disturbed = false,
 		Descendants = {},
 		DescendantAdded = signal(),
 		NameChanged = signal(),
 		DisturbedChanged = signal(),
+		AncestryChanged = signal(),
 	}
 	function value:GetAttribute(attribute) return attribute == "Disturbed" and self.Disturbed or nil end
 	function value:GetDescendants() return self.Descendants end
@@ -87,6 +89,27 @@ delayed[2].Callback()
 expect(#results == 2 and results[2].State == "undisturbed"
 	and results[2].GraceComplete == true,
 	"the delayed check should report an undisturbed salt only after its grace")
+
+local removed = object("SaltPile")
+Traffic("SaltHit", {ContactId = 3, Salt = removed, SaltCreatedAt = 0}):SendTo("SaltStateAfterHit")
+removed.Parent = nil
+removed.AncestryChanged:Fire()
+delayed[3].Callback()
+expect(#results == 2 and tracker.Active[3] == nil,
+	"removed salt must cancel the probe without positive or negative evidence")
+
+local moved = object("SaltPile")
+Traffic("SaltHit", {ContactId = 4, Salt = moved, SaltCreatedAt = 0}):SendTo("SaltStateAfterHit")
+moved.Parent = nil
+moved.AncestryChanged:Fire()
+moved.Parent = {}
+delayed[4].Callback()
+expect(#results == 2, "returning salt does not repair a gap in the observation window")
+
+local unparented = object("SaltPile")
+unparented.Parent = nil
+Traffic("SaltHit", {ContactId = 5, Salt = unparented, SaltCreatedAt = 0}):SendTo("SaltStateAfterHit")
+expect(#delayed == 4 and tracker.Active[5] == nil, "an already missing pile must not start a probe")
 
 tracker:Destroy()
 print("salt-state-after-hit.spec: event-driven disturbed probe passed")
