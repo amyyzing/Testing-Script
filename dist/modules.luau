@@ -4911,14 +4911,17 @@ return function(dependencies)
 
 	local function inspectWorldObject(object)
 		if not object or type(object.IsA) ~= "function" then return end
-		if object:IsA("BasePart") then
-			if object.Name == "GhostOrb" then setAutomatic("GhostOrb") end
-			if object.Name == "Handprint1" or object.Name == "Handprint2"
-				or object.Name == "Footprint" or object.Name == "Footprint1" then
-				local handprints = Workspace and Workspace:FindFirstChild("Handprints")
-				if handprints and object:IsDescendantOf(handprints) then
-					setAutomatic("Handprints")
-				end
+		if object:IsA("BasePart") and object.Name == "GhostOrb" then setAutomatic("GhostOrb") end
+		if tracker.Automatic.Handprints then return end
+		local handprints = Workspace and Workspace:FindFirstChild("Handprints")
+		if not handprints or not object:IsDescendantOf(handprints) then return end
+		local part = object
+		while part and not part:IsA("BasePart") do part = part.Parent end
+		if not part or not part:IsDescendantOf(handprints) then return end
+		for _, child in ipairs(part:GetDescendants()) do
+			if child:IsA("ImageLabel") then
+				setAutomatic("Handprints")
+				return
 			end
 		end
 	end

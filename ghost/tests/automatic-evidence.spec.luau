@@ -178,9 +178,14 @@ ghost:SetAttribute("LastEMF5Time", 12.5)
 expect(found.EMFLevel5, "LastEMF5Time should confirm EMF-5 immediately")
 expect(not found.Handprints,
 	"map props and salt-folder footprints must not count as native print evidence")
-local nativePrint = handprints:Add(instance("Part", "Footprint1"))
+local nativePrint = handprints:Add(instance("Part", "NativeUVPrint"))
 world.DescendantAdded:Fire(nativePrint)
-expect(found.Handprints, "a print in the native Handprints folder should count")
+expect(not found.Handprints, "an unpopulated native print part must wait for its graphic")
+local printSurface = nativePrint:Add(instance("SurfaceGui", "SurfaceGui"))
+local graphic = printSurface:Add(instance("ImageLabel", "PrintGraphic"))
+world.DescendantAdded:Fire(graphic)
+expect(found.Handprints,
+	"a native print graphic arriving later should count without relying on old part names")
 
 for _, evidence in ipairs({
 	"EMFLevel5", "GhostWriting", "FreezingTemperatures", "GhostOrb",
