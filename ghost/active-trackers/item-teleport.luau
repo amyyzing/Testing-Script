@@ -12,8 +12,9 @@ return function(dependencies)
 		Kind = "active",
 		Running = true,
 		Previous = setmetatable({}, {__mode = "k"}),
-		Objects = setmetatable({}, {__mode = "k"}),
-		BoundContainers = setmetatable({}, {__mode = "k"}),
+		-- Own observations until ChildRemoved or Destroy.
+		Objects = {},
+		BoundContainers = {},
 		Connections = {},
 		Accumulator = 0,
 		NextId = 0,
@@ -121,6 +122,7 @@ return function(dependencies)
 		table.clear(self.Connections)
 		table.clear(self.Previous)
 		table.clear(self.Objects)
+		table.clear(self.BoundContainers)
 	end
 
 	return Tracker

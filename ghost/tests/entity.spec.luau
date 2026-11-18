@@ -133,3 +133,58 @@ teleportTracker:Destroy()
 smokeTracker:Destroy()
 entity:Destroy()
 print("entity.spec: item teleport, Smoke Holder, and soft-negative verdict passed")
+
+-- Observations must survive without another script retaining their Lua values.
+local retentionNow, retainedTeleports = 0, 0
+local retentionHeartbeat = signal()
+local retentionTraffic = createTraffic()
+retentionTraffic:Receive("SmokeHolder", function(name)
+	if name == "ItemTeleported" then retainedTeleports += 1 end
+end)
+local function streamedItem()
+	return {
+		Current = {X = 0, Y = 0, Z = 0},
+		IsA = function(_, class) return class == "Model" end,
+		GetPivot = function(self) return {Position = self.Current} end,
+	}
+end
+local retentionWorld = {FindFirstChild = function(_, name)
+	if name ~= "Items" then return nil end
+	return {
+		ChildAdded = signal(), ChildRemoved = signal(),
+		GetChildren = function() return {streamedItem()} end,
+	}
+end}
+local retained = createItemTeleport({
+	Traffic = retentionTraffic, Workspace = retentionWorld,
+	RunService = {Heartbeat = retentionHeartbeat},
+	Clock = function() return retentionNow end,
+	FindRoom = function(point) return point.X < 10 and "RoomA" or "RoomB" end,
+})
+collectgarbage("collect")
+local retainedContainer = next(retained.BoundContainers)
+local retainedItem = next(retained.Objects)
+expect(retainedContainer and retainedItem,
+	"observed containers and items must survive collection without unrelated Lua owners")
+retainedItem.Current = {X = 30, Y = 0, Z = 0}
+retentionNow = 0.4
+retentionHeartbeat:Fire(0.4)
+expect(retainedTeleports == 1, "a retained streamed item must still report its teleport")
+retainedContainer.ChildRemoved:Fire(retainedItem)
+expect(not retained.Objects[retainedItem] and not retained.Previous[retainedItem],
+	"removing an item must release its observation and position history")
+retainedItem = nil
+retainedContainer.ChildAdded:Fire(streamedItem())
+collectgarbage("collect")
+retainedItem = next(retained.Objects)
+expect(retainedItem, "newly streamed items must also survive collection before sampling")
+retentionNow = 0.8
+retentionHeartbeat:Fire(0.4)
+retainedItem.Current = {X = 30, Y = 0, Z = 0}
+retentionNow = 1.2
+retentionHeartbeat:Fire(0.4)
+expect(retainedTeleports == 2, "new streamed items must retain their next position change")
+retained:Destroy()
+expect(next(retained.Objects) == nil and next(retained.BoundContainers) == nil,
+	"destroying the tracker must release retained instances")
+print("entity.spec: streamed observation survives GC and releases on removal")
