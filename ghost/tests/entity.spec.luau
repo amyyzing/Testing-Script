@@ -264,4 +264,21 @@ wrongOrigin:Finish(3.4)
 expect(not wrongOrigin.Verdict.Confidence[6] and wrongOrigin.Verdict.NegativeConfidence[6] == 50,
 	"even a large cross-room movement needs smoke at the matching departure point")
 wrongOrigin:Destroy()
+
+local corrected = relocationHarness(function(point) return point.X < 10 and "RoomA" or "RoomB" end)
+corrected:Move(30, 0.4)
+corrected:Finish(3.4)
+expect(corrected.Verdict.NegativeConfidence[6] == 50, "an initial unmatched long jump remains a soft negative")
+corrected:Move(30, 3.4)
+corrected:Move(0, 3.8)
+corrected:Smoke(30, 3.9)
+corrected.Verdict:Support("Aswang", 60, "comparison candidate")
+expect(corrected.Verdict.Selected[1] == 6,
+	"a matching native smoke signature must supersede earlier smoke-free movement")
+corrected:Move(0, 4)
+corrected:Move(30, 4.4)
+corrected:Finish(7.4)
+expect(corrected.Verdict.Selected[1] == 6,
+	"later ordinary smoke-free movement must not undo an already confirmed signature")
+corrected:Destroy()
 print("entity.spec: native short relocation and spatial/temporal smoke checks passed")

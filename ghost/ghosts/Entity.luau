@@ -10,10 +10,13 @@ function Entity.new(dependencies)
 		if id and Processor.Seen[id] then return end
 		if id then Processor.Seen[id] = true end
 		local found = payload.Found == true
+		if found then Processor.HasSmokeSignature = true
+		elseif Processor.HasSmokeSignature then return end
 		Traffic(found and "Support" or "Negative", {
 			Ghost = "Entity",
 			Perk = "Smoke Holder",
 			Confidence = found and 99 or 50,
+			OverrideNegative = found,
 			Reason = found and "prop relocation matched smoke at its departure point"
 				or "no matching smoke at the prop's departure point",
 		}):SendTo("Verdict")

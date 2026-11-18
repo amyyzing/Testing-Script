@@ -8231,7 +8231,7 @@ local Profiles = {
 	profile("Entity", {"Handprints", "LaserProjector", "SpiritBox"}, "user-observed", perks({
 		note("A rapid object relocation matches a SmokeHolder at its departure point within three seconds. Native short and same-room relocations also qualify.", SOURCE.Entity, "live-game", true, "Ability"),
 	}, {}, {
-		note("A long cross-room jump without matching origin smoke is only a 50% negative. Uncorroborated short movement stays inconclusive.", SOURCE.Entity, "live-game", true, "Caveat"),
+		note("A long cross-room jump without matching origin smoke is only a 50% negative. A matching signature supersedes tentative motion negatives; uncorroborated short movement stays inconclusive.", SOURCE.Entity, "live-game", true, "Caveat"),
 	})),
 	profile("Ghoul", {"FreezingTemperatures", "GhostOrb", "SpiritBox"}, "user-observed", perks({}, {}, {
 		note("Electronics becoming disabled while every player is more than 15 studs away is a 99% negative for Ghoul.", SOURCE.Ghoul, "user-observed", false, "RuleOut"),
@@ -9690,10 +9690,13 @@ function Entity.new(dependencies)
 		if id and Processor.Seen[id] then return end
 		if id then Processor.Seen[id] = true end
 		local found = payload.Found == true
+		if found then Processor.HasSmokeSignature = true
+		elseif Processor.HasSmokeSignature then return end
 		Traffic(found and "Support" or "Negative", {
 			Ghost = "Entity",
 			Perk = "Smoke Holder",
 			Confidence = found and 99 or 50,
+			OverrideNegative = found,
 			Reason = found and "prop relocation matched smoke at its departure point"
 				or "no matching smoke at the prop's departure point",
 		}):SendTo("Verdict")
@@ -10750,11 +10753,12 @@ return function(dependencies)
 		markJournalDirty()
 	end
 
-	function Verdict:Support(ghost, confidence, reason)
+	function Verdict:Support(ghost, confidence, reason, overrideNegative)
 		local index = indexes[ghost]
 		if not index or abilityIsRuledOut(index) then return false end
 		confidence = tonumber(confidence) or 0
 		self.Confidence[index] = math.max(self.Confidence[index] or 0, confidence)
+		if overrideNegative == true then self.NegativeConfidence[index] = nil end
 		self.Reasons[index] = reason
 		selectBest()
 		return true
@@ -10949,7 +10953,7 @@ return function(dependencies)
 	Traffic:Receive("Verdict", function(signal, payload)
 		payload = type(payload) == "table" and payload or {}
 		if signal == "Support" then
-			Verdict:Support(payload.Ghost, payload.Confidence, payload.Reason)
+			Verdict:Support(payload.Ghost, payload.Confidence, payload.Reason, payload.OverrideNegative)
 		elseif signal == "Negative" then
 			Verdict:Negative(payload.Ghost, payload.Confidence, payload.Reason)
 		elseif signal == "RuleOut" then

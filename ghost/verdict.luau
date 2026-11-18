@@ -265,11 +265,12 @@ return function(dependencies)
 		markJournalDirty()
 	end
 
-	function Verdict:Support(ghost, confidence, reason)
+	function Verdict:Support(ghost, confidence, reason, overrideNegative)
 		local index = indexes[ghost]
 		if not index or abilityIsRuledOut(index) then return false end
 		confidence = tonumber(confidence) or 0
 		self.Confidence[index] = math.max(self.Confidence[index] or 0, confidence)
+		if overrideNegative == true then self.NegativeConfidence[index] = nil end
 		self.Reasons[index] = reason
 		selectBest()
 		return true
@@ -464,7 +465,7 @@ return function(dependencies)
 	Traffic:Receive("Verdict", function(signal, payload)
 		payload = type(payload) == "table" and payload or {}
 		if signal == "Support" then
-			Verdict:Support(payload.Ghost, payload.Confidence, payload.Reason)
+			Verdict:Support(payload.Ghost, payload.Confidence, payload.Reason, payload.OverrideNegative)
 		elseif signal == "Negative" then
 			Verdict:Negative(payload.Ghost, payload.Confidence, payload.Reason)
 		elseif signal == "RuleOut" then

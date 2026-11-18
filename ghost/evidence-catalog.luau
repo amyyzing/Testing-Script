@@ -234,7 +234,7 @@ local Profiles = {
 	profile("Entity", {"Handprints", "LaserProjector", "SpiritBox"}, "user-observed", perks({
 		note("A rapid object relocation matches a SmokeHolder at its departure point within three seconds. Native short and same-room relocations also qualify.", SOURCE.Entity, "live-game", true, "Ability"),
 	}, {}, {
-		note("A long cross-room jump without matching origin smoke is only a 50% negative. Uncorroborated short movement stays inconclusive.", SOURCE.Entity, "live-game", true, "Caveat"),
+		note("A long cross-room jump without matching origin smoke is only a 50% negative. A matching signature supersedes tentative motion negatives; uncorroborated short movement stays inconclusive.", SOURCE.Entity, "live-game", true, "Caveat"),
 	})),
 	profile("Ghoul", {"FreezingTemperatures", "GhostOrb", "SpiritBox"}, "user-observed", perks({}, {}, {
 		note("Electronics becoming disabled while every player is more than 15 studs away is a 99% negative for Ghoul.", SOURCE.Ghoul, "user-observed", false, "RuleOut"),
