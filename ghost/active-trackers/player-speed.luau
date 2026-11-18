@@ -21,17 +21,18 @@ return function(dependencies)
 	end
 
 	local function learn(state, speed)
-		if not state.BaseSpeed then
-			for _, candidate in ipairs(normalSpeeds) do
-				if near(speed, candidate) then
-					state.BaseSpeed = candidate
-					state.SprintSpeed = candidate * 1.6
-					return
-				end
-			end
-		elseif near(speed, state.BaseSpeed * 1.6) then
+		if state.BaseSpeed and near(speed, state.BaseSpeed * 1.6) then
 			state.SprintSpeed = speed
 			state.SprintObserved = true
+			return
+		end
+		for _, candidate in ipairs(normalSpeeds) do
+			if near(speed, candidate) then
+				if state.BaseSpeed ~= candidate then state.SprintObserved = false end
+				state.BaseSpeed = candidate
+				state.SprintSpeed = candidate * 1.6
+				return
+			end
 		end
 	end
 

@@ -27,7 +27,7 @@ server-only behavior automatically.
 | Ravager | Multiple throws, hunting item vortex | Sustained multi-object orbit qualification |
 | Revenant | Stops hunting after a kill, rests 15s | Qualified multiplayer kill/hunt transitions |
 | Shadow | Temperature-alter coefficient 0.5 | Signed net cooling per second is logged with warm-up/plateau states; uncalibrated slow cooling is weak and cannot exclude |
-| Siren | Slows players in LOS; journal describes humming | Qualified LOS player-speed trials and Spirit Box humming |
+| Siren | Journal describes sprint slowing and humming | Native Revenant also produced 0.8x slowdown: speed-only support is weak; no slowdown remains inconclusive. Neither identifies nor excludes Siren. Exact active Spirit Box humming remains the strong cue pending native validation |
 | Doppelganger | Fake Orb, teleport, extinguish lights, SpiritCandle | False-Orb evidence handling; candle ability supports both it and Spirit |
 | Specter | Roam probability coefficient 0 | Trials discard changes to favourite room |
 | Spirit | Blue flames and SpiritCandle ability | Qualified oil gradients; candle flag alone is shared with Doppelganger |

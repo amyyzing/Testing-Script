@@ -282,11 +282,11 @@ local Profiles = {
 	})),
 	profile("Siren", {"EMFLevel5", "SpiritBox", "Wither"}, "user-observed", perks({
 		note("The Spirit Box responds with - HUMMING -.", SOURCE.Siren, "user-observed", true, "Ability"),
-		note("A sprinting player is slowed while inside the ghost's line of sight.", SOURCE.Siren, "user-observed", false, "Trait"),
+		note("A 0.8x slowdown was also observed on a native-revealed Revenant. Speed change alone is weak support, not a Siren identity cue.", SOURCE.Siren, "user-observed", false, "Trait"),
 	}, {
 		note("A verified female VisualModel is weak supporting evidence.", SOURCE.Siren, "user-observed", false, "Model"),
 	}, {
-		note("A verified male VisualModel or a completed line-of-sight trial with no slowdown is a 99% negative.", SOURCE.Siren, "user-observed", false, "RuleOut"),
+		note("A verified male VisualModel is a 99% negative. A line-of-sight trial without slowdown is inconclusive.", SOURCE.Siren, "user-observed", false, "RuleOut"),
 	})),
 	profile("Doppelganger", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "live-game", perks({}, {
 		note("Ghost Orb may be false and keeps Doppelganger as Maybe. Extra or conflicting clues do not prove its identity.", SOURCE.Doppelganger, "live-game", false, "Trait"),

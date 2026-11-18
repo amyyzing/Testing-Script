@@ -5708,17 +5708,18 @@ return function(dependencies)
 	end
 
 	local function learn(state, speed)
-		if not state.BaseSpeed then
-			for _, candidate in ipairs(normalSpeeds) do
-				if near(speed, candidate) then
-					state.BaseSpeed = candidate
-					state.SprintSpeed = candidate * 1.6
-					return
-				end
-			end
-		elseif near(speed, state.BaseSpeed * 1.6) then
+		if state.BaseSpeed and near(speed, state.BaseSpeed * 1.6) then
 			state.SprintSpeed = speed
 			state.SprintObserved = true
+			return
+		end
+		for _, candidate in ipairs(normalSpeeds) do
+			if near(speed, candidate) then
+				if state.BaseSpeed ~= candidate then state.SprintObserved = false end
+				state.BaseSpeed = candidate
+				state.SprintSpeed = candidate * 1.6
+				return
+			end
 		end
 	end
 
@@ -8220,11 +8221,11 @@ local Profiles = {
 	})),
 	profile("Siren", {"EMFLevel5", "SpiritBox", "Wither"}, "user-observed", perks({
 		note("The Spirit Box responds with - HUMMING -.", SOURCE.Siren, "user-observed", true, "Ability"),
-		note("A sprinting player is slowed while inside the ghost's line of sight.", SOURCE.Siren, "user-observed", false, "Trait"),
+		note("A 0.8x slowdown was also observed on a native-revealed Revenant. Speed change alone is weak support, not a Siren identity cue.", SOURCE.Siren, "user-observed", false, "Trait"),
 	}, {
 		note("A verified female VisualModel is weak supporting evidence.", SOURCE.Siren, "user-observed", false, "Model"),
 	}, {
-		note("A verified male VisualModel or a completed line-of-sight trial with no slowdown is a 99% negative.", SOURCE.Siren, "user-observed", false, "RuleOut"),
+		note("A verified male VisualModel is a 99% negative. A line-of-sight trial without slowdown is inconclusive.", SOURCE.Siren, "user-observed", false, "RuleOut"),
 	})),
 	profile("Doppelganger", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "live-game", perks({}, {
 		note("Ghost Orb may be false and keeps Doppelganger as Maybe. Extra or conflicting clues do not prove its identity.", SOURCE.Doppelganger, "live-game", false, "Trait"),
@@ -10030,9 +10031,7 @@ function Siren.new(dependencies)
 			end
 		elseif signal == "LOSSpeedResult" then
 			if payload.Slowed == true then
-				verdict("Support", 99, "Slows players", "a hunting player entered the Siren's 0.8x walk or sprint speed state")
-			elseif payload.Completed == true and payload.Slowed == false then
-				verdict("RuleOut", 99, "Slows players", "a hunting line-of-sight trial stayed at the learned walk and sprint speeds")
+				verdict("Support", 35, "Slows players", "a 0.8x slowdown was observed; this also occurs on non-Siren ghosts")
 			end
 		end
 	end)

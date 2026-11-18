@@ -151,6 +151,13 @@ for _, base in ipairs({8, 10, 12, 14, 16}) do
 	destroyLOS(calibrated)
 end
 
+local initialized = losHarness(4, 16)
+initialized.SetSpeed(8)
+local initializedState = initialized.PlayerSpeed.States[initialized.Player]
+expect(initializedState.BaseSpeed == 8 and initializedState.SprintSpeed == 12.8,
+	"the native pre-hunt speed must replace a temporary spawn-default calibration")
+destroyLOS(initialized)
+
 local slowed = losHarness(4, 16)
 slowed.SetSpeed(25.6)
 slowed.SetSpeed(16)
@@ -161,8 +168,8 @@ expect(slowed.Verdict.Confidence[16] == nil,
 slowed.Traffic:Broadcast("HuntingState", {Hunting = true})
 slowed.Step(0.1)
 slowed.SetSpeed(12.8)
-expect(slowed.Verdict.Confidence[16] == 99 and slowed.Verdict.Selected[1] == 16,
-	"base speed times 0.8 during a hunting LOS trial should support Siren")
+expect(slowed.Verdict.Confidence[16] == 35,
+	"the 0.8x walking slowdown also observed on native Revenant must remain weak")
 destroyLOS(slowed)
 
 local sprintSlowed = losHarness(4, 10)
@@ -171,8 +178,8 @@ sprintSlowed.Traffic:Broadcast("HuntingState", {Hunting = true})
 sprintSlowed.SetVisible(true)
 sprintSlowed.Step(0.1)
 sprintSlowed.SetSpeed(12.8)
-expect(sprintSlowed.Verdict.Confidence[16] == 99,
-	"sprint speed times 0.8 during a hunting LOS trial should support Siren")
+expect(sprintSlowed.Verdict.Confidence[16] == 35,
+	"an unqualified 0.8x sprint slowdown must not independently identify Siren")
 destroyLOS(sprintSlowed)
 
 local normalSwitch = losHarness(4, 12)
@@ -192,8 +199,11 @@ unchanged.SetSpeed(22.4)
 unchanged.Traffic:Broadcast("HuntingState", {Hunting = true})
 unchanged.SetVisible(true)
 for _ = 1, 4 do unchanged.Step(0.1) end
-expect(table.find(unchanged.Verdict.RuledOut, 16),
-	"a hunting LOS trial restricted to learned walk/sprint speeds should rule out Siren")
+expect(not table.find(unchanged.Verdict.RuledOut, 16) and unchanged.Verdict.NegativeConfidence[16] == nil,
+	"unchanged speed alone must remain inconclusive")
+unchanged.Traffic("Humming", {Response = "- HUMMING -"}):SendTo("Siren")
+expect(unchanged.Verdict.Confidence[16] == 99 and unchanged.Verdict.NegativeConfidence[16] == nil,
+	"an ambiguous speed trial must not penalize a later exact humming response")
 destroyLOS(unchanged)
 
 print("siren.spec: learned walk/sprint states and 0.8x hunting slowdown passed")
