@@ -18,7 +18,9 @@ assert(type(bundle["logic/movement.luau"]) == "function", "movement module missi
 assert(type(bundle["ghost/verdict.luau"]) == "function", "verdict module missing")
 assert(bundle.__nil ~= nil, "nil module sentinel missing")
 assert(type(bundle["ghost/ghosts/Banshee.luau"]) == "table", "Banshee processor missing")
-assert(bundle["ghost/ghosts/Dybbuk.luau"] == bundle.__nil, "nil module was not bundled")
+assert(type(bundle["ghost/ghosts/Dybbuk.luau"]) == "table", "Dybbuk processor missing")
+assert(type(bundle["ghost/dormant-trackers/music-box-stun.luau"]) == "function", "Music Box tracker missing")
+assert(bundle["ghost/ghosts/Nightmare.luau"] == bundle.__nil, "nil module was not bundled")
 print("module-bundle.spec: compiled bundle passed")
 '@
 

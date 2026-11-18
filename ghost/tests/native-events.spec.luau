@@ -53,6 +53,25 @@ local processors = {Banshee.new({Traffic = traffic}), Leviathan.new({Traffic = t
 	Spirit.new({Traffic = traffic}), Doppelganger.new({Traffic = traffic})}
 local now = 0
 local tracker = createTracker({Traffic = traffic, Workspace = world, Clock = function() return now end})
+local firstPlays = 0
+traffic:Receive("MusicBoxStun", function(signal)
+	if signal == "MusicBoxFirstPlay" then firstPlays += 1 end
+end)
+local used = object("UsedMusicBox", {Name = "Items"}, {ItemName = "Music Box", HasBeenPlayed = true})
+added:Fire(used)
+assert(firstPlays == 0, "an already-used Music Box cannot replay a timed first-play cue")
+local music = object("MusicBox", {Name = "Items"}, {ItemName = "Music Box"})
+added:Fire(music)
+music:SetAttribute("HasBeenPlayed", true)
+music:SetAttribute("HasBeenPlayed", true)
+assert(firstPlays == 1, "the actual first-play transition must publish once")
+local staleMusic = object("StaleMusic", {Name = "Items"}, {ItemName = "Music Box"})
+added:Fire(staleMusic)
+staleMusic.Outside = true
+staleMusic:SetAttribute("HasBeenPlayed", true)
+staleMusic.Outside = false
+added:Fire(staleMusic)
+assert(firstPlays == 1, "re-entry must not turn an old first play into a fresh timed cue")
 assert(verdict.Confidence[2] == nil, "existing glass must not count as a fresh burst")
 added:Fire(object("BrokenGlass", glassFolder))
 assert(verdict.Confidence[2] == nil, "one new glass model is not a burst")

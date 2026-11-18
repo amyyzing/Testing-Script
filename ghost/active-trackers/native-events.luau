@@ -22,13 +22,20 @@ return function(dependencies)
 			return
 		end
 		local previousGlitch, candleSeen
-		local function update()
+		local previousPlayed = object:GetAttribute("HasBeenPlayed")
+		local function update(allowTimed)
 			if not tracker.Running or not object:IsDescendantOf(World) then return end
 			local glitch = object:GetAttribute("LeviathanGlitch")
 			if type(glitch) == "number" and glitch > 0 and glitch ~= previousGlitch then
 				Traffic("NativeGlitch", {Item = object, Token = glitch}):SendTo("Leviathan")
 			end
 			previousGlitch = glitch
+			local played = object:GetAttribute("HasBeenPlayed")
+			if allowTimed == true and previousPlayed ~= true and played == true
+				and object:GetAttribute("ItemName") == "Music Box" then
+				Traffic("MusicBoxFirstPlay", {MusicBox = object, Time = clock()}):SendTo("MusicBoxStun")
+			end
+			previousPlayed = played
 			if not candleSeen and object:GetAttribute("SpiritCandle") == true then
 				candleSeen = true
 				Traffic("SpiritCandle", {Item = object}):SendTo("Spirit", "Doppelganger")
@@ -38,6 +45,7 @@ return function(dependencies)
 		if eligible and (object:IsA("Model") or object:IsA("BasePart")) then
 			connect(object:GetAttributeChangedSignal("LeviathanGlitch"), update)
 			connect(object:GetAttributeChangedSignal("SpiritCandle"), update)
+			connect(object:GetAttributeChangedSignal("HasBeenPlayed"), function() update(true) end)
 			update()
 		end
 		if added and glass then

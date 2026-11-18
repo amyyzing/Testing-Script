@@ -5654,13 +5654,20 @@ return function(dependencies)
 			return
 		end
 		local previousGlitch, candleSeen
-		local function update()
+		local previousPlayed = object:GetAttribute("HasBeenPlayed")
+		local function update(allowTimed)
 			if not tracker.Running or not object:IsDescendantOf(World) then return end
 			local glitch = object:GetAttribute("LeviathanGlitch")
 			if type(glitch) == "number" and glitch > 0 and glitch ~= previousGlitch then
 				Traffic("NativeGlitch", {Item = object, Token = glitch}):SendTo("Leviathan")
 			end
 			previousGlitch = glitch
+			local played = object:GetAttribute("HasBeenPlayed")
+			if allowTimed == true and previousPlayed ~= true and played == true
+				and object:GetAttribute("ItemName") == "Music Box" then
+				Traffic("MusicBoxFirstPlay", {MusicBox = object, Time = clock()}):SendTo("MusicBoxStun")
+			end
+			previousPlayed = played
 			if not candleSeen and object:GetAttribute("SpiritCandle") == true then
 				candleSeen = true
 				Traffic("SpiritCandle", {Item = object}):SendTo("Spirit", "Doppelganger")
@@ -5670,6 +5677,7 @@ return function(dependencies)
 		if eligible and (object:IsA("Model") or object:IsA("BasePart")) then
 			connect(object:GetAttributeChangedSignal("LeviathanGlitch"), update)
 			connect(object:GetAttributeChangedSignal("SpiritCandle"), update)
+			connect(object:GetAttributeChangedSignal("HasBeenPlayed"), function() update(true) end)
 			update()
 		end
 		if added and glass then
@@ -7666,6 +7674,97 @@ return function(dependencies)
 end
 
 end)())
+modules["ghost/dormant-trackers/music-box-stun.luau"] = pack((function()
+return function(dependencies)
+	local Traffic = assert(dependencies.Traffic, "music-box-stun requires Traffic")
+	local Ghost = assert(dependencies.Ghost, "music-box-stun requires Ghost")
+	local RunService = assert(dependencies.RunService, "music-box-stun requires RunService")
+	local humanoid = assert(Ghost:FindFirstChildOfClass("Humanoid"), "music-box-stun requires Humanoid")
+	local clock = dependencies.Clock or os.clock
+	local tracker = {Kind = "dormant", Running = true, Speed = humanoid.WalkSpeed}
+
+	local function cancel()
+		tracker.Active = nil
+		if tracker.Heartbeat then tracker.Heartbeat:Disconnect() tracker.Heartbeat = nil end
+		if tracker.BoxConnection then tracker.BoxConnection:Disconnect() tracker.BoxConnection = nil end
+	end
+
+	local function recordSpeed(now)
+		local speed = humanoid.WalkSpeed
+		if speed ~= tracker.Speed then
+			tracker.LastChange = {Before = tracker.Speed, After = speed, Time = now}
+			tracker.Speed = speed
+		end
+		return speed
+	end
+
+	local function inspect(now)
+		local active = tracker.Active
+		if not active then return end
+		if not Ghost.Parent or not humanoid.Parent or not active.Box.Parent
+			or (Ghost:GetAttribute("Hunting") == true) ~= active.Hunting then cancel() return end
+		local speed = recordSpeed(now)
+		if not active.DropAt then
+			if now - active.PlayedAt > 0.5 then cancel() return end
+			if speed <= active.Baseline * 0.25 then
+				active.DropAt, active.Slow = now, speed
+			end
+			return
+		end
+		local duration = now - active.DropAt
+		if duration > 3.5 then cancel() return end
+		if math.abs(speed - active.Slow) <= 0.05 then return end
+		if duration >= 2.5 and math.abs(speed - active.Baseline) <= math.max(0.05, active.Baseline * 0.01) then
+			local result = {Qualified = true, Duration = duration, Baseline = active.Baseline,
+				SlowSpeed = active.Slow, RecoveredSpeed = speed, MusicBox = active.Box}
+			tracker.Result = result
+			tracker:Destroy()
+			Traffic("MusicBoxStun", result):SendTo("Dybbuk")
+		else
+			cancel()
+		end
+	end
+
+	tracker.Disconnect = Traffic:Receive("MusicBoxStun", function(signal, payload)
+		if not tracker.Running or signal ~= "MusicBoxFirstPlay" or type(payload) ~= "table" then return end
+		local box = payload.MusicBox
+		if not box or not box.Parent then return end
+		if tracker.Active then cancel() return end -- Overlapping first plays cannot isolate the cause.
+		local now = clock()
+		local speed = recordSpeed(now)
+		local change = tracker.LastChange
+		local recentDrop = change and now - change.Time <= 0.5 and change.Before > 0
+			and speed <= change.Before * 0.25
+		local baseline = recentDrop and change.Before or speed
+		if baseline <= 0 then return end
+		tracker.Active = {Box = box, PlayedAt = now, Baseline = baseline,
+			Hunting = Ghost:GetAttribute("Hunting") == true,
+			DropAt = recentDrop and change.Time or nil, Slow = recentDrop and speed or nil}
+		tracker.BoxConnection = box.AncestryChanged:Connect(cancel)
+		tracker.Heartbeat = RunService.Heartbeat:Connect(function() inspect(clock()) end)
+		inspect(now)
+	end)
+	tracker.SpeedConnection = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+		local now = clock()
+		recordSpeed(now)
+		inspect(now)
+	end)
+	tracker.GhostConnection = Ghost.AncestryChanged:Connect(cancel)
+	tracker.HumanoidConnection = humanoid.AncestryChanged:Connect(cancel)
+
+	function tracker:Destroy()
+		if not self.Running then return end
+		self.Running = false
+		cancel()
+		self.Disconnect()
+		self.SpeedConnection:Disconnect()
+		self.GhostConnection:Disconnect()
+		self.HumanoidConnection:Disconnect()
+	end
+	return tracker
+end
+
+end)())
 modules["ghost/dormant-trackers/room-temperature.luau"] = pack((function()
 return function(dependencies)
  local Traffic = assert(dependencies.Traffic, "room-temperature requires Traffic")
@@ -8165,8 +8264,10 @@ local Profiles = {
 	}, {}, {
 		note("Flat speed without verified sustained target line of sight cannot rule Dullahan out. Decreases or resets make this uncontrolled trial inconclusive.", SOURCE.Dullahan, "live-game", false, "Caveat"),
 	})),
-	profile("Dybbuk", {"FreezingTemperatures", "Handprints", "Wither"}, "tracker-pending", perks({}, {}, {
-		note("The current CanThrowCorpses flag and journal confirm corpse throwing and a Music Box stun. Ordinary corpse motion is not a reliable automatic identification.", SOURCE.Dybbuk, "live-game", false, "Caveat"),
+	profile("Dybbuk", {"FreezingTemperatures", "Handprints", "Wither"}, "live-game", perks({
+		note("A fresh native Music Box first-play transition coincides with a deep WalkSpeed drop followed by recovery to the pre-play speed after about three seconds. The observation requires unchanged hunting state and no item/ghost ancestry gap.", SOURCE.Dybbuk, "live-game", false, "Trait"),
+	}, {}, {
+		note("Missing, late, short, or interrupted Music Box responses remain inconclusive. Corpse motion alone is not a reliable automatic identification.", SOURCE.Dybbuk, "live-game", false, "Caveat"),
 	})),
 	profile("Entity", {"Handprints", "LaserProjector", "SpiritBox"}, "user-observed", perks({
 		note("A rapid object relocation matches a SmokeHolder at its departure point within three seconds. Native short and same-room relocations also qualify.", SOURCE.Entity, "live-game", true, "Ability"),
@@ -8296,6 +8397,7 @@ local PerkConfidence = {
 	Banshee = 65,
 	Demon = 65,
 	Dullahan = 65,
+	Dybbuk = 65,
 	Entity = 65,
 	Doppelganger = 65,
 	Keres = 65,
@@ -9615,6 +9717,25 @@ return Dullahan
 
 end)())
 modules["ghost/ghosts/Dybbuk.luau"] = pack((function()
+local Dybbuk = {Name = "Dybbuk", Index = 5}
+
+function Dybbuk.new(dependencies)
+	local Traffic = assert(dependencies.Traffic, "Dybbuk requires Traffic")
+	local processor = {}
+	processor.Disconnect = Traffic:Receive("Dybbuk", function(signal, payload)
+		if processor.Resolved or signal ~= "MusicBoxStun" or type(payload) ~= "table"
+			or payload.Qualified ~= true then return end
+		processor.Resolved = true
+		Traffic("Support", {
+			Ghost = "Dybbuk", Perk = "Music Box stun", Confidence = 95,
+			Reason = "first Music Box play caused a deep speed drop and a three-second recovery",
+		}):SendTo("Verdict")
+	end)
+	function processor:Destroy() self.Disconnect() end
+	return processor
+end
+
+return Dybbuk
 
 end)())
 modules["ghost/ghosts/Entity.luau"] = pack((function()

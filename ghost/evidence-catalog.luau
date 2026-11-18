@@ -228,8 +228,10 @@ local Profiles = {
 	}, {}, {
 		note("Flat speed without verified sustained target line of sight cannot rule Dullahan out. Decreases or resets make this uncontrolled trial inconclusive.", SOURCE.Dullahan, "live-game", false, "Caveat"),
 	})),
-	profile("Dybbuk", {"FreezingTemperatures", "Handprints", "Wither"}, "tracker-pending", perks({}, {}, {
-		note("The current CanThrowCorpses flag and journal confirm corpse throwing and a Music Box stun. Ordinary corpse motion is not a reliable automatic identification.", SOURCE.Dybbuk, "live-game", false, "Caveat"),
+	profile("Dybbuk", {"FreezingTemperatures", "Handprints", "Wither"}, "live-game", perks({
+		note("A fresh native Music Box first-play transition coincides with a deep WalkSpeed drop followed by recovery to the pre-play speed after about three seconds. The observation requires unchanged hunting state and no item/ghost ancestry gap.", SOURCE.Dybbuk, "live-game", false, "Trait"),
+	}, {}, {
+		note("Missing, late, short, or interrupted Music Box responses remain inconclusive. Corpse motion alone is not a reliable automatic identification.", SOURCE.Dybbuk, "live-game", false, "Caveat"),
 	})),
 	profile("Entity", {"Handprints", "LaserProjector", "SpiritBox"}, "user-observed", perks({
 		note("A rapid object relocation matches a SmokeHolder at its departure point within three seconds. Native short and same-room relocations also qualify.", SOURCE.Entity, "live-game", true, "Ability"),
@@ -359,6 +361,7 @@ local PerkConfidence = {
 	Banshee = 65,
 	Demon = 65,
 	Dullahan = 65,
+	Dybbuk = 65,
 	Entity = 65,
 	Doppelganger = 65,
 	Keres = 65,
