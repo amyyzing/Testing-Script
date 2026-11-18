@@ -1036,6 +1036,7 @@ local function runPreRound(generation, hooks)
 	local toolsDone = false
 	repeat
 		hooks.WaitForHuntEnd(generation)
+		doRoundState.questionsActive = true
 		local completed, reason = placeRoundToolsAtDoors(generation)
 		if completed then
 			toolsDone = true
