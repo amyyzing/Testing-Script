@@ -48,7 +48,7 @@ local laser = item("Laser Projector", true, {X = 0, Y = 0, Z = 0})
 local spirit = item("Spirit Box", false, {X = 30, Y = 0, Z = 0})
 local activeSpirit = item("Spirit Box", true, {X = 30, Y = 0, Z = 0})
 local emf = item("EMF Reader", true, {X = 30, Y = 0, Z = 0})
-local Items = {Name = "Items", ChildAdded = signal(), Children = {laser, spirit, activeSpirit, emf}}
+local Items = {Name = "Items", ChildAdded = signal(), ChildRemoved = signal(), Children = {laser, spirit, activeSpirit, emf}}
 function Items:GetChildren() return self.Children end
 for _, value in ipairs(Items.Children) do value.Parent = Items end
 
@@ -108,6 +108,19 @@ laser:SetEnabled(false)
 expect(ruleOutSignals == 1, "Ghoul should only be resolved once")
 expect(#itemStateChanges == 6,
 	"Ghoul resolving must not stop later item switches from reaching the flicker array")
+
+-- Picking up and dropping an already-enabled box must restore its humming gate.
+spirit.Parent = nil
+Items.ChildRemoved:Fire(spirit)
+expect(spiritStates[#spiritStates].Enabled == false, "pickup should clear the world-box gate")
+spirit.Parent = Items
+Items.ChildAdded:Fire(spirit)
+expect(spiritStates[#spiritStates].Enabled == true,
+	"dropping an already-bound enabled Spirit Box must restore its gate")
+expect(tracker.ItemStates[spirit] and #tracker.ItemStates[spirit] == 1,
+	"re-entry must rebuild state ownership without duplicate bindings")
+spirit:SetEnabled(false)
+expect(spiritStates[#spiritStates].Enabled == false, "the restored box must keep tracking toggles")
 
 tracker:Destroy()
 ghoul:Destroy()

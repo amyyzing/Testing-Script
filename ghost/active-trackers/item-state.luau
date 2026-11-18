@@ -59,13 +59,15 @@ return function(dependencies)
 	end
 
 	function Tracker:BindState(item, state, allowMissing)
-		if self.BoundStates[state]
-			or (not allowMissing and state:GetAttribute("Enabled") == nil) then return end
-		self.BoundStates[state] = true
+		if not allowMissing and state:GetAttribute("Enabled") == nil then return end
 		self.States[state] = state:GetAttribute("Enabled")
 		self.ItemStates[item] = self.ItemStates[item] or {}
-		table.insert(self.ItemStates[item], state)
+		if not table.find(self.ItemStates[item], state) then
+			table.insert(self.ItemStates[item], state)
+		end
 		publishSpiritBox(item, state, self.States[state])
+		if self.BoundStates[state] then return end
+		self.BoundStates[state] = true
 		remember(state:GetAttributeChangedSignal("Enabled"):Connect(function()
 			local previous = self.States[state]
 			local current = state:GetAttribute("Enabled")
@@ -95,12 +97,13 @@ return function(dependencies)
 	end
 
 	function Tracker:BindItem(item)
-		if not item:IsA("Model") or self.BoundItems[item] then return end
+		if not item:IsA("Model") then return end
 		local function bindEligible()
 			if not eligible[item:GetAttribute("ItemName")] then return end
 			self:BindState(item, item, true)
 			for _, object in ipairs(item:GetDescendants()) do self:BindState(item, object) end
 		end
+		if self.BoundItems[item] then bindEligible() return end
 		self.BoundItems[item] = true
 		remember(item:GetAttributeChangedSignal("ItemName"):Connect(bindEligible))
 		remember(item.DescendantAdded:Connect(function(object)
