@@ -107,7 +107,11 @@ local map = world:Add(instance("Folder", "Map"))
 local rooms = map:Add(instance("Folder", "Rooms"))
 rooms:Add(instance("Folder", "Office", {Temperature = -0.4}))
 world:Add(instance("Part", "GhostOrb"))
-world:Add(instance("Part", "Handprint1"))
+map:Add(instance("Part", "Handprint1"))
+map:Add(instance("Part", "Footprint"))
+local saltPiles = world:Add(instance("Folder", "SaltPiles"))
+saltPiles:Add(instance("Part", "Footprint1"))
+local handprints = world:Add(instance("Folder", "Handprints"))
 local items = world:Add(instance("Folder", "Items"))
 items:Add(instance("Model", "Reader", {ItemName = "EMF Reader", ReadingLevel = 4}))
 items:Add(instance("Part", "Flower_Petals", {}, {
@@ -172,6 +176,11 @@ local tracker = createEvidenceState({
 expect(not found.EMFLevel5, "EMF-5 should remain unknown before LastEMF5Time changes")
 ghost:SetAttribute("LastEMF5Time", 12.5)
 expect(found.EMFLevel5, "LastEMF5Time should confirm EMF-5 immediately")
+expect(not found.Handprints,
+	"map props and salt-folder footprints must not count as native print evidence")
+local nativePrint = handprints:Add(instance("Part", "Footprint1"))
+world.DescendantAdded:Fire(nativePrint)
+expect(found.Handprints, "a print in the native Handprints folder should count")
 
 for _, evidence in ipairs({
 	"EMFLevel5", "GhostWriting", "FreezingTemperatures", "GhostOrb",

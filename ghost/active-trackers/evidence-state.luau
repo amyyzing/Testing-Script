@@ -182,8 +182,8 @@ return function(dependencies)
 			if object.Name == "GhostOrb" then setAutomatic("GhostOrb") end
 			if object.Name == "Handprint1" or object.Name == "Handprint2"
 				or object.Name == "Footprint" or object.Name == "Footprint1" then
-				local saltPiles = Workspace and Workspace:FindFirstChild("SaltPiles")
-				if not saltPiles or not object:IsDescendantOf(saltPiles) then
+				local handprints = Workspace and Workspace:FindFirstChild("Handprints")
+				if handprints and object:IsDescendantOf(handprints) then
 					setAutomatic("Handprints")
 				end
 			end
