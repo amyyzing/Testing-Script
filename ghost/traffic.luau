@@ -25,7 +25,7 @@ return function()
 			Targets = targets,
 		}
 		for _, target in ipairs(targets or {}) do
-			for _, callback in ipairs(receivers[target] or {}) do
+			for _, callback in ipairs(table.clone(receivers[target] or {})) do
 				callback(signal, payload, envelope)
 			end
 		end
