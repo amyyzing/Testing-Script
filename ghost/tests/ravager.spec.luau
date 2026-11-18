@@ -159,8 +159,8 @@ expect(orbitEvent.Mode == "XZVortex", "Ravager must require the XZ vortex classi
 expect(orbitEvent.Duration >= 1 and orbitEvent.Steps >= 8
 	and orbitEvent.Rotation >= math.rad(120),
 	"the duration, step, and signed XZ rotation gates must all pass")
-expect(Verdict.Selected[1] == 13 and Verdict.Confidence[13] == 99,
-	"the three-model orbit should support Ravager at 99%")
+expect(Verdict.Selected[1] == 13 and (Verdict.Confidence[13] == 65 and Verdict.SourceConfidence[13] == 99),
+	"the three-model orbit should support Ravager at medium confidence while Doppelganger remains possible")
 
 Traffic("HuntingState", {Hunting = false}):SendTo("ItemOrbit")
 expect(heartbeat:Count() == 0, "hunt end should immediately disable orbit sampling")

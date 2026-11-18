@@ -58,7 +58,7 @@ expect(#results == 1 and results[1].Count == 7
 expect(Verdict.Confidence[9] == 35,
 	"a switch burst without the native attribute should offer only weak support")
 Traffic("NativeGlitch", {Token = 123}):SendTo("Leviathan")
-expect(Verdict.Confidence[9] == 99, "the native glitch attribute should identify Leviathan")
+expect((Verdict.Confidence[9] == 65 and Verdict.SourceConfidence[9] == 99), "the native glitch attribute should identify Leviathan")
 
 flicker:Destroy()
 leviathan:Destroy()

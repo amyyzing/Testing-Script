@@ -85,7 +85,7 @@ expect(unknown.Confidence[11] == nil and inferred.BaseSpeed == 14,
 local first = run(28, nil, "Small", true)
 expect(first.Confidence[11] == 35, "one known-scale hunt is only weak support")
 local repeated = run(28, nil, "Small", true, 2)
-expect(repeated.Confidence[11] == 95, "two stable hunts at substantial Energy corroborate Oni")
+expect((repeated.Confidence[11] == 65 and repeated.SourceConfidence[11] == 95), "two stable hunts at substantial Energy corroborate Oni")
 local overlap = run(28, nil, "Small", true, 2, 0)
 expect(overlap.Confidence[11] == 35, "zero Energy cannot separate Oni from Wretch")
 local normal, normalFilter = run(21, nil, "Small", true, 2)

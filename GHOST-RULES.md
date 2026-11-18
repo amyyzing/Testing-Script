@@ -41,4 +41,6 @@ server-only behavior automatically.
 The test suite validates code contracts and representative observations. It is
 not a claim that all 25 ghosts have each been tested in a live round.
 
-The ghost log shows positive and negative results for qualified perk checks. Raw readings and tentative findings stay internal.
+Behavioral perk matches are treated as potentially copyable while Doppelganger fits the confirmed evidence. Their effective support is capped at 65 and qualifying rows are marked MEDIUM. Weak readings are not promoted. Independent evidence excluding Doppelganger releases the cap; clearing it restores the cap. High-confidence negative observations retain their existing gates.
+
+The ghost log shows positive, negative, and explicitly MEDIUM shared-perk results. Raw readings and unqualified findings stay internal.

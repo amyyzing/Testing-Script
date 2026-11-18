@@ -130,7 +130,7 @@ local nonCollidable = oilHarness(false)
 expect(nonCollidable.Verdict.Confidence[24] == nil,
 	"the default non-collidable wall before ignition must not identify Wisp")
 nonCollidable.Oil:SetAttribute("Burning", true)
-expect(nonCollidable.Verdict.Confidence[24] == 99
+expect((nonCollidable.Verdict.Confidence[24] == 65 and nonCollidable.Verdict.SourceConfidence[24] == 99)
 	and nonCollidable.Collidable.Result == false,
 	"non-collidable burning oil should support Wisp directly")
 expect(nonCollidable.Verdict.Confidence[17] == nil,
@@ -158,12 +158,13 @@ local roomTracker = createFavouriteHuntRoom({
 })
 for count = 1, 9 do
 	roomTraffic("HuntingState", {Hunting = true, Time = count}):SendTo("FavouriteHuntRoom")
-	expect(roomVerdict.Confidence[24] == 5 + count * 10,
+	expect(roomVerdict.Confidence[24] == math.min(65, 5 + count * 10)
+		and roomVerdict.SourceConfidence[24] == 5 + count * 10,
 		"favourite-room hunt confidence should rise by ten percent per hunt")
 	roomTraffic("HuntingState", {Hunting = false, Time = count + 0.5}):SendTo("FavouriteHuntRoom")
 end
-expect(roomVerdict.Confidence[24] == 95,
-	"nine favourite-room hunt starts should cap Wisp confidence at 95 percent")
+expect((roomVerdict.Confidence[24] == 65 and roomVerdict.SourceConfidence[24] == 95),
+	"repeated favourite-room starts must stay medium while Doppelganger fits")
 currentRoom = {Name = "Hallway"}
 roomTraffic("HuntingState", {Hunting = true, Time = 10}):SendTo("FavouriteHuntRoom")
 expect(table.find(roomVerdict.RuledOut, 24),

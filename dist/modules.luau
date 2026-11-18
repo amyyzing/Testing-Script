@@ -8353,31 +8353,29 @@ for index, ghostProfile in ipairs(Profiles) do
 	end
 end
 
--- Exact compatibility tables copied from the original monolith. Missing keys
--- intentionally remain missing because recordPerkDetection used their absence
--- to ignore unsupported automatic detections.
+-- Conservative defaults for detections without independent corroboration.
 local PerkConfidence = {
-	Aswang = 99,
-	Banshee = 99,
-	Demon = 99,
-	Dullahan = 99,
-	Entity = 99,
-	Doppelganger = 100,
-	Keres = 99,
-	Leviathan = 99,
-	Oni = 99,
-	Phantom = 99,
-	Ravager = 99,
+	Aswang = 65,
+	Banshee = 65,
+	Demon = 65,
+	Dullahan = 65,
+	Entity = 65,
+	Doppelganger = 65,
+	Keres = 65,
+	Leviathan = 65,
+	Oni = 65,
+	Phantom = 65,
+	Ravager = 65,
 	Revenant = 50,
-	Shadow = 99,
-	Siren = 99,
-	Specter = 95,
-	Spirit = 99,
-	Umbra = 99,
-	Vex = 99,
-	Wretch = 99,
-	Wisp = 99,
-	Wraith = 99,
+	Shadow = 35,
+	Siren = 65,
+	Specter = 65,
+	Spirit = 65,
+	Umbra = 65,
+	Vex = 65,
+	Wretch = 65,
+	Wisp = 65,
+	Wraith = 65,
 }
 
 local PerkTTL = {
@@ -9612,7 +9610,7 @@ function Doppelganger.new(dependencies)
 	processor.Disconnect = Traffic:Receive("Doppelganger", function(signal, payload)
 		if signal ~= "SpiritCandle" or type(payload) ~= "table" then return end
 		Traffic("Support", {
-			Ghost = "Doppelganger", Confidence = 60,
+			Ghost = "Doppelganger", Confidence = 60, Perk = "Blue candle", Certainty = "Medium",
 			Reason = "a candle received SpiritCandle; this ability is shared with Spirit",
 		}):SendTo("Verdict")
 	end)
@@ -10161,7 +10159,7 @@ function Spirit.new(dependencies)
 	Processor.Disconnect = Traffic:Receive("Spirit", function(signal, payload)
 		if signal == "SpiritCandle" and type(payload) == "table" then
 			Traffic("Support", {
-				Ghost = "Spirit", Confidence = 60,
+				Ghost = "Spirit", Confidence = 60, Perk = "Blue candle", Certainty = "Medium",
 				Reason = "a candle received SpiritCandle; this ability is shared with Doppelganger",
 			}):SendTo("Verdict")
 			return
@@ -10515,6 +10513,8 @@ return function(dependencies)
 		Unknown = {},
 		AbilityRuledOut = {},
 		Confidence = {},
+		SourceConfidence = {},
+		Copyable = {},
 		NegativeConfidence = {},
 		Reasons = {},
 		Evidence = {},
@@ -10725,7 +10725,20 @@ return function(dependencies)
 			(Verdict.Confidence[index] or 0) - (Verdict.NegativeConfidence[index] or 0))
 	end
 
+	local function doppelgangerPossible()
+		return evidenceCompatible(indexes.Doppelganger) and not isRuledOut(indexes.Doppelganger)
+	end
+
+	local function refreshConfidence()
+		local possible = doppelgangerPossible()
+		for index, confidence in pairs(Verdict.SourceConfidence) do
+			Verdict.Confidence[index] = possible and Verdict.Copyable[index]
+				and math.min(confidence, 65) or confidence
+		end
+	end
+
 	local function selectBest(forceJournal)
+		refreshConfidence()
 		local bestIndex = resolvedEvidenceIndex()
 		local bestScore = -math.huge
 		if bestIndex and isRuledOut(bestIndex) then
@@ -10758,11 +10771,15 @@ return function(dependencies)
 		markJournalDirty()
 	end
 
-	function Verdict:Support(ghost, confidence, reason, overrideNegative)
+	function Verdict:Support(ghost, confidence, reason, overrideNegative, copyable)
 		local index = indexes[ghost]
 		if not index or abilityIsRuledOut(index) then return false end
 		confidence = tonumber(confidence) or 0
-		self.Confidence[index] = math.max(self.Confidence[index] or 0, confidence)
+		local previous = self.SourceConfidence[index] or self.Confidence[index] or 0
+		if confidence >= previous then
+			self.SourceConfidence[index] = confidence
+			self.Copyable[index] = copyable == true
+		end
 		if overrideNegative == true then self.NegativeConfidence[index] = nil end
 		self.Reasons[index] = reason
 		selectBest()
@@ -10786,6 +10803,8 @@ return function(dependencies)
 		self.AbilityRuledOut[index] = true
 		refreshRuledOut()
 		self.Confidence[index] = nil
+		self.SourceConfidence[index] = nil
+		self.Copyable[index] = nil
 		self.Reasons[index] = reason
 		selectBest(true)
 		return true
@@ -10839,6 +10858,10 @@ return function(dependencies)
 	function Verdict:IsCompatible(ghost)
 		local index = indexes[ghost]
 		return index ~= nil and evidenceCompatible(index)
+	end
+
+	function Verdict:IsDoppelgangerPossible()
+		return doppelgangerPossible()
 	end
 
 	function Verdict:GetConfirmedEvidence()
@@ -10929,6 +10952,8 @@ return function(dependencies)
 		table.clear(self.Unknown)
 		table.clear(self.Selected)
 		table.clear(self.Confidence)
+		table.clear(self.SourceConfidence)
+		table.clear(self.Copyable)
 		table.clear(self.NegativeConfidence)
 		table.clear(self.Reasons)
 		table.clear(self.Evidence)
@@ -10948,6 +10973,7 @@ return function(dependencies)
 			["ruled-out"] = table.clone(self.RuledOut),
 			Unknown = table.clone(self.Unknown),
 			Confidence = table.clone(self.Confidence),
+			SourceConfidence = table.clone(self.SourceConfidence),
 			NegativeConfidence = table.clone(self.NegativeConfidence),
 			Reasons = table.clone(self.Reasons),
 			Evidence = table.clone(self.Evidence),
@@ -10958,7 +10984,14 @@ return function(dependencies)
 	Traffic:Receive("Verdict", function(signal, payload)
 		payload = type(payload) == "table" and payload or {}
 		if signal == "Support" then
-			Verdict:Support(payload.Ghost, payload.Confidence, payload.Reason, payload.OverrideNegative)
+			local copyable = type(payload.Perk) == "string" and payload.Copyable ~= false
+			local confidence = tonumber(payload.Confidence) or 0
+			Verdict:Support(payload.Ghost, confidence, payload.Reason, payload.OverrideNegative, copyable)
+			if copyable and doppelgangerPossible() and confidence >= 50 then
+				payload.SourceConfidence = confidence
+				payload.Confidence = math.min(confidence, 65)
+				payload.Certainty = "Medium"
+			end
 		elseif signal == "Negative" then
 			Verdict:Negative(payload.Ghost, payload.Confidence, payload.Reason)
 		elseif signal == "RuleOut" then
@@ -13160,17 +13193,41 @@ return function(dependencies)
 	local negativeColor = assert(dependencies.NegativeColor, "ghost-pattern-log requires NegativeColor")
 	local canvasSize = dependencies.CanvasSize or UDim2.fromOffset
 	local defer = dependencies.Defer or task.defer
-	local controller = {Rows = {}, Count = 0}
+	local controller = {Rows = {}, Results = {}, Count = 0}
+	local readRisk = dependencies.DoppelgangerPossible
 	view.Empty.Visible = false
 
 	local function updateCanvas()
 		view.List.CanvasSize = canvasSize(0, view.Layout.AbsoluteContentSize.Y + 8)
 	end
 
+	local function isMedium(result)
+		if not result.Positive or not result.Copyable or result.SourceConfidence < 50 then return false end
+		if readRisk then return result.SourceConfidence < 80 or readRisk() == true end
+		return result.Certainty == "Medium"
+	end
+
+	local function render(key, result)
+		local row = controller.Rows[key]
+		local heading = isMedium(result) and "MEDIUM" or result.Positive and "POSITIVE" or "NEGATIVE"
+		row.Text = heading .. "  " .. result.Text
+		row.TextColor3 = result.Positive and positiveColor or negativeColor
+	end
+
 	local disconnect = Traffic:Receive("Verdict", function(signal, payload)
+		for key, result in pairs(controller.Results) do render(key, result) end
 		if signal ~= "Support" and signal ~= "RuleOut" then return end
 		if type(payload) ~= "table" or type(payload.Ghost) ~= "string"
-			or type(payload.Perk) ~= "string" or (tonumber(payload.Confidence) or 0) < 80 then return end
+			or type(payload.Perk) ~= "string" then return end
+		local confidence = tonumber(payload.Confidence) or 0
+		local result = {
+			Positive = signal == "Support",
+			Copyable = payload.Copyable ~= false,
+			SourceConfidence = tonumber(payload.SourceConfidence) or confidence,
+			Certainty = payload.Certainty,
+			Text = payload.Ghost .. " | " .. (payload.Observation or payload.Perk),
+		}
+		if confidence < 80 and not isMedium(result) then return end
 
 		local key = payload.Ghost .. "|" .. payload.Perk
 		local row = controller.Rows[key]
@@ -13185,10 +13242,8 @@ return function(dependencies)
 			view.Empty.Visible = false
 		end
 
-		local positive = signal == "Support"
-		local heading = positive and "POSITIVE" or "NEGATIVE"
-		row.Text = heading .. "  " .. payload.Ghost .. " | " .. (payload.Observation or payload.Perk)
-		row.TextColor3 = positive and positiveColor or negativeColor
+		controller.Results[key] = result
+		render(key, result)
 		defer(updateCanvas)
 	end)
 	local layoutConnection = view.Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateCanvas)
@@ -13199,6 +13254,7 @@ return function(dependencies)
 		layoutConnection:Disconnect()
 		for _, row in pairs(self.Rows) do row:Destroy() end
 		table.clear(self.Rows)
+		table.clear(self.Results)
 	end
 
 	return controller

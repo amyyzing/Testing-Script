@@ -19,7 +19,8 @@ end
 
 local ramp = {}
 for index = 1, 45 do table.insert(ramp, 21 + index * 0.01) end
-expect(run(ramp).Confidence[4] == 95, "repeated tiny increases at the native rate should support Dullahan")
+local rampVerdict = run(ramp)
+expect(rampVerdict.Confidence[4] == 65 and rampVerdict.SourceConfidence[4] == 95, "repeated tiny increases at the native rate should support Dullahan")
 
 local blink = {}
 for index = 1, 80 do table.insert(blink, index % 2 == 0 and 27 or 21) end
@@ -40,4 +41,5 @@ for index = 1, 45 do
 	table.insert(duplicates, 21 + index * 0.02)
 	table.insert(duplicates, 21 + index * 0.02)
 end
-expect(run(duplicates).Confidence[4] == 95, "duplicate property notifications must not reset a real ramp")
+local duplicateVerdict = run(duplicates)
+expect(duplicateVerdict.Confidence[4] == 65 and duplicateVerdict.SourceConfidence[4] == 95, "duplicate property notifications must not reset a real ramp")

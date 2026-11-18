@@ -43,7 +43,7 @@ expect(hummingVerdict.Confidence[16] == nil,
 local spiritState = {}
 hummingTraffic("SpiritBoxState", {State = spiritState, Enabled = true}):SendTo("Humming")
 subtitle:Fire("  - HUMMING -  ")
-expect(hummingVerdict.Confidence[16] == 99 and hummingVerdict.Selected[1] == 16,
+expect((hummingVerdict.Confidence[16] == 65 and hummingVerdict.SourceConfidence[16] == 99) and hummingVerdict.Selected[1] == 16,
 	"an enabled Spirit Box followed by the exact humming subtitle should support Siren")
 humming:Destroy()
 hummingSiren:Destroy()
@@ -202,7 +202,7 @@ for _ = 1, 4 do unchanged.Step(0.1) end
 expect(not table.find(unchanged.Verdict.RuledOut, 16) and unchanged.Verdict.NegativeConfidence[16] == nil,
 	"unchanged speed alone must remain inconclusive")
 unchanged.Traffic("Humming", {Response = "- HUMMING -"}):SendTo("Siren")
-expect(unchanged.Verdict.Confidence[16] == 99 and unchanged.Verdict.NegativeConfidence[16] == nil,
+expect((unchanged.Verdict.Confidence[16] == 65 and unchanged.Verdict.SourceConfidence[16] == 99) and unchanged.Verdict.NegativeConfidence[16] == nil,
 	"an ambiguous speed trial must not penalize a later exact humming response")
 destroyLOS(unchanged)
 

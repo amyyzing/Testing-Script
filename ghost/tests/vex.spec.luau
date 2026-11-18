@@ -42,6 +42,6 @@ local missingVerdict, missingTracker = run(nil)
 expect(missingTracker.Exists == false and not table.find(missingVerdict.RuledOut, 22),
 	"a missing replicated flag must not rule Vex out")
 local trueVerdict = run(true)
-expect(trueVerdict.Confidence[22] == 99, "a true invisibility flag should support Vex")
+expect((trueVerdict.Confidence[22] == 65 and trueVerdict.SourceConfidence[22] == 99), "a true invisibility flag should support Vex")
 
 print("vex.spec: one-shot InvisibleOnLIDAR existence check passed")

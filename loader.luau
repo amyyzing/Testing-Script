@@ -445,6 +445,7 @@ local function startTrackers()
 		remember(createGhostPatternLog({
 			Traffic = Traffic,
 			View = view.PatternDrawer,
+			DoppelgangerPossible = function() return Verdict:IsDoppelgangerPossible() end,
 			PositiveColor = view.Colors.Positive,
 			NegativeColor = view.Colors.Danger,
 		}))

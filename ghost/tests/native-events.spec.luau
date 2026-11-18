@@ -56,7 +56,7 @@ now = 1
 added:Fire(object("BrokenGlass", glassFolder))
 assert(verdict.Confidence[2] == 65, "two fresh glass models provide qualified supporting evidence")
 box:SetAttribute("LeviathanGlitch", 123)
-assert(verdict.Confidence[9] == 99, "native glitch must reach the Leviathan processor")
+assert((verdict.Confidence[9] == 65 and verdict.SourceConfidence[9] == 99), "native glitch must reach the Leviathan processor")
 local candle = object("Lantern", {Name = "Interactables"})
 added:Fire(candle)
 candle:SetAttribute("SpiritCandle", true)

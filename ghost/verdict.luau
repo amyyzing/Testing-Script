@@ -22,6 +22,8 @@ return function(dependencies)
 		Unknown = {},
 		AbilityRuledOut = {},
 		Confidence = {},
+		SourceConfidence = {},
+		Copyable = {},
 		NegativeConfidence = {},
 		Reasons = {},
 		Evidence = {},
@@ -232,7 +234,20 @@ return function(dependencies)
 			(Verdict.Confidence[index] or 0) - (Verdict.NegativeConfidence[index] or 0))
 	end
 
+	local function doppelgangerPossible()
+		return evidenceCompatible(indexes.Doppelganger) and not isRuledOut(indexes.Doppelganger)
+	end
+
+	local function refreshConfidence()
+		local possible = doppelgangerPossible()
+		for index, confidence in pairs(Verdict.SourceConfidence) do
+			Verdict.Confidence[index] = possible and Verdict.Copyable[index]
+				and math.min(confidence, 65) or confidence
+		end
+	end
+
 	local function selectBest(forceJournal)
+		refreshConfidence()
 		local bestIndex = resolvedEvidenceIndex()
 		local bestScore = -math.huge
 		if bestIndex and isRuledOut(bestIndex) then
@@ -265,11 +280,15 @@ return function(dependencies)
 		markJournalDirty()
 	end
 
-	function Verdict:Support(ghost, confidence, reason, overrideNegative)
+	function Verdict:Support(ghost, confidence, reason, overrideNegative, copyable)
 		local index = indexes[ghost]
 		if not index or abilityIsRuledOut(index) then return false end
 		confidence = tonumber(confidence) or 0
-		self.Confidence[index] = math.max(self.Confidence[index] or 0, confidence)
+		local previous = self.SourceConfidence[index] or self.Confidence[index] or 0
+		if confidence >= previous then
+			self.SourceConfidence[index] = confidence
+			self.Copyable[index] = copyable == true
+		end
 		if overrideNegative == true then self.NegativeConfidence[index] = nil end
 		self.Reasons[index] = reason
 		selectBest()
@@ -293,6 +312,8 @@ return function(dependencies)
 		self.AbilityRuledOut[index] = true
 		refreshRuledOut()
 		self.Confidence[index] = nil
+		self.SourceConfidence[index] = nil
+		self.Copyable[index] = nil
 		self.Reasons[index] = reason
 		selectBest(true)
 		return true
@@ -346,6 +367,10 @@ return function(dependencies)
 	function Verdict:IsCompatible(ghost)
 		local index = indexes[ghost]
 		return index ~= nil and evidenceCompatible(index)
+	end
+
+	function Verdict:IsDoppelgangerPossible()
+		return doppelgangerPossible()
 	end
 
 	function Verdict:GetConfirmedEvidence()
@@ -436,6 +461,8 @@ return function(dependencies)
 		table.clear(self.Unknown)
 		table.clear(self.Selected)
 		table.clear(self.Confidence)
+		table.clear(self.SourceConfidence)
+		table.clear(self.Copyable)
 		table.clear(self.NegativeConfidence)
 		table.clear(self.Reasons)
 		table.clear(self.Evidence)
@@ -455,6 +482,7 @@ return function(dependencies)
 			["ruled-out"] = table.clone(self.RuledOut),
 			Unknown = table.clone(self.Unknown),
 			Confidence = table.clone(self.Confidence),
+			SourceConfidence = table.clone(self.SourceConfidence),
 			NegativeConfidence = table.clone(self.NegativeConfidence),
 			Reasons = table.clone(self.Reasons),
 			Evidence = table.clone(self.Evidence),
@@ -465,7 +493,14 @@ return function(dependencies)
 	Traffic:Receive("Verdict", function(signal, payload)
 		payload = type(payload) == "table" and payload or {}
 		if signal == "Support" then
-			Verdict:Support(payload.Ghost, payload.Confidence, payload.Reason, payload.OverrideNegative)
+			local copyable = type(payload.Perk) == "string" and payload.Copyable ~= false
+			local confidence = tonumber(payload.Confidence) or 0
+			Verdict:Support(payload.Ghost, confidence, payload.Reason, payload.OverrideNegative, copyable)
+			if copyable and doppelgangerPossible() and confidence >= 50 then
+				payload.SourceConfidence = confidence
+				payload.Confidence = math.min(confidence, 65)
+				payload.Certainty = "Medium"
+			end
 		elseif signal == "Negative" then
 			Verdict:Negative(payload.Ghost, payload.Confidence, payload.Reason)
 		elseif signal == "RuleOut" then

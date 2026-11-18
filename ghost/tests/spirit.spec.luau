@@ -144,8 +144,8 @@ blue.Ghost:SetAttribute("Hunting", true)
 expect(blue.Verdict.Confidence[19] == nil,
 	"the initial gradient must not resolve before the stability window")
 blue.RunDelayed()
-expect(blue.Verdict.Confidence[19] == 99 and blue.Tracker.Result == "Spirit",
-	"both blue emitter sequences should support Spirit at 99 percent")
+expect((blue.Verdict.Confidence[19] == 65 and blue.Verdict.SourceConfidence[19] == 99) and blue.Tracker.Result == "Spirit",
+	"both blue emitter sequences should support Spirit at medium confidence while Doppelganger remains possible")
 blue.Destroy()
 
 local orange = harness(colour(1, 0.694118, 0.384314), colour(1, 0.333333, 0))

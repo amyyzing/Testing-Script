@@ -352,31 +352,29 @@ for index, ghostProfile in ipairs(Profiles) do
 	end
 end
 
--- Exact compatibility tables copied from the original monolith. Missing keys
--- intentionally remain missing because recordPerkDetection used their absence
--- to ignore unsupported automatic detections.
+-- Conservative defaults for detections without independent corroboration.
 local PerkConfidence = {
-	Aswang = 99,
-	Banshee = 99,
-	Demon = 99,
-	Dullahan = 99,
-	Entity = 99,
-	Doppelganger = 100,
-	Keres = 99,
-	Leviathan = 99,
-	Oni = 99,
-	Phantom = 99,
-	Ravager = 99,
+	Aswang = 65,
+	Banshee = 65,
+	Demon = 65,
+	Dullahan = 65,
+	Entity = 65,
+	Doppelganger = 65,
+	Keres = 65,
+	Leviathan = 65,
+	Oni = 65,
+	Phantom = 65,
+	Ravager = 65,
 	Revenant = 50,
-	Shadow = 99,
-	Siren = 99,
-	Specter = 95,
-	Spirit = 99,
-	Umbra = 99,
-	Vex = 99,
-	Wretch = 99,
-	Wisp = 99,
-	Wraith = 99,
+	Shadow = 35,
+	Siren = 65,
+	Specter = 65,
+	Spirit = 65,
+	Umbra = 65,
+	Vex = 65,
+	Wretch = 65,
+	Wisp = 65,
+	Wraith = 65,
 }
 
 local PerkTTL = {

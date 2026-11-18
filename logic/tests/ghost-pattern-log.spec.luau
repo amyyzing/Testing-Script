@@ -32,7 +32,9 @@ local view = {
 	Empty = {Visible = true},
 	Template = template,
 }
+local risk = false
 local controller = createPatternLog({
+ DoppelgangerPossible = function() return risk end,
 	Traffic = Traffic,
 	View = view,
 	PositiveColor = "green",
@@ -60,6 +62,19 @@ result("Support", "Aswang", "Speed rises after kill", 99)
 expect(controller.Count == 3 and entries[2].Text == "POSITIVE  Aswang | Salt slowdown"
 	and entries[3].Text == "POSITIVE  Aswang | Speed rises after kill",
 	"repeat results should update one row per perk, and different perks should get their own rows")
+
+risk = true
+Traffic("Support", {Ghost = "Wraith", Perk = "Undisturbed salt", Observation = "Salt undisturbed",
+ Confidence = 65, Certainty = "Medium"}):SendTo("Verdict")
+expect(controller.Count == 4 and entries[4].Text == "MEDIUM  Wraith | Salt undisturbed",
+ "shared perk observations must be visibly marked MEDIUM")
+
+risk = false
+Traffic("EvidenceState", {Evidence = "EMFLevel5", State = true}):SendTo("Verdict")
+expect(entries[2].Text == "POSITIVE  Aswang | Salt slowdown", "excluding Doppelganger must refresh existing rows")
+risk = true
+Traffic("EvidenceState", {Evidence = "EMFLevel5"}):SendTo("Verdict")
+expect(entries[2].Text == "MEDIUM  Aswang | Salt slowdown", "clearing independent exclusion must restore MEDIUM")
 
 controller:Destroy()
 for _, entry in ipairs(entries) do expect(entry.Destroyed, "destroy should remove every generated log") end

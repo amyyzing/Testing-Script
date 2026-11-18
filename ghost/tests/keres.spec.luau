@@ -56,7 +56,7 @@ Traffic("KillSpeed", {
 	afterKill = {{s = 11, v = true}, {s = 9, v = false}, {s = 8, v = true}},
 	completed = true,
 }):SendTo("Keres")
-expect(Verdict.Confidence[8] == 99,
+expect((Verdict.Confidence[8] == 65 and Verdict.SourceConfidence[8] == 99),
 	"a decrease in both visibility states should support Keres even when their absolute speeds differ")
 
 Verdict:Reset()

@@ -92,10 +92,10 @@ heartbeat:Fire(0.4)
 local smoke = smokeAt(25, "Smoke Holder")
 World.Smoke = smoke
 descendantAdded:Fire(smoke)
-expect(Verdict.Confidence[6] == 99 and Verdict.Selected[1] == 6,
+expect((Verdict.Confidence[6] == 65 and Verdict.SourceConfidence[6] == 99) and Verdict.Selected[1] == 6,
 	"a teleport followed by a Smoke Holder should support and select Entity")
 if delayed[1] then table.remove(delayed, 1).Callback() end
-expect(Verdict.Confidence[6] == 99,
+expect((Verdict.Confidence[6] == 65 and Verdict.SourceConfidence[6] == 99),
 	"the expired no-smoke callback must not overwrite a completed smoke result")
 
 item.Current = {X = 120, Y = 0, Z = 0}
@@ -116,7 +116,7 @@ heartbeat:Fire(0.4)
 expect(#teleports == 3 and delayed[1], "a later teleport should begin another smoke probe")
 World.Smoke = smokeAt(120)
 table.remove(delayed, 1).Callback()
-expect(Verdict.Confidence[6] == 99 and not Verdict.NegativeConfidence[6],
+expect((Verdict.Confidence[6] == 65 and Verdict.SourceConfidence[6] == 99) and not Verdict.NegativeConfidence[6],
 	"the final recursive scan should find a Smoke Holder even without DescendantAdded")
 
 item.Current = {X = -30, Y = 0, Z = 0}
@@ -233,20 +233,20 @@ end
 local short = relocationHarness()
 short:Move(14.58278465, 0.4)
 short:Smoke(0, 0.5)
-expect(short.Verdict.Confidence[6] == 99,
+expect((short.Verdict.Confidence[6] == 65 and short.Verdict.SourceConfidence[6] == 99),
 	"the native 14.6-stud same-room relocation must qualify with smoke at its departure point")
 short:Destroy()
 
 local reversed = relocationHarness()
 reversed:Smoke(0, 0.2)
 reversed:Move(14.6, 0.4)
-expect(reversed.Verdict.Confidence[6] == 99, "smoke arriving before the replicated movement must also qualify")
+expect((reversed.Verdict.Confidence[6] == 65 and reversed.Verdict.SourceConfidence[6] == 99), "smoke arriving before the replicated movement must also qualify")
 reversed:Destroy()
 
 local unmapped = relocationHarness(function(point) return point.X > 10 and "Garage" or nil end)
 unmapped:Move(72.12242648, 0.4)
 unmapped:Smoke(0, 0.5)
-expect(unmapped.Verdict.Confidence[6] == 99,
+expect((unmapped.Verdict.Confidence[6] == 65 and unmapped.Verdict.SourceConfidence[6] == 99),
 	"matching native origin smoke must qualify when the departure room is unmapped")
 unmapped:Destroy()
 

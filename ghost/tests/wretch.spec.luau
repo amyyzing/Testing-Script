@@ -126,7 +126,7 @@ expect(changing.Verdict.Confidence[23] == 35,
 energies[1], changing.Humanoid.WalkSpeed = 80, 20
 changing.Traffic:Broadcast("HuntingState", {Hunting = true})
 changing.RunDelayed()
-expect(changing.Verdict.Confidence[23] == 95,
+expect((changing.Verdict.Confidence[23] == 65 and changing.Verdict.SourceConfidence[23] == 95),
 	"changing Energy and matching speed under the same multiplier should corroborate Wretch")
 changing:Destroy()
 
@@ -169,7 +169,7 @@ local function unknownCurve(speeds, expected)
   end
   h.Traffic:Broadcast("HuntingState", {Hunting = false}) h.RunDelayed()
  end
- if expected then expect(h.Verdict.Confidence[23] == 95, "consistent relative Energy response supports Wretch")
+ if expected then expect((h.Verdict.Confidence[23] == 65 and h.Verdict.SourceConfidence[23] == 95), "consistent relative Energy response supports Wretch")
  else expect(table.find(h.Verdict.RuledOut, 23), "constant speed across three Energy levels excludes Wretch") end
  h:Destroy()
 end

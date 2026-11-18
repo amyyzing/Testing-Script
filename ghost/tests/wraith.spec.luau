@@ -78,7 +78,7 @@ expect(#positive.Delayed == 1 and positive.Delayed[1].Seconds == 4
 	"an undisturbed hit must not support Wraith before the creation grace ends")
 positive.SetTime(4)
 positive.Delayed[1].Callback()
-expect(positive.Verdict.Confidence[25] == 99
+expect((positive.Verdict.Confidence[25] == 65 and positive.Verdict.SourceConfidence[25] == 99)
 	and positive.Verdict.Selected[1] == 25,
 	"a directly hit salt remaining undisturbed through the grace should support Wraith")
 positive.Destroy()

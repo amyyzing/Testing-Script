@@ -98,7 +98,7 @@ local function run(animated)
 end
 
 local positive = run(true)
-expect(positive.Confidence[3] == 99 and not table.find(positive.RuledOut, 3),
+expect((positive.Confidence[3] == 65 and positive.SourceConfidence[3] == 99) and not table.find(positive.RuledOut, 3),
 	"a burning Cross that floats and rotates should support Demon")
 local negative = run(false)
 expect(table.find(negative.RuledOut, 3) ~= nil,

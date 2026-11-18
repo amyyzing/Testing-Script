@@ -6,7 +6,7 @@ function Doppelganger.new(dependencies)
 	processor.Disconnect = Traffic:Receive("Doppelganger", function(signal, payload)
 		if signal ~= "SpiritCandle" or type(payload) ~= "table" then return end
 		Traffic("Support", {
-			Ghost = "Doppelganger", Confidence = 60,
+			Ghost = "Doppelganger", Confidence = 60, Perk = "Blue candle", Certainty = "Medium",
 			Reason = "a candle received SpiritCandle; this ability is shared with Spirit",
 		}):SendTo("Verdict")
 	end)
