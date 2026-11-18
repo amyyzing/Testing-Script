@@ -6047,8 +6047,8 @@ return function(dependencies)
 	local Ghost = assert(dependencies.Ghost, "speed-tracker requires Ghost")
 	local clock = dependencies.Clock or os.clock
 	local World = dependencies.Workspace or workspace
-	-- Native solo kills changed speed about 1.1 seconds before the Dead flag.
-	local killMatchWindow = tonumber(dependencies.KillMatchWindow) or 2
+	-- Native kill animations delayed Dead by about 1.1 to 3.3 seconds.
+	local killMatchWindow = tonumber(dependencies.KillMatchWindow) or 5
 	local Tracker = {
 		Kind = "active", Running = true,
 		hunting = nil, samples = {}, sampleMeta = {}, displayIndex = 0,
