@@ -17,8 +17,10 @@ return function(dependencies)
 		local glass = object:IsA("Model") and object.Name == "BrokenGlass"
 			and object.Parent and object.Parent.Name == "BrokenGlass"
 		if not eligible and not glass then return end
-		if tracker.Bound[object] then return end
-		tracker.Bound[object] = true
+		if tracker.Bound[object] then
+			tracker.Bound[object]()
+			return
+		end
 		local previousGlitch, candleSeen
 		local function update()
 			if not tracker.Running or not object:IsDescendantOf(World) then return end
@@ -32,6 +34,7 @@ return function(dependencies)
 				Traffic("SpiritCandle", {Item = object}):SendTo("Spirit", "Doppelganger")
 			end
 		end
+		tracker.Bound[object] = update
 		if eligible and (object:IsA("Model") or object:IsA("BasePart")) then
 			connect(object:GetAttributeChangedSignal("LeviathanGlitch"), update)
 			connect(object:GetAttributeChangedSignal("SpiritCandle"), update)

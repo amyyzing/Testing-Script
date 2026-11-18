@@ -27,7 +27,7 @@ local function object(name, parent, attrs)
 	local signals = {}
 	local obj = {Name = name, Parent = parent, Attrs = attrs or {}}
 	function obj:IsA(kind) return kind == "Model" end
-	function obj:IsDescendantOf(root) return root == world end
+	function obj:IsDescendantOf(root) return root == world and self.Outside ~= true end
 	function obj:GetAttribute(key) return self.Attrs[key] end
 	function obj:GetAttributeChangedSignal(key)
 		signals[key] = signals[key] or signal()
@@ -62,6 +62,29 @@ added:Fire(candle)
 candle:SetAttribute("SpiritCandle", true)
 assert(verdict.Confidence[17] == 60 and verdict.Confidence[19] == 60,
 	"shared candle ability must support both Spirit and Doppelganger")
+local returned = object("ReturnedLantern", {Name = "Items"}, {ItemName = "Lantern"})
+added:Fire(returned)
+local candleEvents, glitchEvents = 0, 0
+local disconnectCandle = traffic:Receive("Spirit", function(signal)
+	if signal == "SpiritCandle" then candleEvents += 1 end
+end)
+local disconnectGlitch = traffic:Receive("Leviathan", function(signal)
+	if signal == "NativeGlitch" then glitchEvents += 1 end
+end)
+returned.Outside = true
+returned:SetAttribute("SpiritCandle", true)
+returned:SetAttribute("LeviathanGlitch", 456)
+assert(candleEvents == 0 and glitchEvents == 0, "out-of-world item changes must not qualify")
+returned.Outside = false
+added:Fire(returned)
+assert(candleEvents == 1 and glitchEvents == 1,
+	"returning items must refresh native attributes changed while outside Workspace")
+added:Fire(returned)
+returned:SetAttribute("SpiritCandle", true)
+assert(candleEvents == 1 and glitchEvents == 1, "re-entry must not duplicate already observed cues")
+returned:SetAttribute("LeviathanGlitch", 789)
+assert(glitchEvents == 2, "re-entry must retain one live listener for later native changes")
+disconnectCandle()disconnectGlitch()
 tracker:Destroy()
 for _, processor in ipairs(processors) do processor:Destroy() end
 print("native-events.spec: new glass, native glitch, and shared candle observations passed")
