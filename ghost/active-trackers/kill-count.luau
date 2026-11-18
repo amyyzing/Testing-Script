@@ -25,6 +25,7 @@ return function(dependencies)
 			if emit then
 				Traffic("PlayerKilled", {
 					userId = id,
+					AliveRemaining = #Tracker.Alive,
 					Time = clock(),
 				}):SendTo("Revenant", "SpeedTracker", "Oni", "Wretch")
 			end

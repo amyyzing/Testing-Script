@@ -66,12 +66,24 @@ alive.Humanoid.Died:Fire()
 alive:SetDead(true)
 expect(#deaths == 1 and deaths[1].userId == 1 and type(deaths[1].Time) == "number",
 	"Humanoid.Died should emit immediately and the later Dead attribute should not duplicate it")
+expect(deaths[1].AliveRemaining == 0,
+	"the last living player's kill must carry an explicit zero-survivor count")
 expect(#revenantDeaths == 1 and revenantDeaths[1] == deaths[1]
 	and revenantDeaths[1].userId == 1,
 	"the same player kill event should reach Revenant and SpeedTracker")
 alive:SetDead(false)
 alive:SetDead(true)
 expect(#deaths == 1, "a revived player's later death must not emit again")
+
+local third, fourth = player(3, false), player(4, false)
+Players.PlayerAdded:Fire(third)
+Players.PlayerAdded:Fire(fourth)
+third.Humanoid.Died:Fire()
+expect(deaths[2].AliveRemaining == 1,
+	"a multiplayer kill must retain the surviving player count")
+fourth.Humanoid.Died:Fire()
+expect(deaths[3].AliveRemaining == 0,
+	"the final multiplayer death must report no survivors")
 
 tracker:Destroy()
 print("kill-count.spec: unique alive and dead player tracking passed")

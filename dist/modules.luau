@@ -5551,6 +5551,7 @@ return function(dependencies)
 			if emit then
 				Traffic("PlayerKilled", {
 					userId = id,
+					AliveRemaining = #Tracker.Alive,
 					Time = clock(),
 				}):SendTo("Revenant", "SpeedTracker", "Oni", "Wretch")
 			end
@@ -9968,17 +9969,17 @@ function Revenant.new(dependencies)
 		Generation = 0,
 	}
 
-	local function verdict(supported, reason)
+	local function verdict()
 		if Processor.Resolved then return end
 		Processor.Resolved = true
 		Processor.PendingKill = nil
 		Processor.Generation += 1
-		Traffic(supported and "Support" or "RuleOut", {
+		Traffic("Support", {
 			Ghost = "Revenant",
 			Perk = "Hunt ends after kill",
-			Observation = supported and "Hunt stopped after kill" or "Hunt continued after kill",
-			Confidence = 99,
-			Reason = reason,
+			Observation = "Hunt stopped after kill",
+			Confidence = 50,
+			Reason = "the hunt stopped after a player kill; custom difficulty can cause this for other ghosts",
 		}):SendTo("Verdict")
 	end
 
@@ -9990,9 +9991,8 @@ function Revenant.new(dependencies)
 		delay(1.5, function()
 			if not Processor.Resolved and Processor.PendingKill == killTime
 				and Processor.Generation == generation then
-				verdict(not Processor.Hunting, Processor.Hunting
-					and "the hunt remained active after a player kill"
-					or "the hunt stopped after a player kill")
+				Processor.PendingKill = nil
+				if not Processor.Hunting then verdict() end
 			end
 		end)
 	end
@@ -10008,16 +10008,18 @@ function Revenant.new(dependencies)
 				Processor.LastHuntEnd = nil
 			elseif wasHunting then
 				Processor.LastHuntEnd = eventTime
-				if Processor.PendingKill then
-					verdict(true, "the hunt stopped after a player kill")
-				end
 			end
 		elseif signal == "PlayerKilled" then
+			if type(payload.AliveRemaining) ~= "number" or payload.AliveRemaining <= 0 then
+				Processor.PendingKill = nil
+				Processor.Generation += 1
+				return
+			end
 			if Processor.Hunting then
 				beginProbe(eventTime)
 			elseif Processor.LastHuntEnd
 				and math.abs(eventTime - Processor.LastHuntEnd) <= 1.5 then
-				verdict(true, "the hunt ended immediately before the player kill signal arrived")
+				beginProbe(eventTime)
 			end
 		end
 	end)
