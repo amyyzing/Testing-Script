@@ -17,7 +17,7 @@ server-only behavior automatically.
 | Demon | Spins burning crosses, increased cross range | Qualified cross motion |
 | Dullahan | LOS acceleration 0.1/s | Three timed micro-increment ramps corroborate; duplicate notifications and large speed jumps are ignored |
 | Dybbuk | Throws corpses; journal describes Music Box stun | Evidence matching; physics motion alone is not accepted as a ghost throw |
-| Entity | Teleports itself or an object, with smoke on object teleport | Qualified object relocation plus smoke |
+| Entity | Teleports itself or an object, with smoke at the object's departure point | Rapid relocation plus nearby origin smoke within three seconds; corroborated short and same-room moves qualify |
 | Ghoul | Cannot disable electronics; reacts to chat | Qualifies disabling observations away from living players |
 | Keres | Speed drops after kills, targets lowest Energy | Kill speed windows; unknown models do not default to male |
 | Leviathan | Native `LeviathanGlitch` item attribute | Direct glitch signal is strong; ordinary switch bursts are weak |

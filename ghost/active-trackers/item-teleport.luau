@@ -68,12 +68,11 @@ return function(dependencies)
 						continue
 					end
 					local currentRoom = roomAt(current, previous.Room)
-					if sampleElapsed > 0 and sampleElapsed <= maximumElapsed
-						and displacementSquared >= minimumDistanceSquared
-						and previous.Room and currentRoom
-						and previous.Room ~= currentRoom then
+					if sampleElapsed > 0 and sampleElapsed <= maximumElapsed and displacementSquared >= 1 then
+						local crossRoom = displacementSquared >= minimumDistanceSquared
+							and previous.Room and currentRoom and previous.Room ~= currentRoom
 						self.NextId += 1
-						Traffic("ItemTeleported", {
+						Traffic(crossRoom and "ItemTeleported" or "ItemMoved", {
 							EventId = "item-teleport-" .. self.NextId,
 							Item = object,
 							From = previous.Position,

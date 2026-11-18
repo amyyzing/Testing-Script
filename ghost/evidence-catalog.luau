@@ -232,9 +232,9 @@ local Profiles = {
 		note("The current CanThrowCorpses flag and journal confirm corpse throwing and a Music Box stun. Ordinary corpse motion is not a reliable automatic identification.", SOURCE.Dybbuk, "live-game", false, "Caveat"),
 	})),
 	profile("Entity", {"Handprints", "LaserProjector", "SpiritBox"}, "user-observed", perks({
-		note("A confirmed object teleport is accompanied by a SmokeHolder appearing anywhere in Workspace.", SOURCE.Entity, "user-observed", true, "Ability"),
+		note("A rapid object relocation matches a SmokeHolder at its departure point within three seconds. Native short and same-room relocations also qualify.", SOURCE.Entity, "live-game", true, "Ability"),
 	}, {}, {
-		note("A confirmed object teleport without a SmokeHolder is a 50% negative, not a full rule-out.", SOURCE.Entity, "user-observed", true, "Caveat"),
+		note("A long cross-room jump without matching origin smoke is only a 50% negative. Uncorroborated short movement stays inconclusive.", SOURCE.Entity, "live-game", true, "Caveat"),
 	})),
 	profile("Ghoul", {"FreezingTemperatures", "GhostOrb", "SpiritBox"}, "user-observed", perks({}, {}, {
 		note("Electronics becoming disabled while every player is more than 15 studs away is a 99% negative for Ghoul.", SOURCE.Ghoul, "user-observed", false, "RuleOut"),

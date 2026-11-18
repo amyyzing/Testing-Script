@@ -24,6 +24,11 @@ local function signal()
 	}
 end
 
+local function smokeAt(x, name)
+	return {Name = name or "SmokeHolder", Position = {X = x, Y = 0, Z = 0},
+		IsA = function(_, class) return class == "BasePart" end}
+end
+
 local now = 0
 local heartbeat, descendantAdded = signal(), signal()
 local item = {Current = {X = 0, Y = 0, Z = 0}}
@@ -84,7 +89,7 @@ Verdict:Reset()
 item.Current = {X = 0, Y = 0, Z = 0}
 now = 0.8
 heartbeat:Fire(0.4)
-local smoke = {Name = "Smoke Holder"}
+local smoke = smokeAt(25, "Smoke Holder")
 World.Smoke = smoke
 descendantAdded:Fire(smoke)
 expect(Verdict.Confidence[6] == 99 and Verdict.Selected[1] == 6,
@@ -109,7 +114,7 @@ item.Current = {X = 0, Y = 0, Z = 0}
 now = 4.6
 heartbeat:Fire(0.4)
 expect(#teleports == 3 and delayed[1], "a later teleport should begin another smoke probe")
-World.Smoke = {Name = "SmokeHolder"}
+World.Smoke = smokeAt(120)
 table.remove(delayed, 1).Callback()
 expect(Verdict.Confidence[6] == 99 and not Verdict.NegativeConfidence[6],
 	"the final recursive scan should find a Smoke Holder even without DescendantAdded")
@@ -188,3 +193,75 @@ retained:Destroy()
 expect(next(retained.Objects) == nil and next(retained.BoundContainers) == nil,
 	"destroying the tracker must release retained instances")
 print("entity.spec: streamed observation survives GC and releases on removal")
+
+local function relocationHarness(roomAt)
+	local state = {Now = 0, Delayed = {}}
+	local frame, added = signal(), signal()
+	local object = streamedItem()
+	local container = {ChildAdded = signal(), ChildRemoved = signal(), GetChildren = function() return {object} end}
+	local world = {DescendantAdded = added}
+	function world:FindFirstChild(name)
+		if name == "Items" then return container end
+		if self.Smoke and name == self.Smoke.Name then return self.Smoke end
+	end
+	local traffic = createTraffic()
+	state.Verdict = createVerdict({Traffic = traffic})
+	local processor = Entity.new({Traffic = traffic})
+	local smokeObserver = createSmokeHolder({Traffic = traffic, Workspace = world,
+		Clock = function() return state.Now end,
+		Delay = function(_, callback) table.insert(state.Delayed, callback) end})
+	local motion = createItemTeleport({Traffic = traffic, Workspace = world,
+		RunService = {Heartbeat = frame}, Clock = function() return state.Now end,
+		FindRoom = roomAt or function() return "Blue Bedroom" end})
+	function state:Move(x, time)
+		self.Now, object.Current = time, {X = x, Y = 0, Z = 0}
+		frame:Fire(0.4)
+	end
+	function state:Smoke(x, time)
+		self.Now, world.Smoke = time, smokeAt(x)
+		added:Fire(world.Smoke)
+	end
+	function state:Finish(time)
+		self.Now = time
+		for _, callback in ipairs(self.Delayed) do callback() end
+		table.clear(self.Delayed)
+	end
+	function state:Destroy() motion:Destroy() smokeObserver:Destroy() processor:Destroy() end
+	return state
+end
+
+local short = relocationHarness()
+short:Move(14.58278465, 0.4)
+short:Smoke(0, 0.5)
+expect(short.Verdict.Confidence[6] == 99,
+	"the native 14.6-stud same-room relocation must qualify with smoke at its departure point")
+short:Destroy()
+
+local reversed = relocationHarness()
+reversed:Smoke(0, 0.2)
+reversed:Move(14.6, 0.4)
+expect(reversed.Verdict.Confidence[6] == 99, "smoke arriving before the replicated movement must also qualify")
+reversed:Destroy()
+
+local unrelated = relocationHarness()
+unrelated:Smoke(100, 0.2)
+unrelated:Move(14.6, 0.4)
+unrelated:Finish(4)
+expect(not unrelated.Verdict.Confidence[6] and not unrelated.Verdict.NegativeConfidence[6],
+	"ordinary short movement and unrelated smoke must stay inconclusive")
+unrelated:Destroy()
+
+local expired = relocationHarness()
+expired:Move(14.6, 0.4)
+expired:Smoke(0, 4)
+expect(not expired.Verdict.Confidence[6], "late smoke must not corroborate an expired movement")
+expired:Destroy()
+
+local wrongOrigin = relocationHarness(function(point) return point.X < 10 and "RoomA" or "RoomB" end)
+wrongOrigin:Move(30, 0.4)
+wrongOrigin:Smoke(100, 0.5)
+wrongOrigin:Finish(3.4)
+expect(not wrongOrigin.Verdict.Confidence[6] and wrongOrigin.Verdict.NegativeConfidence[6] == 50,
+	"even a large cross-room movement needs smoke at the matching departure point")
+wrongOrigin:Destroy()
+print("entity.spec: native short relocation and spatial/temporal smoke checks passed")

@@ -14,8 +14,8 @@ function Entity.new(dependencies)
 			Ghost = "Entity",
 			Perk = "Smoke Holder",
 			Confidence = found and 99 or 50,
-			Reason = found and "a teleported object coincided with a Smoke Holder"
-				or "a teleported object had no Smoke Holder",
+			Reason = found and "prop relocation matched smoke at its departure point"
+				or "no matching smoke at the prop's departure point",
 		}):SendTo("Verdict")
 	end)
 
