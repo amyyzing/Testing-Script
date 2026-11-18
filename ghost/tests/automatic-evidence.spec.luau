@@ -120,7 +120,7 @@ expect(pulseCount == 1, "destroyed trackers must release their reader listeners"
 
 local historyWorld = instance("Workspace", "Workspace")
 historyWorld.DescendantAdded = signal()
-local historyGhost = historyWorld:Add(instance("Model", "Ghost", {LastEMF5Time = 7.5}))
+local historyGhost = historyWorld:Add(instance("Model", "Ghost", {LastEMFLevel5Time = 7.5}))
 local historyTraffic = createTraffic()
 local historicalEMF = false
 historyTraffic:Receive("Verdict", function(name, data)
@@ -139,7 +139,7 @@ world.DescendantAdded = signal()
 local ghost = world:Add(instance("Model", "Ghost", {
 	InLaser = true,
 	FavoriteRoom = "Office",
-	LastEMF5Time = 0,
+	LastEMFLevel5Time = 0,
 }))
 local map = world:Add(instance("Folder", "Map"))
 local rooms = map:Add(instance("Folder", "Rooms"))
@@ -211,9 +211,9 @@ local tracker = createEvidenceState({
 	ShowSubtitle = subtitle,
 })
 
-expect(not found.EMFLevel5, "EMF-5 should remain unknown before LastEMF5Time changes")
-ghost:SetAttribute("LastEMF5Time", 12.5)
-expect(found.EMFLevel5, "LastEMF5Time should confirm EMF-5 immediately")
+expect(not found.EMFLevel5, "EMF-5 should remain unknown before LastEMFLevel5Time changes")
+ghost:SetAttribute("LastEMFLevel5Time", 12.5)
+expect(found.EMFLevel5, "LastEMFLevel5Time should confirm EMF-5 immediately")
 expect(not found.Handprints,
 	"map props and salt-folder footprints must not count as native print evidence")
 local nativePrint = handprints:Add(instance("Part", "NativeUVPrint"))

@@ -5059,32 +5059,32 @@ return function(dependencies)
 			tier == "Certain" or tier == "Pretty Sure")
 	end
 
-	local function readLastEMF5Time(ghost)
+	local function readLastEMFLevel5Time(ghost)
 		if not ghost then return end
-		local lastEMF5Time = tonumber(ghost:GetAttribute("LastEMF5Time"))
-		if lastEMF5Time and lastEMF5Time > 0 then
+		local lastEMFLevel5Time = tonumber(ghost:GetAttribute("LastEMFLevel5Time"))
+		if lastEMFLevel5Time and lastEMFLevel5Time > 0 then
 			setAutomatic("EMFLevel5")
 		end
 	end
 
-	local function bindLastEMF5Time(ghost)
+	local function bindLastEMFLevel5Time(ghost)
 		if tracker.EMF5Ghost == ghost then return end
 		if tracker.EMF5Connection then tracker.EMF5Connection:Disconnect() end
 		tracker.EMF5Ghost = ghost
 		tracker.EMF5Connection = nil
 		if ghost then
 			tracker.EMF5Connection = connect(
-				ghost:GetAttributeChangedSignal("LastEMF5Time"),
-				function() readLastEMF5Time(ghost) end
+				ghost:GetAttributeChangedSignal("LastEMFLevel5Time"),
+				function() readLastEMFLevel5Time(ghost) end
 			)
-			readLastEMF5Time(ghost)
+			readLastEMFLevel5Time(ghost)
 		end
 	end
 
 	local function scanAutomatic()
 		if not Workspace then return end
 		local ghost = dependencies.Ghost or Workspace:FindFirstChild("Ghost")
-		bindLastEMF5Time(ghost)
+		bindLastEMFLevel5Time(ghost)
 		if ghost and ghost:GetAttribute("InLaser") == true then setAutomatic("LaserProjector") end
 		scanItems()
 		scanTemperature()
