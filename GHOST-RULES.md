@@ -43,7 +43,7 @@ negatives remain exclusions; timeout choices use the challenge-compatible pool.
 | Oni | Hunt speed 14 | Known scale and two hunts required; substantial Energy separates its base 14 from Wretch |
 | Phantom | Faster while invisible, blink speed 13.5 | Seven stable pairs compare invisible and visible speed; a drifting baseline stays inconclusive |
 | Ravager | Multiple throws, hunting item vortex | Sustained multi-object orbit qualification passed five native-confirmed Ravager rounds; an absent vortex stays inconclusive |
-| Revenant | Stops hunting after a kill, rests 15s | Hunt stopping is Maybe support only because custom difficulty can cause it for other ghosts. No hard exclusion from continuation; last-survivor and unknown-survivor deaths are ignored |
+| Revenant | Stops hunting after a kill, rests 15s | Qualified hunt stopping is low support (35) because custom difficulty can cause it for other ghosts. No hard exclusion from continuation; solo death-gap timing is under review, and ordinary last-survivor round endings are not attributed |
 | Shadow | Temperature-alter coefficient 0.5 | Signed net cooling per second is logged with warm-up/plateau states; uncalibrated slow cooling is weak and cannot exclude |
 | Siren | Journal describes sprint slowing and humming | Native Revenant also produced 0.8x slowdown: speed-only support is weak; no slowdown remains inconclusive. Neither identifies nor excludes Siren. Model gender is exclusion-only. Exact active Spirit Box humming passed five native-confirmed Siren rounds with full evidence; hidden or absent responses remain inconclusive |
 | Doppelganger | Fake Orb, teleport, extinguish lights, SpiritCandle | False-Orb evidence handling; candle ability supports both it and Spirit |
@@ -61,4 +61,5 @@ not a claim that all 25 ghosts have each been tested in a live round.
 
 Behavioral perk matches are treated as potentially copyable while Doppelganger fits the confirmed evidence. Their effective support is capped at 65 and qualifying rows are marked MEDIUM. Weak readings are not promoted. Independent evidence excluding Doppelganger releases the cap; clearing it restores the cap. High-confidence negative observations retain their existing gates.
 
-The ghost log shows positive, negative, and explicitly MEDIUM shared-perk results. Raw readings and unqualified findings stay internal.
+The ghost log shows positive, negative, explicitly MEDIUM shared-perk results,
+and explicitly LOW qualified cues. Raw readings and unqualified findings stay internal.

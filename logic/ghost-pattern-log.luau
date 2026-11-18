@@ -18,10 +18,15 @@ return function(dependencies)
 		if readRisk then return result.SourceConfidence < 80 or readRisk() == true end
 		return result.Certainty == "Medium"
 	end
+	local function isLow(result)
+		return result.Positive and result.Certainty == "Low"
+			and result.SourceConfidence > 0 and result.SourceConfidence < 50
+	end
 
 	local function render(key, result)
 		local row = controller.Rows[key]
-		local heading = isMedium(result) and "MEDIUM" or result.Positive and "POSITIVE" or "NEGATIVE"
+		local heading = isLow(result) and "LOW" or isMedium(result) and "MEDIUM"
+			or result.Positive and "POSITIVE" or "NEGATIVE"
 		row.Text = heading .. "  " .. result.Text
 		row.TextColor3 = result.Positive and positiveColor or negativeColor
 	end
@@ -39,7 +44,7 @@ return function(dependencies)
 			Certainty = payload.Certainty,
 			Text = payload.Ghost .. " | " .. (payload.Observation or payload.Perk),
 		}
-		if confidence < 80 and not isMedium(result) then return end
+		if confidence < 80 and not isMedium(result) and not isLow(result) then return end
 
 		local key = payload.Ghost .. "|" .. payload.Perk
 		local row = controller.Rows[key]

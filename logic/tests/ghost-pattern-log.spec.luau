@@ -76,6 +76,17 @@ risk = true
 Traffic("EvidenceState", {Evidence = "EMFLevel5"}):SendTo("Verdict")
 expect(entries[2].Text == "MEDIUM  Aswang | Salt slowdown", "clearing independent exclusion must restore MEDIUM")
 
+Traffic("Support", {Ghost = "Revenant", Perk = "Hunt ends after kill",
+	Observation = "Hunt stopped after kill", Confidence = 35, Certainty = "Low"}):SendTo("Verdict")
+expect(entries[5].Text == "LOW  Revenant | Hunt stopped after kill",
+	"explicitly qualified low-confidence cues must not look like definite positives")
+Traffic("Support", {Ghost = "Specter", Perk = "Stays in favourite room",
+	Confidence = 35, Certainty = "Low"}):SendTo("Verdict")
+Traffic("Support", {Ghost = "Specter", Perk = "Stays in favourite room",
+	Confidence = 60, Certainty = "Medium"}):SendTo("Verdict")
+expect(controller.Count == 6 and entries[6].Text == "MEDIUM  Specter | Stays in favourite room",
+	"a low-to-medium cue should update the same compact row")
+
 controller:Destroy()
 for _, entry in ipairs(entries) do expect(entry.Destroyed, "destroy should remove every generated log") end
 

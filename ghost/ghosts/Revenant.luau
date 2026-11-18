@@ -20,7 +20,7 @@ function Revenant.new(dependencies)
 			Ghost = "Revenant",
 			Perk = "Hunt ends after kill",
 			Observation = "Hunt stopped after kill",
-			Confidence = 50,
+			Confidence = 35, Certainty = "Low",
 			Reason = "the hunt stopped after a player kill; custom difficulty can cause this for other ghosts",
 		}):SendTo("Verdict")
 	end

@@ -23,8 +23,10 @@ local function harness(base)
 	local changed, heartbeat = signal(), signal()
 	local humanoid = {Parent = true, WalkSpeed = base or 21, AncestryChanged = signal()}
 	function humanoid:GetPropertyChangedSignal() return changed end
+	local huntingChanged = signal()
 	local ghost = {Parent = true, Hunting = false, AncestryChanged = signal()}
 	function ghost:GetAttribute(name) return name == "Hunting" and self.Hunting end
+	function ghost:GetAttributeChangedSignal() return huntingChanged end
 	function ghost:FindFirstChildOfClass() return humanoid end
 	local box = {Parent = true, AncestryChanged = signal()}
 	local traffic = createTraffic()
@@ -36,6 +38,7 @@ local function harness(base)
 	assert(heartbeat:Count() == 0, "idle Music Box observation must not run Heartbeat")
 	function h:Play(other) traffic("MusicBoxFirstPlay", {MusicBox = other or box}):SendTo("MusicBoxStun") end
 	function h:Speed(speed) humanoid.WalkSpeed = speed changed:Fire() end
+	function h:Hunt(value) ghost.Hunting = value huntingChanged:Fire() end
 	function h:Step(seconds) now += seconds heartbeat:Fire() end
 	function h:Destroy() tracker:Destroy() processor:Destroy() end
 	function h:Unresolved(message)
@@ -85,6 +88,18 @@ old:Play()
 old:Step(3)
 old:Speed(21)
 old:Unresolved("a speed drop before first play cannot be attributed to the Music Box")
+
+for _, delivered in ipairs({false, true}) do
+	local grace = harness()
+	if delivered then grace:Hunt(true) else grace.Ghost.Hunting = true end
+	grace:Speed(2) grace:Play() grace:Step(3) grace:Speed(21)
+	grace:Unresolved("a hunt starting in the same batch cannot masquerade as a Music Box stun")
+end
+local ongoing = harness()
+ongoing:Hunt(true) ongoing:Step(1)
+ongoing:Play() ongoing:Speed(2) ongoing:Step(3) ongoing:Speed(21)
+assert(ongoing.Verdict.SourceConfidence[5] == 95, "a settled ongoing hunt must still allow the real stun signature")
+ongoing:Destroy()
 
 for _, duration in ipairs({1, 4}) do
 	local h = harness()

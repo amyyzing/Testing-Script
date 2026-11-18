@@ -7681,7 +7681,8 @@ return function(dependencies)
 	local RunService = assert(dependencies.RunService, "music-box-stun requires RunService")
 	local humanoid = assert(Ghost:FindFirstChildOfClass("Humanoid"), "music-box-stun requires Humanoid")
 	local clock = dependencies.Clock or os.clock
-	local tracker = {Kind = "dormant", Running = true, Speed = humanoid.WalkSpeed}
+	local tracker = {Kind = "dormant", Running = true, Speed = humanoid.WalkSpeed,
+		Hunting = Ghost:GetAttribute("Hunting") == true}
 	local function isStun(speed, baseline)
 		-- Native first-play probes at 0.5x and 2x both used the fixed speed 2.
 		return speed >= 0 and speed <= 2.05 and speed < baseline - 0.05
@@ -7735,6 +7736,13 @@ return function(dependencies)
 		if not box or not box.Parent then return end
 		if tracker.Active then cancel() return end -- Overlapping first plays cannot isolate the cause.
 		local now = clock()
+		local hunting = Ghost:GetAttribute("Hunting") == true
+		if hunting ~= tracker.Hunting then
+			tracker.Hunting, tracker.HuntChangedAt = hunting, now
+			cancel()
+			return
+		end
+		if tracker.HuntChangedAt and now - tracker.HuntChangedAt <= 0.5 then return end
 		local speed = recordSpeed(now)
 		local change = tracker.LastChange
 		local recentDrop = change and now - change.Time <= 0.5 and change.Before > 0
@@ -7755,6 +7763,12 @@ return function(dependencies)
 	end)
 	tracker.GhostConnection = Ghost.AncestryChanged:Connect(cancel)
 	tracker.HumanoidConnection = humanoid.AncestryChanged:Connect(cancel)
+	tracker.HuntingConnection = Ghost:GetAttributeChangedSignal("Hunting"):Connect(function()
+		local hunting = Ghost:GetAttribute("Hunting") == true
+		if hunting == tracker.Hunting then return end
+		tracker.Hunting, tracker.HuntChangedAt = hunting, clock()
+		cancel()
+	end)
 
 	function tracker:Destroy()
 		if not self.Running then return end
@@ -7764,6 +7778,7 @@ return function(dependencies)
 		self.SpeedConnection:Disconnect()
 		self.GhostConnection:Disconnect()
 		self.HumanoidConnection:Disconnect()
+		self.HuntingConnection:Disconnect()
 	end
 	return tracker
 end
@@ -8313,7 +8328,7 @@ local Profiles = {
 		note("Ordinary throws and one moving object are not a vortex.", SOURCE.Ravager, "user-observed", false, "Caveat"),
 	})),
 	profile("Revenant", {"EMFLevel5", "FreezingTemperatures", "GhostWriting"}, "user-observed", perks({}, {
-		note("A hunt stopping after a multiplayer kill is Maybe support; custom difficulty can cause the same behavior for other ghosts.", SOURCE.Revenant, "user-observed", false, "Weakness"),
+		note("A hunt stopping abruptly after a qualified kill is low support; custom difficulty can cause the same behavior for other ghosts. Solo round-ending timing is being compared separately.", SOURCE.Revenant, "user-observed", false, "Weakness"),
 	}, {
 		note("Hunt continuation is inconclusive. Last-survivor and unknown-survivor deaths are ignored.", SOURCE.Revenant, "user-observed", false, "Caveat"),
 	})),
@@ -8409,7 +8424,7 @@ local PerkConfidence = {
 	Oni = 65,
 	Phantom = 65,
 	Ravager = 65,
-	Revenant = 50,
+	Revenant = 35,
 	Shadow = 35,
 	Siren = 65,
 	Specter = 0,
@@ -10038,7 +10053,7 @@ function Revenant.new(dependencies)
 			Ghost = "Revenant",
 			Perk = "Hunt ends after kill",
 			Observation = "Hunt stopped after kill",
-			Confidence = 50,
+			Confidence = 35, Certainty = "Low",
 			Reason = "the hunt stopped after a player kill; custom difficulty can cause this for other ghosts",
 		}):SendTo("Verdict")
 	end
@@ -13278,10 +13293,15 @@ return function(dependencies)
 		if readRisk then return result.SourceConfidence < 80 or readRisk() == true end
 		return result.Certainty == "Medium"
 	end
+	local function isLow(result)
+		return result.Positive and result.Certainty == "Low"
+			and result.SourceConfidence > 0 and result.SourceConfidence < 50
+	end
 
 	local function render(key, result)
 		local row = controller.Rows[key]
-		local heading = isMedium(result) and "MEDIUM" or result.Positive and "POSITIVE" or "NEGATIVE"
+		local heading = isLow(result) and "LOW" or isMedium(result) and "MEDIUM"
+			or result.Positive and "POSITIVE" or "NEGATIVE"
 		row.Text = heading .. "  " .. result.Text
 		row.TextColor3 = result.Positive and positiveColor or negativeColor
 	end
@@ -13299,7 +13319,7 @@ return function(dependencies)
 			Certainty = payload.Certainty,
 			Text = payload.Ghost .. " | " .. (payload.Observation or payload.Perk),
 		}
-		if confidence < 80 and not isMedium(result) then return end
+		if confidence < 80 and not isMedium(result) and not isLow(result) then return end
 
 		local key = payload.Ghost .. "|" .. payload.Perk
 		local row = controller.Rows[key]

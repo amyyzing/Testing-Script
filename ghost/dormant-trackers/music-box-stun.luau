@@ -4,7 +4,8 @@ return function(dependencies)
 	local RunService = assert(dependencies.RunService, "music-box-stun requires RunService")
 	local humanoid = assert(Ghost:FindFirstChildOfClass("Humanoid"), "music-box-stun requires Humanoid")
 	local clock = dependencies.Clock or os.clock
-	local tracker = {Kind = "dormant", Running = true, Speed = humanoid.WalkSpeed}
+	local tracker = {Kind = "dormant", Running = true, Speed = humanoid.WalkSpeed,
+		Hunting = Ghost:GetAttribute("Hunting") == true}
 	local function isStun(speed, baseline)
 		-- Native first-play probes at 0.5x and 2x both used the fixed speed 2.
 		return speed >= 0 and speed <= 2.05 and speed < baseline - 0.05
@@ -58,6 +59,13 @@ return function(dependencies)
 		if not box or not box.Parent then return end
 		if tracker.Active then cancel() return end -- Overlapping first plays cannot isolate the cause.
 		local now = clock()
+		local hunting = Ghost:GetAttribute("Hunting") == true
+		if hunting ~= tracker.Hunting then
+			tracker.Hunting, tracker.HuntChangedAt = hunting, now
+			cancel()
+			return
+		end
+		if tracker.HuntChangedAt and now - tracker.HuntChangedAt <= 0.5 then return end
 		local speed = recordSpeed(now)
 		local change = tracker.LastChange
 		local recentDrop = change and now - change.Time <= 0.5 and change.Before > 0
@@ -78,6 +86,12 @@ return function(dependencies)
 	end)
 	tracker.GhostConnection = Ghost.AncestryChanged:Connect(cancel)
 	tracker.HumanoidConnection = humanoid.AncestryChanged:Connect(cancel)
+	tracker.HuntingConnection = Ghost:GetAttributeChangedSignal("Hunting"):Connect(function()
+		local hunting = Ghost:GetAttribute("Hunting") == true
+		if hunting == tracker.Hunting then return end
+		tracker.Hunting, tracker.HuntChangedAt = hunting, clock()
+		cancel()
+	end)
 
 	function tracker:Destroy()
 		if not self.Running then return end
@@ -87,6 +101,7 @@ return function(dependencies)
 		self.SpeedConnection:Disconnect()
 		self.GhostConnection:Disconnect()
 		self.HumanoidConnection:Disconnect()
+		self.HuntingConnection:Disconnect()
 	end
 	return tracker
 end

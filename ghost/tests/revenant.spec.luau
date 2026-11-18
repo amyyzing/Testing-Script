@@ -34,8 +34,8 @@ expect(positive.Delayed[1].Seconds == 1.5,
 	"a hunting player kill should start the 1.5-second continuation probe")
 positive.Traffic("HuntingState", {Hunting = false, Time = 1}):SendTo("Revenant")
 positive.Delayed[1].Callback()
-expect(positive.Verdict.Selected[1] == 14 and positive.Verdict.Confidence[14] == 50,
-	"hunt stop after a kill should provide Maybe support only")
+expect(positive.Verdict.Selected[1] == 14 and positive.Verdict.Confidence[14] == 35,
+	"hunt stop after a kill should provide low support only")
 positive.Revenant:Destroy()
 
 local negative = harness()
@@ -104,7 +104,7 @@ unknown.Revenant:Destroy()
 local catalog = require("../evidence-catalog")
 local fallback = catalog.NewTracker()
 fallback:RecordDetection("Revenant", "Hunt stopped after kill")
-expect(fallback.Detections.Revenant.Confidence == 50,
+expect(fallback.Detections.Revenant.Confidence == 35,
  "catalog fallback detections must not promote this Maybe perk back to certainty")
 
 print("revenant.spec: kill and hunt-state timing correlation passed")

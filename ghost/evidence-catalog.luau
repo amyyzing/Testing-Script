@@ -273,7 +273,7 @@ local Profiles = {
 		note("Ordinary throws and one moving object are not a vortex.", SOURCE.Ravager, "user-observed", false, "Caveat"),
 	})),
 	profile("Revenant", {"EMFLevel5", "FreezingTemperatures", "GhostWriting"}, "user-observed", perks({}, {
-		note("A hunt stopping after a multiplayer kill is Maybe support; custom difficulty can cause the same behavior for other ghosts.", SOURCE.Revenant, "user-observed", false, "Weakness"),
+		note("A hunt stopping abruptly after a qualified kill is low support; custom difficulty can cause the same behavior for other ghosts. Solo round-ending timing is being compared separately.", SOURCE.Revenant, "user-observed", false, "Weakness"),
 	}, {
 		note("Hunt continuation is inconclusive. Last-survivor and unknown-survivor deaths are ignored.", SOURCE.Revenant, "user-observed", false, "Caveat"),
 	})),
@@ -369,7 +369,7 @@ local PerkConfidence = {
 	Oni = 65,
 	Phantom = 65,
 	Ravager = 65,
-	Revenant = 50,
+	Revenant = 35,
 	Shadow = 35,
 	Siren = 65,
 	Specter = 0,
