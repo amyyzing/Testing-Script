@@ -288,9 +288,10 @@ local Profiles = {
 	}, {
 		note("A verified male VisualModel or a completed line-of-sight trial with no slowdown is a 99% negative.", SOURCE.Siren, "user-observed", false, "RuleOut"),
 	})),
-	profile("Doppelganger", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "live-game", perks({
-		note("Ghost Orb forms a fourth evidence observation or completes an impossible three-evidence combination.", SOURCE.Doppelganger, "user-observed", false, "Trait"),
-	}, {}, {
+	profile("Doppelganger", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "live-game", perks({}, {
+		note("Ghost Orb may be false and keeps Doppelganger as Maybe. Extra or conflicting clues do not prove its identity.", SOURCE.Doppelganger, "live-game", false, "Trait"),
+	}, {
+		note("Confirmed EMF Level 5, Handprints, Laser Projector or Wither rules Doppelganger out. Freezing, Writing and Spirit Box remain compatible.", SOURCE.Doppelganger, "live-game", false, "RuleOut"),
 		note("SpiritCandle is shared with Spirit and supports both candidates. False Ghost Orb evidence remains the distinguishing evidence path.", SOURCE.Doppelganger, "live-game", false, "Caveat"),
 	}), nil, {"GhostOrb"}),
 	profile("Specter", {"EMFLevel5", "FreezingTemperatures", "LaserProjector"}, "user-observed", perks({
@@ -706,31 +707,17 @@ local function selectHighestConfidenceGuess(options)
 	-- themselves are contradictory.
 	local confirmedEvidence = collectEvidence(options.ConfirmedEvidence)
 	if next(confirmedEvidence) ~= nil then
-		local orbCombination = classifyOrbCombination(confirmedEvidence, options.EvidenceLimit)
-		if orbCombination.Qualified and allowed.Doppelganger then
-			candidates = {"Doppelganger"}
-			allowed = {Doppelganger = true}
-		else
-			local fewestConflicts = math.huge
-			local evidenceCandidates = {}
-			for _, name in ipairs(candidates) do
-				local conflicts = 0
-				for evidenceKey in pairs(confirmedEvidence) do
-					-- With fewer than three confirmed observations, Orb is still a
-					-- valid partial Doppelganger clue and must not push it behind every
-					-- real-Orb ghost. At three observations a valid real combination
-					-- wins; impossible/fourth combinations are handled above.
-					local partialDoppelgangerOrb = name == "Doppelganger"
-						and evidenceKey == "GhostOrb"
-						and orbCombination.OrbObserved
-						and orbCombination.EvidenceCount < 3
-					if not partialDoppelgangerOrb and not supportsEvidence(name, evidenceKey, {
-						RealOnly = true,
-						IncludeFalseEvidence = false,
-					}) then
-						conflicts = conflicts + 1
-					end
+		local fewestConflicts = math.huge
+		local evidenceCandidates = {}
+		for _, name in ipairs(candidates) do
+			local conflicts = 0
+			for evidenceKey in pairs(confirmedEvidence) do
+				if not supportsEvidence(name, evidenceKey, {IncludeFalseEvidence = true}) then
+					conflicts += 1
 				end
+			end
+			-- A fake Orb cannot explain an incompatible real evidence type.
+			if name ~= "Doppelganger" or conflicts == 0 then
 				if conflicts < fewestConflicts then
 					fewestConflicts = conflicts
 					evidenceCandidates = {name}
@@ -738,12 +725,11 @@ local function selectHighestConfidenceGuess(options)
 					table.insert(evidenceCandidates, name)
 				end
 			end
-			candidates = evidenceCandidates
-			allowed = {}
-			for _, name in ipairs(candidates) do
-				allowed[name] = true
-			end
 		end
+		candidates = evidenceCandidates
+		allowed = {}
+		for _, name in ipairs(candidates) do allowed[name] = true end
+		if #candidates == 0 then return nil end
 	end
 
 	local scores: {[string]: number} = {}

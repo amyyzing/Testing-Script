@@ -8345,9 +8345,10 @@ local Profiles = {
 	}, {
 		note("A verified male VisualModel or a completed line-of-sight trial with no slowdown is a 99% negative.", SOURCE.Siren, "user-observed", false, "RuleOut"),
 	})),
-	profile("Doppelganger", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "live-game", perks({
-		note("Ghost Orb forms a fourth evidence observation or completes an impossible three-evidence combination.", SOURCE.Doppelganger, "user-observed", false, "Trait"),
-	}, {}, {
+	profile("Doppelganger", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "live-game", perks({}, {
+		note("Ghost Orb may be false and keeps Doppelganger as Maybe. Extra or conflicting clues do not prove its identity.", SOURCE.Doppelganger, "live-game", false, "Trait"),
+	}, {
+		note("Confirmed EMF Level 5, Handprints, Laser Projector or Wither rules Doppelganger out. Freezing, Writing and Spirit Box remain compatible.", SOURCE.Doppelganger, "live-game", false, "RuleOut"),
 		note("SpiritCandle is shared with Spirit and supports both candidates. False Ghost Orb evidence remains the distinguishing evidence path.", SOURCE.Doppelganger, "live-game", false, "Caveat"),
 	}), nil, {"GhostOrb"}),
 	profile("Specter", {"EMFLevel5", "FreezingTemperatures", "LaserProjector"}, "user-observed", perks({
@@ -8763,31 +8764,17 @@ local function selectHighestConfidenceGuess(options)
 	-- themselves are contradictory.
 	local confirmedEvidence = collectEvidence(options.ConfirmedEvidence)
 	if next(confirmedEvidence) ~= nil then
-		local orbCombination = classifyOrbCombination(confirmedEvidence, options.EvidenceLimit)
-		if orbCombination.Qualified and allowed.Doppelganger then
-			candidates = {"Doppelganger"}
-			allowed = {Doppelganger = true}
-		else
-			local fewestConflicts = math.huge
-			local evidenceCandidates = {}
-			for _, name in ipairs(candidates) do
-				local conflicts = 0
-				for evidenceKey in pairs(confirmedEvidence) do
-					-- With fewer than three confirmed observations, Orb is still a
-					-- valid partial Doppelganger clue and must not push it behind every
-					-- real-Orb ghost. At three observations a valid real combination
-					-- wins; impossible/fourth combinations are handled above.
-					local partialDoppelgangerOrb = name == "Doppelganger"
-						and evidenceKey == "GhostOrb"
-						and orbCombination.OrbObserved
-						and orbCombination.EvidenceCount < 3
-					if not partialDoppelgangerOrb and not supportsEvidence(name, evidenceKey, {
-						RealOnly = true,
-						IncludeFalseEvidence = false,
-					}) then
-						conflicts = conflicts + 1
-					end
+		local fewestConflicts = math.huge
+		local evidenceCandidates = {}
+		for _, name in ipairs(candidates) do
+			local conflicts = 0
+			for evidenceKey in pairs(confirmedEvidence) do
+				if not supportsEvidence(name, evidenceKey, {IncludeFalseEvidence = true}) then
+					conflicts += 1
 				end
+			end
+			-- A fake Orb cannot explain an incompatible real evidence type.
+			if name ~= "Doppelganger" or conflicts == 0 then
 				if conflicts < fewestConflicts then
 					fewestConflicts = conflicts
 					evidenceCandidates = {name}
@@ -8795,12 +8782,11 @@ local function selectHighestConfidenceGuess(options)
 					table.insert(evidenceCandidates, name)
 				end
 			end
-			candidates = evidenceCandidates
-			allowed = {}
-			for _, name in ipairs(candidates) do
-				allowed[name] = true
-			end
 		end
+		candidates = evidenceCandidates
+		allowed = {}
+		for _, name in ipairs(candidates) do allowed[name] = true end
+		if #candidates == 0 then return nil end
 	end
 
 	local scores: {[string]: number} = {}
@@ -10710,9 +10696,6 @@ return function(dependencies)
 	local function evidenceCompatible(index)
 		if type(EvidenceCatalog) ~= "table" then return true end
 		local ghost = GHOSTS[index]
-		local limit = dependencies.ReadEvidenceLimit and dependencies.ReadEvidenceLimit()
-		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence, limit)
-		if orb.Qualified then return ghost == "Doppelganger" end
 		for evidence in pairs(Verdict.Evidence) do
 			if not EvidenceCatalog.SupportsEvidence(ghost, evidence, {
 				IncludeFalseEvidence = true,
@@ -10724,6 +10707,14 @@ return function(dependencies)
 			if EvidenceCatalog.SupportsEvidence(ghost, evidence, {RealOnly = true}) then
 				return false
 			end
+		end
+		return true
+	end
+	local function fullDoppelgangerEvidence()
+		local profile = EvidenceCatalog and EvidenceCatalog.Find("Doppelganger")
+		if not profile then return false end
+		for _, key in ipairs(profile.Evidence) do
+			if not Verdict.Evidence[key] then return false end
 		end
 		return true
 	end
@@ -10770,15 +10761,17 @@ return function(dependencies)
 		for _ in pairs(Verdict.Evidence) do count += 1 end
 		local limit = dependencies.ReadEvidenceLimit and dependencies.ReadEvidenceLimit()
 		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence, limit)
-		if orb.Qualified then return indexes.Doppelganger end
-		if orb.EvidenceLimit and count > orb.EvidenceLimit then return nil, true end
-		if count ~= 3 then return nil end
+		local possibleFakeOrb = orb.OrbObserved and evidenceCompatible(indexes.Doppelganger)
+		if count - (possibleFakeOrb and 1 or 0) > orb.EvidenceLimit then return nil, true end
 		local candidates = EvidenceCatalog.FilterCandidates(Verdict.Evidence, {}, {
 			NamesOnly = true,
-			RealOnly = true,
-			IncludeFalseEvidence = false,
+			IncludeFalseEvidence = true,
 		})
-		return #candidates == 1 and indexes[candidates[1]] or nil
+		if #candidates ~= 1 then return nil end
+		if candidates[1] == "Doppelganger" then
+			return fullDoppelgangerEvidence() and indexes.Doppelganger or nil
+		end
+		return count == 3 and indexes[candidates[1]] or nil
 	end
 
 	local function score(index)
@@ -10873,6 +10866,17 @@ return function(dependencies)
 			self.Evidence[key] = nil
 			self.DisprovedEvidence[key] = nil
 		end
+		local doppelganger = indexes.Doppelganger
+		if self.Evidence.GhostOrb and evidenceCompatible(doppelganger) then
+			if (self.Confidence[doppelganger] or 0) < 50 then
+				self.Confidence[doppelganger] = 50
+				self.Reasons[doppelganger] = "Orb may be false; Doppelganger remains possible"
+				self.OrbMaybe = true
+			end
+		elseif self.OrbMaybe then
+			if self.Confidence[doppelganger] == 50 then self.Confidence[doppelganger] = nil end
+			self.OrbMaybe = nil
+		end
 		local resolved = resolvedEvidenceIndex()
 		if resolved then
 			self.AbilityRuledOut[resolved] = nil
@@ -10902,6 +10906,7 @@ return function(dependencies)
 		local index, excess = resolvedEvidenceIndex()
 		if excess then return nil end
 		index = index or soleRemainingIndex()
+		if index == indexes.Doppelganger and not fullDoppelgangerEvidence() then return nil end
 		return index and not isRuledOut(index) and GHOSTS[index] or nil
 	end
 
@@ -10982,6 +10987,7 @@ return function(dependencies)
 		table.clear(self.Evidence)
 		table.clear(self.DisprovedEvidence)
 		self.ForcedIndex = nil
+		self.OrbMaybe = nil
 		self.JournalDirty = false
 		self.JournalMutationBusy = false
 		self.JournalRevision += 1

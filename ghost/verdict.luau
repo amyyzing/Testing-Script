@@ -149,9 +149,6 @@ return function(dependencies)
 	local function evidenceCompatible(index)
 		if type(EvidenceCatalog) ~= "table" then return true end
 		local ghost = GHOSTS[index]
-		local limit = dependencies.ReadEvidenceLimit and dependencies.ReadEvidenceLimit()
-		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence, limit)
-		if orb.Qualified then return ghost == "Doppelganger" end
 		for evidence in pairs(Verdict.Evidence) do
 			if not EvidenceCatalog.SupportsEvidence(ghost, evidence, {
 				IncludeFalseEvidence = true,
@@ -163,6 +160,14 @@ return function(dependencies)
 			if EvidenceCatalog.SupportsEvidence(ghost, evidence, {RealOnly = true}) then
 				return false
 			end
+		end
+		return true
+	end
+	local function fullDoppelgangerEvidence()
+		local profile = EvidenceCatalog and EvidenceCatalog.Find("Doppelganger")
+		if not profile then return false end
+		for _, key in ipairs(profile.Evidence) do
+			if not Verdict.Evidence[key] then return false end
 		end
 		return true
 	end
@@ -209,15 +214,17 @@ return function(dependencies)
 		for _ in pairs(Verdict.Evidence) do count += 1 end
 		local limit = dependencies.ReadEvidenceLimit and dependencies.ReadEvidenceLimit()
 		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence, limit)
-		if orb.Qualified then return indexes.Doppelganger end
-		if orb.EvidenceLimit and count > orb.EvidenceLimit then return nil, true end
-		if count ~= 3 then return nil end
+		local possibleFakeOrb = orb.OrbObserved and evidenceCompatible(indexes.Doppelganger)
+		if count - (possibleFakeOrb and 1 or 0) > orb.EvidenceLimit then return nil, true end
 		local candidates = EvidenceCatalog.FilterCandidates(Verdict.Evidence, {}, {
 			NamesOnly = true,
-			RealOnly = true,
-			IncludeFalseEvidence = false,
+			IncludeFalseEvidence = true,
 		})
-		return #candidates == 1 and indexes[candidates[1]] or nil
+		if #candidates ~= 1 then return nil end
+		if candidates[1] == "Doppelganger" then
+			return fullDoppelgangerEvidence() and indexes.Doppelganger or nil
+		end
+		return count == 3 and indexes[candidates[1]] or nil
 	end
 
 	local function score(index)
@@ -312,6 +319,17 @@ return function(dependencies)
 			self.Evidence[key] = nil
 			self.DisprovedEvidence[key] = nil
 		end
+		local doppelganger = indexes.Doppelganger
+		if self.Evidence.GhostOrb and evidenceCompatible(doppelganger) then
+			if (self.Confidence[doppelganger] or 0) < 50 then
+				self.Confidence[doppelganger] = 50
+				self.Reasons[doppelganger] = "Orb may be false; Doppelganger remains possible"
+				self.OrbMaybe = true
+			end
+		elseif self.OrbMaybe then
+			if self.Confidence[doppelganger] == 50 then self.Confidence[doppelganger] = nil end
+			self.OrbMaybe = nil
+		end
 		local resolved = resolvedEvidenceIndex()
 		if resolved then
 			self.AbilityRuledOut[resolved] = nil
@@ -341,6 +359,7 @@ return function(dependencies)
 		local index, excess = resolvedEvidenceIndex()
 		if excess then return nil end
 		index = index or soleRemainingIndex()
+		if index == indexes.Doppelganger and not fullDoppelgangerEvidence() then return nil end
 		return index and not isRuledOut(index) and GHOSTS[index] or nil
 	end
 
@@ -421,6 +440,7 @@ return function(dependencies)
 		table.clear(self.Evidence)
 		table.clear(self.DisprovedEvidence)
 		self.ForcedIndex = nil
+		self.OrbMaybe = nil
 		self.JournalDirty = false
 		self.JournalMutationBusy = false
 		self.JournalRevision += 1
