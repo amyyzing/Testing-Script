@@ -414,6 +414,10 @@ local function currentConfidentRoundIdentification()
 	local guess = perkTrackerState.currentGhostGuess
 	local score = perkTrackerState.currentGhostGuessScore or 0
 	local certain = perkTrackerState.currentGhostGuessCertain == true
+	if guess == "Umbra" and not certain
+		and table.find(perkTrackerState.getRemainingCandidates(true), "Doppelganger") then
+		return nil
+	end
 	local singleGuess = guess
 		and not string.find(guess, "/", 1, true)
 	local eligible = false
@@ -8240,6 +8244,7 @@ local Profiles = {
 	})),
 	profile("Umbra", {"GhostOrb", "Handprints", "LaserProjector"}, "user-observed", perks({
 		note("The native footstep object is a root Sound named CurrentSound. Its absence is checked after replication grace.", SOURCE.Umbra, "user-observed", false, "Trait"),
+		note("Doppelganger can share this missing-footstep cue; confirmed evidence must distinguish them before automatic completion.", SOURCE.Umbra, "user-observed", false, "Caveat"),
 	}, {}, {
 		note("A root Sound named CurrentSound contradicts silent footsteps; other Sound names do not.", SOURCE.Umbra, "user-observed", false, "RuleOut"),
 	})),

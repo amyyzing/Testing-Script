@@ -382,6 +382,10 @@ local function currentConfidentRoundIdentification()
 	local guess = perkTrackerState.currentGhostGuess
 	local score = perkTrackerState.currentGhostGuessScore or 0
 	local certain = perkTrackerState.currentGhostGuessCertain == true
+	if guess == "Umbra" and not certain
+		and table.find(perkTrackerState.getRemainingCandidates(true), "Doppelganger") then
+		return nil
+	end
 	local singleGuess = guess
 		and not string.find(guess, "/", 1, true)
 	local eligible = false

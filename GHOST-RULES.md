@@ -31,7 +31,7 @@ server-only behavior automatically.
 | Doppelganger | Fake Orb, teleport, extinguish lights, SpiritCandle | False-Orb evidence handling; candle ability supports both it and Spirit |
 | Specter | Roam probability coefficient 0 | Trials discard changes to favourite room |
 | Spirit | Blue flames and SpiritCandle ability | Qualified oil gradients; candle flag alone is shared with Doppelganger |
-| Umbra | No footsteps, lit-room speed coefficient 0.8 | A root Sound named CurrentSound excludes, regardless of playback, volume or asset. Its absence after a two-second loading grace supports. Other sound names are ignored; late CurrentSound creation corrects absence |
+| Umbra | No footsteps, lit-room speed coefficient 0.8 | A root Sound named CurrentSound excludes, regardless of playback, volume or asset. Its absence after a two-second loading grace supports. Other names are ignored; late CurrentSound creation corrects absence. Automatic completion waits while Doppelganger fits confirmed evidence |
 | Vesper | Hunts by sound, hears voices anywhere | Evidence matching; unqualified pursuit does not prove auditory targeting |
 | Vex | Invisible on LIDAR, walks through walls | True replicated flag supports; late values are watched and absence is inconclusive |
 | Wretch | Energy-dependent speed 9–14, avoids hunts near lit candles | Known scale requires meaningful Energy change; unknown scale requires three Energy levels sharing one scale. Post-kill samples are ignored |

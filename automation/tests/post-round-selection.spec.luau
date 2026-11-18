@@ -7,11 +7,12 @@ end
 local ready = false
 local operationActive = true
 local state = {completionClaimed = false}
+local candidates = {"Aswang"}
 local perkState = {
 	currentGhostGuess = "Aswang",
 	currentGhostGuessScore = 99,
 	currentGhostGuessCertain = false,
-	getRemainingCandidates = function() return {"Aswang"} end,
+	getRemainingCandidates = function() return candidates end,
 	getConfirmedEvidence = function() return {} end,
 }
 local post = createPostRound({
@@ -53,6 +54,22 @@ ready = true
 local ghost, score = post.CurrentIdentification()
 expect(ghost == "Aswang" and score == 99,
 	"the stable evidence-compatible high-confidence ghost should be eligible")
+
+perkState.currentGhostGuess, perkState.currentGhostGuessScore = "Umbra", 95
+candidates = {"Umbra", "Doppelganger"}
+expect(post.CurrentIdentification() == nil,
+	"missing footsteps must not finish as Umbra while Doppelganger fits the evidence")
+perkState.getRemainingCandidates = function(ignoreRuleOut)
+	return ignoreRuleOut and {"Umbra", "Doppelganger"} or {"Umbra"}
+end
+expect(post.CurrentIdentification() == nil,
+	"a behavioral rule-out must not substitute for incompatible Doppelganger evidence")
+perkState.getRemainingCandidates = function() return candidates end
+candidates = {"Umbra"}
+expect(post.CurrentIdentification() == "Umbra",
+	"Umbra may finish after confirmed evidence excludes Doppelganger")
+perkState.currentGhostGuess, perkState.currentGhostGuessScore = "Aswang", 99
+candidates = {"Aswang"}
 
 local moduleEnvironment = getfenv(createPostRound)
 local originalGlobals = moduleEnvironment._G
