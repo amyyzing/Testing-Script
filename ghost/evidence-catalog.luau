@@ -305,9 +305,9 @@ local Profiles = {
 		note("A stable qualified Holy Oil fire colour that is not blue is a 99% negative.", SOURCE.Spirit, "user-observed", true, "RuleOut"),
 	})),
 	profile("Umbra", {"GhostOrb", "Handprints", "LaserProjector"}, "user-observed", perks({
-		note("The current NoFootStepSounds flag suppresses footsteps. Absence of a replicated footstep Sound provides weak support only.", SOURCE.Umbra, "live-game", false, "Trait"),
+		note("The native footstep object is a root Sound named CurrentSound. Its absence is checked after replication grace.", SOURCE.Umbra, "user-observed", false, "Trait"),
 	}, {}, {
-		note("A footstep Sound contradicts silent footsteps; unrelated voice or effect Sounds do not.", SOURCE.Umbra, "live-game", false, "RuleOut"),
+		note("A root Sound named CurrentSound contradicts silent footsteps; other Sound names do not.", SOURCE.Umbra, "user-observed", false, "RuleOut"),
 	})),
 	profile("Vesper", {"GhostWriting", "Handprints", "Wither"}, "tracker-pending", perks({}, {}, {
 		note("The current HuntBySound and HearsVoicesAnywhere flags confirm sound-based hunting through walls. Ordinary pursuit alone cannot identify Vesper.", SOURCE.Vesper, "live-game", false, "Caveat"),

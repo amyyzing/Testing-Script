@@ -1,22 +1,26 @@
 local Umbra = {Name = "Umbra", Index = 20}
 
 function Umbra.new(dependencies)
-	local Traffic = assert(dependencies.Traffic, "Umbra requires Traffic")
-	local Processor = {Checked = false}
-	Processor.Disconnect = Traffic:Receive("Umbra", function(signal, payload)
-		if Processor.Checked or signal ~= "FootstepObserved" or type(payload) ~= "table"
-			or payload.Confirmed ~= true or (tonumber(payload.Samples) or 0) < 3 then return end
-		Processor.Checked = true
-		Traffic("RuleOut", {
-			Ghost = "Umbra",
-			Perk = "Silent footsteps",
-			Observation = "Footsteps heard",
-			Confidence = 99,
-			Reason = "a native material-footstep sound played audibly during a hunt over three samples",
-		}):SendTo("Verdict")
-	end)
-	function Processor:Destroy() self.Disconnect() end
-	return Processor
+ local Traffic = assert(dependencies.Traffic, "Umbra requires Traffic")
+ local Processor = {}
+ Processor.Disconnect = Traffic:Receive("Umbra", function(signal, payload)
+  if Processor.RuledOut or signal ~= "FootstepPresence" or type(payload) ~= "table" then return end
+  if payload.Present == true then
+   Processor.RuledOut = true
+   Traffic("RuleOut", {Ghost = "Umbra", Perk = "Silent footsteps", Confidence = 99,
+    Observation = "Footstep sound present",
+    Reason = "the root contains the footstep Sound named CurrentSound",
+   }):SendTo("Verdict")
+  elseif payload.Present == false and (tonumber(payload.MissingFor) or 0) >= 2 and not Processor.Supported then
+   Processor.Supported = true
+   Traffic("Support", {Ghost = "Umbra", Perk = "Silent footsteps", Confidence = 95,
+    Observation = "No footstep sound",
+    Reason = "the root has no CurrentSound footstep Sound after the loading grace",
+   }):SendTo("Verdict")
+  end
+ end)
+ function Processor:Destroy() self.Disconnect() end
+ return Processor
 end
 
 return Umbra

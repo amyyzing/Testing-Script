@@ -6318,42 +6318,29 @@ return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "footstep-sound requires Traffic")
 	local Ghost = assert(dependencies.Ghost, "footstep-sound requires Ghost")
 	local RunService = dependencies.RunService or game:GetService("RunService")
-	local ids = dependencies.FootstepIds
-	if not ids then
-		ids = {}
-		local storage = dependencies.ReplicatedStorage or game:GetService("ReplicatedStorage")
-		local modules = storage:FindFirstChild("Modules")
-		local module = modules and modules:FindFirstChild("FootstepSounds")
-		local ok, sounds = pcall(function() return module and require(module) end)
-		if ok and type(sounds) == "table" then
-			for _, sound in pairs(sounds) do
-				if type(sound) == "table" and sound.id and (tonumber(sound.volume) or 0) > 0 then
-					ids[sound.id] = true
-				end
-			end
-		end
-	end
-	local Tracker = {Kind = "active", Running = true, AudibleSamples = 0, Accumulator = 0}
-	function Tracker:Sample()
+	local Tracker = {Kind = "active", Running = true, Accumulator = 0, MissingFor = 0}
+	function Tracker:Sample(delta)
 		local root = Ghost:FindFirstChild("HumanoidRootPart")
-		local audible
-		if root and Ghost:GetAttribute("Hunting") == true then
-			for _, sound in ipairs(root:GetDescendants()) do
-				if sound:IsA("Sound") and ids[sound.SoundId] and sound.IsPlaying
-					and sound.Volume > 0 then audible = sound break end
+		if not root then
+			self.LastRoot, self.MissingFor = root, 0
+			return
+		end
+		for _, sound in ipairs(root:GetDescendants()) do
+			if sound:IsA("Sound") and sound.Name == "CurrentSound" then
+				Traffic("FootstepPresence", {Present = true}):SendTo("Umbra")
+				self:Destroy()
+				return
 			end
 		end
-		local previous = self.AudibleSamples
-		self.AudibleSamples = audible and self.AudibleSamples + 1 or 0
-		local hunting = Ghost:GetAttribute("Hunting") == true
-		if previous ~= self.AudibleSamples or self.LastHunting ~= hunting then
-			Traffic("FootstepProgress", {Samples=self.AudibleSamples,Hunting=hunting}):SendTo("GhostPatternLog")
-			self.LastHunting = hunting
+		if self.LastRoot == root and delta <= 0.5 then
+			self.MissingFor += math.min(delta, 0.25)
+		else
+			self.MissingFor = 0
 		end
-		if self.AudibleSamples >= 3 then
-			Traffic("FootstepObserved", {Confirmed = true, Samples = self.AudibleSamples,
-				SoundId = audible.SoundId}):SendTo("Umbra")
-			self:Destroy()
+		self.LastRoot = root
+		if self.MissingFor >= 2 and not self.ReportedMissing then
+			self.ReportedMissing = true
+			Traffic("FootstepPresence", {Present = false, MissingFor = self.MissingFor}):SendTo("Umbra")
 		end
 	end
 	function Tracker:Destroy()
@@ -6364,8 +6351,9 @@ return function(dependencies)
 		if not Tracker.Running then return end
 		Tracker.Accumulator += delta
 		if Tracker.Accumulator < 0.1 then return end
+		local elapsed = Tracker.Accumulator
 		Tracker.Accumulator = 0
-		Tracker:Sample()
+		Tracker:Sample(elapsed)
 	end)
 	return Tracker
 end
@@ -8251,9 +8239,9 @@ local Profiles = {
 		note("A stable qualified Holy Oil fire colour that is not blue is a 99% negative.", SOURCE.Spirit, "user-observed", true, "RuleOut"),
 	})),
 	profile("Umbra", {"GhostOrb", "Handprints", "LaserProjector"}, "user-observed", perks({
-		note("The current NoFootStepSounds flag suppresses footsteps. Absence of a replicated footstep Sound provides weak support only.", SOURCE.Umbra, "live-game", false, "Trait"),
+		note("The native footstep object is a root Sound named CurrentSound. Its absence is checked after replication grace.", SOURCE.Umbra, "user-observed", false, "Trait"),
 	}, {}, {
-		note("A footstep Sound contradicts silent footsteps; unrelated voice or effect Sounds do not.", SOURCE.Umbra, "live-game", false, "RuleOut"),
+		note("A root Sound named CurrentSound contradicts silent footsteps; other Sound names do not.", SOURCE.Umbra, "user-observed", false, "RuleOut"),
 	})),
 	profile("Vesper", {"GhostWriting", "Handprints", "Wither"}, "tracker-pending", perks({}, {}, {
 		note("The current HuntBySound and HearsVoicesAnywhere flags confirm sound-based hunting through walls. Ordinary pursuit alone cannot identify Vesper.", SOURCE.Vesper, "live-game", false, "Caveat"),
@@ -10137,22 +10125,26 @@ modules["ghost/ghosts/Umbra.luau"] = pack((function()
 local Umbra = {Name = "Umbra", Index = 20}
 
 function Umbra.new(dependencies)
-	local Traffic = assert(dependencies.Traffic, "Umbra requires Traffic")
-	local Processor = {Checked = false}
-	Processor.Disconnect = Traffic:Receive("Umbra", function(signal, payload)
-		if Processor.Checked or signal ~= "FootstepObserved" or type(payload) ~= "table"
-			or payload.Confirmed ~= true or (tonumber(payload.Samples) or 0) < 3 then return end
-		Processor.Checked = true
-		Traffic("RuleOut", {
-			Ghost = "Umbra",
-			Perk = "Silent footsteps",
-			Observation = "Footsteps heard",
-			Confidence = 99,
-			Reason = "a native material-footstep sound played audibly during a hunt over three samples",
-		}):SendTo("Verdict")
-	end)
-	function Processor:Destroy() self.Disconnect() end
-	return Processor
+ local Traffic = assert(dependencies.Traffic, "Umbra requires Traffic")
+ local Processor = {}
+ Processor.Disconnect = Traffic:Receive("Umbra", function(signal, payload)
+  if Processor.RuledOut or signal ~= "FootstepPresence" or type(payload) ~= "table" then return end
+  if payload.Present == true then
+   Processor.RuledOut = true
+   Traffic("RuleOut", {Ghost = "Umbra", Perk = "Silent footsteps", Confidence = 99,
+    Observation = "Footstep sound present",
+    Reason = "the root contains the footstep Sound named CurrentSound",
+   }):SendTo("Verdict")
+  elseif payload.Present == false and (tonumber(payload.MissingFor) or 0) >= 2 and not Processor.Supported then
+   Processor.Supported = true
+   Traffic("Support", {Ghost = "Umbra", Perk = "Silent footsteps", Confidence = 95,
+    Observation = "No footstep sound",
+    Reason = "the root has no CurrentSound footstep Sound after the loading grace",
+   }):SendTo("Verdict")
+  end
+ end)
+ function Processor:Destroy() self.Disconnect() end
+ return Processor
 end
 
 return Umbra
