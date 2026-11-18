@@ -6057,6 +6057,7 @@ return function(dependencies)
 			beforeSalt = Tracker.beforeSalt,
 			afterSalt = Tracker.afterSalt,
 			completed = completed == true,
+			Duration = math.max(0, clock() - (Tracker.saltStartedAt or clock())),
 		}):SendTo("Aswang")
 	end
 
@@ -6068,10 +6069,12 @@ return function(dependencies)
 			Tracker.pendingSalts[Tracker.contact] = {
 				beforeSalt = Tracker.beforeSalt,
 				afterSalt = Tracker.afterSalt,
+				Duration = math.max(0, clock() - (Tracker.saltStartedAt or clock())),
 			}
 		end
 		Tracker.beforeSalt, Tracker.afterSalt = nil, nil
 		Tracker.contact, Tracker.saltState = nil, nil
+		Tracker.saltStartedAt = nil
 	end
 
 	local function sendKill(completed)
@@ -6114,6 +6117,7 @@ return function(dependencies)
 				and table.clone(Tracker.afterSalt)
 			finishSalt()
 			Tracker.contact = payload.ContactId
+			Tracker.saltStartedAt = clock()
 			-- The first contact compares against the hunt so far. Every later
 			-- contact compares against only the samples collected since the prior
 			-- contact, while sharing the new transition sample between sections.
@@ -6134,6 +6138,7 @@ return function(dependencies)
 					beforeSalt = pending.beforeSalt,
 					afterSalt = pending.afterSalt,
 					completed = true,
+					Duration = pending.Duration,
 				}):SendTo("Aswang")
 				Tracker.pendingSalts[payload.ContactId] = nil
 			end
@@ -9545,6 +9550,7 @@ function Aswang.new(dependencies)
 	Processor.Disconnect = Traffic:Receive("Aswang", function(signal, data)
 		data = type(data) == "table" and data or {}
 		if signal == "SaltSpeed" and data.saltState == "disturbed" then
+			if Processor.SaltConfirmed then return end
 			local before = data.beforeSalt or {}
 			local after = data.afterSalt or {}
 			local baseline = {}
@@ -9556,18 +9562,19 @@ function Aswang.new(dependencies)
 			for index, point in ipairs(after) do
 				local speed = baseline[point.v]
 				if speed and index > 1 then comparedAfterSplit = true end
-				if speed and point.s < speed - epsilon then
+				if speed and speed > 0 and math.abs(point.s / speed - 0.75) <= 0.02 then
 					dropped = true
 					break
 				end
 			end
-			if dropped or data.completed and comparedAfterSplit then
+			if dropped or data.completed and comparedAfterSplit and (tonumber(data.Duration) or 0) >= 4 then
+				if dropped then Processor.SaltConfirmed = true end
 				report(dropped and "Support" or "RuleOut", {
 					Ghost = "Aswang",
 					Perk = "Salt slowdown",
 					Observation = dropped and "Slowed on salt" or "No salt slowdown",
 					Confidence = 99,
-					Reason = dropped and "hunting disturbed-salt contact reduced speed"
+					Reason = dropped and "hunting disturbed-salt contact reduced speed by 25 percent"
 						or "hunting salt contact caused no speed reduction",
 				}, before)
 			end
@@ -15657,10 +15664,12 @@ return function(dependencies)
 	local control = dependencies.Control
 	local closed = false
 	local ghostProxyModel = nil
+	local movementRestore = nil
 	local perkTrackerState = {teleportSequence = 0}
 	if type(control) == "table" then
 		control.Cancel = function()
 			perkTrackerState.teleportSequence += 1
+			movementRestore = nil
 		end
 	end
 
@@ -16512,10 +16521,16 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 		(perkTrackerState.teleportSequence or 0) + 1
 	teleportSequence = perkTrackerState.teleportSequence
 	local originalPivot = character:GetPivot()
-	local originalAnchored = root.Anchored
-	local originalAutoRotate = humanoid.AutoRotate
-	local originalPlatformStand = humanoid.PlatformStand
-	local disabledStates = {}
+	-- A replacement can start while the previous teleport still holds the rig.
+	-- Inherit its original movement state, rather than its temporary anchor.
+	local previousRestore = movementRestore and movementRestore.Root == root
+		and movementRestore or nil
+	local originalAnchored = if previousRestore then previousRestore.Anchored else root.Anchored
+	local originalAutoRotate = if previousRestore then previousRestore.AutoRotate else humanoid.AutoRotate
+	local originalPlatformStand = if previousRestore then previousRestore.PlatformStand else humanoid.PlatformStand
+	local disabledStates = previousRestore and previousRestore.States or {}
+	movementRestore = {Root = root, Anchored = originalAnchored,
+		AutoRotate = originalAutoRotate, PlatformStand = originalPlatformStand, States = disabledStates}
 
 	for _, state in ipairs({
 		Enum.HumanoidStateType.FallingDown,
@@ -16526,7 +16541,7 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 			return humanoid:GetStateEnabled(state)
 		end)
 		if ok then
-			disabledStates[state] = enabled
+			if disabledStates[state] == nil then disabledStates[state] = enabled end
 			pcall(function()
 				humanoid:SetStateEnabled(state, false)
 			end)
@@ -16709,6 +16724,7 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 			end
 		end
 		destroyBodyGeometryProbe()
+		if ownsCharacter then movementRestore = nil end
 		return false,
 			releaseMovement and "teleport was cancelled"
 				or "no grounded destination remained stable during teleport"
@@ -16746,6 +16762,7 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 			end
 		end
 		destroyBodyGeometryProbe()
+		if ownsCharacter then movementRestore = nil end
 		return false, "teleport was cancelled"
 	end
 
@@ -16777,6 +16794,7 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 					humanoid:SetStateEnabled(state, enabled)
 				end)
 			end
+			movementRestore = nil
 		end
 	end)
 

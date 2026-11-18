@@ -87,6 +87,8 @@ now = 0.3
 Traffic("SaltHit", {ContactId = 20}):SendTo("SpeedTracker")
 expect(#salts == beforeNextSalt + 1 and salts[#salts].completed == true,
 	"a second salt hit should finalize the prior section before hunt end")
+expect(salts[#salts].Duration == 0.3,
+	"a completed split must retain its actual contact duration rather than imply a mature window")
 Traffic("SaltStateAfterHit", {
 	ContactId = 20,
 	State = "disturbed",

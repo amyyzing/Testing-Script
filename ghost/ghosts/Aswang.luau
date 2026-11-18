@@ -14,6 +14,7 @@ function Aswang.new(dependencies)
 	Processor.Disconnect = Traffic:Receive("Aswang", function(signal, data)
 		data = type(data) == "table" and data or {}
 		if signal == "SaltSpeed" and data.saltState == "disturbed" then
+			if Processor.SaltConfirmed then return end
 			local before = data.beforeSalt or {}
 			local after = data.afterSalt or {}
 			local baseline = {}
@@ -25,18 +26,19 @@ function Aswang.new(dependencies)
 			for index, point in ipairs(after) do
 				local speed = baseline[point.v]
 				if speed and index > 1 then comparedAfterSplit = true end
-				if speed and point.s < speed - epsilon then
+				if speed and speed > 0 and math.abs(point.s / speed - 0.75) <= 0.02 then
 					dropped = true
 					break
 				end
 			end
-			if dropped or data.completed and comparedAfterSplit then
+			if dropped or data.completed and comparedAfterSplit and (tonumber(data.Duration) or 0) >= 4 then
+				if dropped then Processor.SaltConfirmed = true end
 				report(dropped and "Support" or "RuleOut", {
 					Ghost = "Aswang",
 					Perk = "Salt slowdown",
 					Observation = dropped and "Slowed on salt" or "No salt slowdown",
 					Confidence = 99,
-					Reason = dropped and "hunting disturbed-salt contact reduced speed"
+					Reason = dropped and "hunting disturbed-salt contact reduced speed by 25 percent"
 						or "hunting salt contact caused no speed reduction",
 				}, before)
 			end

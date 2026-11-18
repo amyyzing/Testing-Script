@@ -37,6 +37,7 @@ return function(dependencies)
 			beforeSalt = Tracker.beforeSalt,
 			afterSalt = Tracker.afterSalt,
 			completed = completed == true,
+			Duration = math.max(0, clock() - (Tracker.saltStartedAt or clock())),
 		}):SendTo("Aswang")
 	end
 
@@ -48,10 +49,12 @@ return function(dependencies)
 			Tracker.pendingSalts[Tracker.contact] = {
 				beforeSalt = Tracker.beforeSalt,
 				afterSalt = Tracker.afterSalt,
+				Duration = math.max(0, clock() - (Tracker.saltStartedAt or clock())),
 			}
 		end
 		Tracker.beforeSalt, Tracker.afterSalt = nil, nil
 		Tracker.contact, Tracker.saltState = nil, nil
+		Tracker.saltStartedAt = nil
 	end
 
 	local function sendKill(completed)
@@ -94,6 +97,7 @@ return function(dependencies)
 				and table.clone(Tracker.afterSalt)
 			finishSalt()
 			Tracker.contact = payload.ContactId
+			Tracker.saltStartedAt = clock()
 			-- The first contact compares against the hunt so far. Every later
 			-- contact compares against only the samples collected since the prior
 			-- contact, while sharing the new transition sample between sections.
@@ -114,6 +118,7 @@ return function(dependencies)
 					beforeSalt = pending.beforeSalt,
 					afterSalt = pending.afterSalt,
 					completed = true,
+					Duration = pending.Duration,
 				}):SendTo("Aswang")
 				Tracker.pendingSalts[payload.ContactId] = nil
 			end

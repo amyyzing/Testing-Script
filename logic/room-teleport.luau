@@ -7,10 +7,12 @@ return function(dependencies)
 	local control = dependencies.Control
 	local closed = false
 	local ghostProxyModel = nil
+	local movementRestore = nil
 	local perkTrackerState = {teleportSequence = 0}
 	if type(control) == "table" then
 		control.Cancel = function()
 			perkTrackerState.teleportSequence += 1
+			movementRestore = nil
 		end
 	end
 
@@ -862,10 +864,16 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 		(perkTrackerState.teleportSequence or 0) + 1
 	teleportSequence = perkTrackerState.teleportSequence
 	local originalPivot = character:GetPivot()
-	local originalAnchored = root.Anchored
-	local originalAutoRotate = humanoid.AutoRotate
-	local originalPlatformStand = humanoid.PlatformStand
-	local disabledStates = {}
+	-- A replacement can start while the previous teleport still holds the rig.
+	-- Inherit its original movement state, rather than its temporary anchor.
+	local previousRestore = movementRestore and movementRestore.Root == root
+		and movementRestore or nil
+	local originalAnchored = if previousRestore then previousRestore.Anchored else root.Anchored
+	local originalAutoRotate = if previousRestore then previousRestore.AutoRotate else humanoid.AutoRotate
+	local originalPlatformStand = if previousRestore then previousRestore.PlatformStand else humanoid.PlatformStand
+	local disabledStates = previousRestore and previousRestore.States or {}
+	movementRestore = {Root = root, Anchored = originalAnchored,
+		AutoRotate = originalAutoRotate, PlatformStand = originalPlatformStand, States = disabledStates}
 
 	for _, state in ipairs({
 		Enum.HumanoidStateType.FallingDown,
@@ -876,7 +884,7 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 			return humanoid:GetStateEnabled(state)
 		end)
 		if ok then
-			disabledStates[state] = enabled
+			if disabledStates[state] == nil then disabledStates[state] = enabled end
 			pcall(function()
 				humanoid:SetStateEnabled(state, false)
 			end)
@@ -1059,6 +1067,7 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 			end
 		end
 		destroyBodyGeometryProbe()
+		if ownsCharacter then movementRestore = nil end
 		return false,
 			releaseMovement and "teleport was cancelled"
 				or "no grounded destination remained stable during teleport"
@@ -1096,6 +1105,7 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 			end
 		end
 		destroyBodyGeometryProbe()
+		if ownsCharacter then movementRestore = nil end
 		return false, "teleport was cancelled"
 	end
 
@@ -1127,6 +1137,7 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 					humanoid:SetStateEnabled(state, enabled)
 				end)
 			end
+			movementRestore = nil
 		end
 	end)
 
