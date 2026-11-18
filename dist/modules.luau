@@ -8271,10 +8271,10 @@ local Profiles = {
 	}, {}, {
 		note("Ordinary throws and one moving object are not a vortex.", SOURCE.Ravager, "user-observed", false, "Caveat"),
 	})),
-	profile("Revenant", {"EMFLevel5", "FreezingTemperatures", "GhostWriting"}, "user-observed", perks({
-		note("A hunt ends within one second of a valid multiplayer kill.", SOURCE.Revenant, "user-observed", false, "Weakness"),
-	}, {}, {
-		note("If the hunt is still active 1.5 seconds after a valid multiplayer kill, Revenant is ruled out at 99%.", SOURCE.Revenant, "user-observed", false, "RuleOut"),
+	profile("Revenant", {"EMFLevel5", "FreezingTemperatures", "GhostWriting"}, "user-observed", perks({}, {
+		note("A hunt stopping after a multiplayer kill is Maybe support; custom difficulty can cause the same behavior for other ghosts.", SOURCE.Revenant, "user-observed", false, "Weakness"),
+	}, {
+		note("Hunt continuation is inconclusive. Last-survivor and unknown-survivor deaths are ignored.", SOURCE.Revenant, "user-observed", false, "Caveat"),
 	})),
 	profile("Shadow", {"EMFLevel5", "GhostWriting", "LaserProjector"}, "user-observed", perks({
 		note("The current TemperatureAlterCoefficient is 0.5. Slow cooling provides weak support, since room conditions affect absolute temperature changes.", SOURCE.Shadow, "live-game", false, "Trait"),
@@ -8368,7 +8368,7 @@ local PerkConfidence = {
 	Oni = 99,
 	Phantom = 99,
 	Ravager = 99,
-	Revenant = 99,
+	Revenant = 50,
 	Shadow = 99,
 	Siren = 99,
 	Specter = 95,

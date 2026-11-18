@@ -101,4 +101,10 @@ expect(#unknown.Delayed == 0 and #unknown.Verdict.Selected == 0,
  "a kill with unknown survivors must stay inconclusive")
 unknown.Revenant:Destroy()
 
+local catalog = require("../evidence-catalog")
+local fallback = catalog.NewTracker()
+fallback:RecordDetection("Revenant", "Hunt stopped after kill")
+expect(fallback.Detections.Revenant.Confidence == 50,
+ "catalog fallback detections must not promote this Maybe perk back to certainty")
+
 print("revenant.spec: kill and hunt-state timing correlation passed")
