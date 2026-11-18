@@ -73,8 +73,8 @@ Verdict:Reset()
 local femaleGhost = {VisualModel = "Watcher"}
 function femaleGhost:GetAttribute(name) return self[name] end
 createModelGender({Traffic = Traffic, Ghost = femaleGhost})
-expect(Verdict.Confidence[8] == 25 and Verdict.Selected[1] == 8,
-	"a female VisualModel should weakly support Keres")
+expect(Verdict.Confidence[8] == nil and Verdict.Selected[1] == nil,
+	"a female VisualModel cannot positively identify Keres")
 
 Verdict:Reset()
 local maleGhost = {VisualModel = "FutureModel"}

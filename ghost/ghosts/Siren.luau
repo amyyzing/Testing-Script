@@ -4,11 +4,12 @@ function Siren.new(dependencies)
 	local Traffic = assert(dependencies.Traffic, "Siren requires Traffic")
 	local Processor = {}
 
-	local function verdict(signal, confidence, perk, reason)
+	local function verdict(signal, confidence, perk, reason, observation)
 		Traffic(signal, {
 			Ghost = "Siren",
 			Confidence = confidence,
 			Perk = perk,
+			Observation = observation,
 			Reason = reason,
 		}):SendTo("Verdict")
 	end
@@ -18,10 +19,8 @@ function Siren.new(dependencies)
 		if signal == "Humming" and payload.Response == "- HUMMING -" then
 			verdict("Support", 99, "Humming", "Spirit Box returned - HUMMING -")
 		elseif signal == "ModelGender" then
-			if payload.Gender == "Female" then
-				verdict("Support", 25, nil, "the ghost uses a female VisualModel")
-			elseif payload.Gender == "Male" then
-				verdict("RuleOut", 99, nil, "the ghost uses a male VisualModel")
+			if payload.Gender == "Male" then
+				verdict("RuleOut", 99, "Female model", "the ghost uses a male VisualModel", "Male model")
 			end
 		elseif signal == "LOSSpeedResult" then
 			if payload.Slowed == true then

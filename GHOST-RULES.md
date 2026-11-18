@@ -24,7 +24,7 @@ reparented observation target cannot count as a successful negative observation.
 | Dybbuk | Throws corpses; journal describes Music Box stun | Evidence matching; physics motion alone is not accepted as a ghost throw |
 | Entity | Teleports itself or an object, with smoke at the object's departure point | Rapid relocation plus nearby origin smoke within three seconds; corroborated short and same-room moves qualify |
 | Ghoul | Cannot disable electronics; reacts to chat | Qualifies disabling observations away from living players |
-| Keres | Speed drops after kills, targets lowest Energy | Kill speed windows; unknown models do not default to male |
+| Keres | Speed drops after kills, targets lowest Energy | Kill speed windows; model gender is exclusion-only, and unknown models do not default to male |
 | Leviathan | Native `LeviathanGlitch` item attribute | Direct glitch signal is strong; ordinary switch bursts are weak |
 | Nightmare | False throw/shatter sounds, increased dark-room hunt chance | Evidence matching; isolated sounds/hunts cannot identify it |
 | Oni | Hunt speed 14 | Known scale and two hunts required; substantial Energy separates its base 14 from Wretch |
@@ -32,7 +32,7 @@ reparented observation target cannot count as a successful negative observation.
 | Ravager | Multiple throws, hunting item vortex | Sustained multi-object orbit qualification passed five native-confirmed Ravager rounds; an absent vortex stays inconclusive |
 | Revenant | Stops hunting after a kill, rests 15s | Hunt stopping is Maybe support only because custom difficulty can cause it for other ghosts. No hard exclusion from continuation; last-survivor and unknown-survivor deaths are ignored |
 | Shadow | Temperature-alter coefficient 0.5 | Signed net cooling per second is logged with warm-up/plateau states; uncalibrated slow cooling is weak and cannot exclude |
-| Siren | Journal describes sprint slowing and humming | Native Revenant also produced 0.8x slowdown: speed-only support is weak; no slowdown remains inconclusive. Neither identifies nor excludes Siren. Exact active Spirit Box humming passed five native-confirmed Siren rounds with full evidence; hidden or absent responses remain inconclusive |
+| Siren | Journal describes sprint slowing and humming | Native Revenant also produced 0.8x slowdown: speed-only support is weak; no slowdown remains inconclusive. Neither identifies nor excludes Siren. Model gender is exclusion-only. Exact active Spirit Box humming passed five native-confirmed Siren rounds with full evidence; hidden or absent responses remain inconclusive |
 | Doppelganger | Fake Orb, teleport, extinguish lights, SpiritCandle | False-Orb evidence handling; candle ability supports both it and Spirit |
 | Specter | Roam probability coefficient 0 | Negative-only: a sustained known departure from an unchanged favourite room while not hunting. Staying put, same-room movement, unknown rooms, and hunt transitions provide no support or exclusion |
 | Spirit | Blue flames and SpiritCandle ability | Qualified oil gradients; candle flag alone is shared with Doppelganger |

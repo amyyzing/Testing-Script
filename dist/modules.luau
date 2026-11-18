@@ -6618,23 +6618,18 @@ end
 
 end)())
 modules["ghost/discardable-trackers/model-gender.luau"] = pack((function()
-local FEMALE_MODELS = {Abaddon = true, Leech = true, Rattle = true, Watcher = true}
-
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "model-gender requires Traffic")
 	local Ghost = assert(dependencies.Ghost, "model-gender requires Ghost")
 	local gender = Ghost:GetAttribute("Sex") or Ghost:GetAttribute("Gender")
 	local visualModel = Ghost:GetAttribute("VisualModel")
-	if gender ~= "Female" and gender ~= "Male" then
-		gender = FEMALE_MODELS[visualModel] and "Female" or nil
-	end
 	local Tracker = {
 		Kind = "discardable",
 		Running = false,
 		Gender = gender,
 		VisualModel = visualModel,
 	}
-	if gender then
+	if gender == "Male" then
 		Traffic("ModelGender", {
 			Gender = gender,
 			VisualModel = visualModel,
@@ -8144,7 +8139,7 @@ local Profiles = {
 	profile("Keres", {"Handprints", "SpiritBox", "Wither"}, "user-observed", perks({
 		note("Stable hunting speed permanently decreases after a qualified unique player kill.", SOURCE.Keres, "user-observed", false, "Trait"),
 	}, {
-		note("A verified female VisualModel is weak supporting evidence.", SOURCE.Keres, "user-observed", false, "Model"),
+		note("Model gender is exclusion-only. A female VisualModel does not support Keres.", SOURCE.Keres, "user-observed", false, "Caveat"),
 	}, {
 		note("No speed decrease after a qualified unique kill, or a verified male VisualModel, is a 99% negative.", SOURCE.Keres, "user-observed", false, "RuleOut"),
 	})),
@@ -8185,7 +8180,7 @@ local Profiles = {
 		note("The Spirit Box responds with - HUMMING -.", SOURCE.Siren, "user-observed", true, "Ability"),
 		note("A 0.8x slowdown was also observed on a native-revealed Revenant. Speed change alone is weak support, not a Siren identity cue.", SOURCE.Siren, "user-observed", false, "Trait"),
 	}, {
-		note("A verified female VisualModel is weak supporting evidence.", SOURCE.Siren, "user-observed", false, "Model"),
+		note("Model gender is exclusion-only. A female VisualModel does not support Siren.", SOURCE.Siren, "user-observed", false, "Caveat"),
 	}, {
 		note("A verified male VisualModel is a 99% negative. A line-of-sight trial without slowdown is inconclusive.", SOURCE.Siren, "user-observed", false, "RuleOut"),
 	})),
@@ -9658,13 +9653,12 @@ function Keres.new(dependencies)
 	Processor.Disconnect = Traffic:Receive("Keres", function(signal, data)
 		if type(data) ~= "table" then return end
 		if signal == "ModelGender" then
-			if data.Gender ~= "Female" and data.Gender ~= "Male" then return end
-			local female = data.Gender == "Female"
-			Traffic(female and "Support" or "RuleOut", {
+			if data.Gender ~= "Male" then return end
+			Traffic("RuleOut", {
 				Ghost = "Keres",
-				Confidence = female and 25 or 99,
-				Reason = female and "the ghost uses a female VisualModel"
-					or "the ghost uses a male VisualModel",
+				Perk = "Female model", Observation = "Male model",
+				Confidence = 99,
+				Reason = "the ghost uses a male VisualModel",
 			}):SendTo("Verdict")
 			return
 		end
@@ -9976,11 +9970,12 @@ function Siren.new(dependencies)
 	local Traffic = assert(dependencies.Traffic, "Siren requires Traffic")
 	local Processor = {}
 
-	local function verdict(signal, confidence, perk, reason)
+	local function verdict(signal, confidence, perk, reason, observation)
 		Traffic(signal, {
 			Ghost = "Siren",
 			Confidence = confidence,
 			Perk = perk,
+			Observation = observation,
 			Reason = reason,
 		}):SendTo("Verdict")
 	end
@@ -9990,10 +9985,8 @@ function Siren.new(dependencies)
 		if signal == "Humming" and payload.Response == "- HUMMING -" then
 			verdict("Support", 99, "Humming", "Spirit Box returned - HUMMING -")
 		elseif signal == "ModelGender" then
-			if payload.Gender == "Female" then
-				verdict("Support", 25, nil, "the ghost uses a female VisualModel")
-			elseif payload.Gender == "Male" then
-				verdict("RuleOut", 99, nil, "the ghost uses a male VisualModel")
+			if payload.Gender == "Male" then
+				verdict("RuleOut", 99, "Female model", "the ghost uses a male VisualModel", "Male model")
 			end
 		elseif signal == "LOSSpeedResult" then
 			if payload.Slowed == true then

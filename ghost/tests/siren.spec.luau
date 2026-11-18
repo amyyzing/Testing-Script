@@ -52,8 +52,8 @@ local femaleTraffic, femaleVerdict, femaleSiren = verdictHarness()
 local femaleGhost = {VisualModel = "Abaddon"}
 function femaleGhost:GetAttribute(name) return self[name] end
 createModelGender({Traffic = femaleTraffic, Ghost = femaleGhost})
-expect(femaleVerdict.Confidence[16] == 25 and femaleVerdict.Selected[1] == 16,
-	"a verified female VisualModel should weakly support Siren")
+expect(femaleVerdict.Confidence[16] == nil and femaleVerdict.Selected[1] == nil,
+	"a female VisualModel cannot positively identify Siren")
 femaleSiren:Destroy()
 
 local maleTraffic, maleVerdict, maleSiren = verdictHarness()

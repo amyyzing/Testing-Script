@@ -243,7 +243,7 @@ local Profiles = {
 	profile("Keres", {"Handprints", "SpiritBox", "Wither"}, "user-observed", perks({
 		note("Stable hunting speed permanently decreases after a qualified unique player kill.", SOURCE.Keres, "user-observed", false, "Trait"),
 	}, {
-		note("A verified female VisualModel is weak supporting evidence.", SOURCE.Keres, "user-observed", false, "Model"),
+		note("Model gender is exclusion-only. A female VisualModel does not support Keres.", SOURCE.Keres, "user-observed", false, "Caveat"),
 	}, {
 		note("No speed decrease after a qualified unique kill, or a verified male VisualModel, is a 99% negative.", SOURCE.Keres, "user-observed", false, "RuleOut"),
 	})),
@@ -284,7 +284,7 @@ local Profiles = {
 		note("The Spirit Box responds with - HUMMING -.", SOURCE.Siren, "user-observed", true, "Ability"),
 		note("A 0.8x slowdown was also observed on a native-revealed Revenant. Speed change alone is weak support, not a Siren identity cue.", SOURCE.Siren, "user-observed", false, "Trait"),
 	}, {
-		note("A verified female VisualModel is weak supporting evidence.", SOURCE.Siren, "user-observed", false, "Model"),
+		note("Model gender is exclusion-only. A female VisualModel does not support Siren.", SOURCE.Siren, "user-observed", false, "Caveat"),
 	}, {
 		note("A verified male VisualModel is a 99% negative. A line-of-sight trial without slowdown is inconclusive.", SOURCE.Siren, "user-observed", false, "RuleOut"),
 	})),

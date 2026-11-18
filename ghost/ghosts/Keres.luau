@@ -8,13 +8,12 @@ function Keres.new(dependencies)
 	Processor.Disconnect = Traffic:Receive("Keres", function(signal, data)
 		if type(data) ~= "table" then return end
 		if signal == "ModelGender" then
-			if data.Gender ~= "Female" and data.Gender ~= "Male" then return end
-			local female = data.Gender == "Female"
-			Traffic(female and "Support" or "RuleOut", {
+			if data.Gender ~= "Male" then return end
+			Traffic("RuleOut", {
 				Ghost = "Keres",
-				Confidence = female and 25 or 99,
-				Reason = female and "the ghost uses a female VisualModel"
-					or "the ghost uses a male VisualModel",
+				Perk = "Female model", Observation = "Male model",
+				Confidence = 99,
+				Reason = "the ghost uses a male VisualModel",
 			}):SendTo("Verdict")
 			return
 		end
