@@ -118,6 +118,22 @@ pulseTracker:Destroy()
 pulseReader:SetAttribute("ReadingLevel", 5)
 expect(pulseCount == 1, "destroyed trackers must release their reader listeners")
 
+local historyWorld = instance("Workspace", "Workspace")
+historyWorld.DescendantAdded = signal()
+local historyGhost = historyWorld:Add(instance("Model", "Ghost", {LastEMF5Time = 7.5}))
+local historyTraffic = createTraffic()
+local historicalEMF = false
+historyTraffic:Receive("Verdict", function(name, data)
+	if name == "EvidenceState" and data.Evidence == "EMFLevel5" then
+		historicalEMF = data.State == true
+	end
+end)
+local historyTracker = createEvidenceState({Traffic = historyTraffic, Workspace = historyWorld,
+	Ghost = historyGhost,
+	Player = {FindFirstChildOfClass = function() end, FindFirstChild = function() end}})
+expect(historicalEMF, "an EMF-5 timestamp from before tracker startup must confirm past evidence")
+historyTracker:Destroy()
+
 local world = instance("Workspace", "Workspace")
 world.DescendantAdded = signal()
 local ghost = world:Add(instance("Model", "Ghost", {
