@@ -35,7 +35,7 @@ server-only behavior automatically.
 | Vesper | Hunts by sound, hears voices anywhere | Evidence matching; unqualified pursuit does not prove auditory targeting |
 | Vex | Invisible on LIDAR, walks through walls | True replicated flag supports; late values are watched and absence is inconclusive |
 | Wretch | Energy-dependent speed 9–14, avoids hunts near lit candles | Known scale requires meaningful Energy change; unknown scale requires three Energy levels sharing one scale. Post-kill samples are ignored |
-| Wisp | Hunt starts in favourite room, ignores oil, lights candles | Qualified favourite-room and burning-oil passage observations |
+| Wisp | Hunt starts in favourite room, ignores oil, lights candles | Read GhostWall.CanCollide only after Holy Oil is burning; default unlit walls are non-collidable for other ghosts too |
 | Wraith | Energy drain coefficient 1.5; journal confirms undisturbed salt | Qualified direct salt contact; missing salt events do not identify it |
 
 The test suite validates code contracts and representative observations. It is

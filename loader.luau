@@ -183,10 +183,8 @@ local createSevenPair = loadModule("ghost/filter/7-pair.luau")
 local createFlickerArray = loadModule("ghost/filter/flicker-array.luau")
 local createSpeedFilter = loadModule("ghost/filter/speed-filter.luau")
 local createCrossAnimation = loadModule("ghost/discardable-trackers/cross-animation.luau")
-local createCatchFire = loadModule("ghost/discardable-trackers/catch-fire.luau")
 local createHolyOilColour = loadModule("ghost/discardable-trackers/holy-oil-colour.luau")
 local createHolyOilCollidable = loadModule("ghost/discardable-trackers/holy-oil-collidable.luau")
-local createHolyOilPass = loadModule("ghost/discardable-trackers/holy-oil-pass.luau")
 local createFootstepSound = loadModule("ghost/discardable-trackers/footstep-sound.luau")
 local createLidar = loadModule("ghost/discardable-trackers/lidar.luau")
 local createModelGender = loadModule("ghost/discardable-trackers/model-gender.luau")
@@ -551,8 +549,6 @@ local function startTrackers()
 			Workspace = Services.Workspace,
 			Ghost = ghost,
 		}))
-		remember(createCatchFire({Traffic = Traffic, Ghost = ghost}))
-		remember(createHolyOilPass({Traffic = Traffic, Ghost = ghost}))
 		remember(createHolyOilCollidable({Traffic = Traffic}))
 		remember(createHolyOilActivate({
 			Traffic = Traffic,

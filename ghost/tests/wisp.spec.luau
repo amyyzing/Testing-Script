@@ -2,8 +2,6 @@ local createTraffic = require("../traffic")
 local createVerdict = require("../verdict")
 local createHolyOilActivate = require("../dormant-trackers/holy-oil-activate")
 local createHolyOilCollidable = require("../discardable-trackers/holy-oil-collidable")
-local createHolyOilPass = require("../discardable-trackers/holy-oil-pass")
-local createCatchFire = require("../discardable-trackers/catch-fire")
 local createFavouriteHuntRoom = require("../dormant-trackers/favourite-hunt-room")
 local Wisp = require("../ghosts/Wisp")
 
@@ -105,16 +103,9 @@ local function oilHarness(canCollide)
 	local Ghost = node("Ghost", "Model")
 	local ghostPart = node("HumanoidRootPart", "BasePart")
 	Ghost:Add(ghostPart)
-	local delayed = {}
 	local Traffic = createTraffic()
 	local Verdict = createVerdict({Traffic = Traffic})
 	local wisp = Wisp.new({Traffic = Traffic})
-	local catchFire = createCatchFire({
-		Traffic = Traffic,
-		Ghost = Ghost,
-		DelayTask = function(_, callback) table.insert(delayed, callback) end,
-	})
-	local oilPass = createHolyOilPass({Traffic = Traffic, Ghost = Ghost})
 	local collidable = createHolyOilCollidable({Traffic = Traffic})
 	local activate = createHolyOilActivate({Traffic = Traffic, Workspace = World})
 	return {
@@ -126,65 +117,32 @@ local function oilHarness(canCollide)
 		Wall = wall,
 		Activate = activate,
 		Collidable = collidable,
-		OilPass = oilPass,
-		CatchFire = catchFire,
 		Wisp = wisp,
-		RunDelayed = function()
-			local pending = delayed
-			delayed = {}
-			for _, callback in ipairs(pending) do callback() end
-		end,
 		Destroy = function()
 			activate:Destroy()
 			collidable:Destroy()
-			oilPass:Destroy()
-			catchFire:Destroy()
 			wisp:Destroy()
 		end,
 	}
 end
 
 local nonCollidable = oilHarness(false)
+expect(nonCollidable.Verdict.Confidence[24] == nil,
+	"the default non-collidable wall before ignition must not identify Wisp")
 nonCollidable.Oil:SetAttribute("Burning", true)
 expect(nonCollidable.Verdict.Confidence[24] == 99
 	and nonCollidable.Collidable.Result == false,
-	"burning Holy Oil with a non-collidable GhostWall should support Wisp")
-expect(nonCollidable.OilPass.Result == "unneeded"
-	and nonCollidable.CatchFire.Result == "unneeded",
-	"a conclusive non-collidable wall should discard the pass and fire probes")
-nonCollidable.Wall.Touched:Fire(nonCollidable.GhostPart)
-nonCollidable.RunDelayed()
+	"non-collidable burning oil should support Wisp directly")
 expect(nonCollidable.Verdict.Confidence[17] == nil,
-	"discarded fire probes must not produce a Doppelganger result")
+	"the wall observation must not invent a Doppelganger verdict")
 nonCollidable.Destroy()
 
-local noFire = oilHarness(true)
-noFire.Oil:SetAttribute("Burning", true)
-expect(table.find(noFire.Verdict.RuledOut, 24),
-	"a collidable burning GhostWall should rule Wisp out")
-noFire.Wall.Touched:Fire(noFire.GhostPart)
-noFire.RunDelayed()
-expect(noFire.Verdict.Confidence[17] == nil and noFire.CatchFire.Result == false,
-	"passing through burning Holy Oil without Fire must not infer Doppelganger")
-noFire.Destroy()
-
-local fireTraffic = createTraffic()
-local fireVerdict = createVerdict({Traffic = fireTraffic})
-local fireWisp = Wisp.new({Traffic = fireTraffic})
-local fireGhost = node("Ghost", "Model")
-local fireDelayed = {}
-local fireProbe = createCatchFire({
-	Traffic = fireTraffic,
-	Ghost = fireGhost,
-	DelayTask = function(_, callback) table.insert(fireDelayed, callback) end,
-})
-fireTraffic("HolyOilPassed", {Passed = true}):SendTo("CatchFire")
-fireGhost:Add(node("Fire", "ParticleEmitter"))
-expect(fireVerdict.Confidence[24] == 99 and not table.find(fireVerdict.RuledOut, 17),
-	"a Fire emitter appearing after Holy Oil contact should support Wisp without ruling Doppelganger out")
-for _, callback in ipairs(fireDelayed) do callback() end
-fireProbe:Destroy()
-fireWisp:Destroy()
+local collidable = oilHarness(false)
+collidable.Wall.CanCollide = true
+collidable.Oil:SetAttribute("Burning", true)
+expect(table.find(collidable.Verdict.RuledOut, 24),
+	"the wall becoming collidable at ignition should rule Wisp out")
+collidable.Destroy()
 
 local roomTraffic = createTraffic()
 local roomVerdict = createVerdict({Traffic = roomTraffic})
@@ -213,4 +171,4 @@ expect(table.find(roomVerdict.RuledOut, 24),
 roomTracker:Destroy()
 roomWisp:Destroy()
 
-print("wisp.spec: Holy Oil collision, fire, and favourite hunt-room pipelines passed")
+print("wisp.spec: burning oil collision and favourite hunt-room pipelines passed")

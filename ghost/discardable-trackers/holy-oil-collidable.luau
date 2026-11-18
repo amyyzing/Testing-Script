@@ -20,9 +20,6 @@ return function(dependencies)
 			GhostWall = wall,
 			CanCollide = canCollide,
 		}):SendTo("Wisp")
-		if not canCollide then
-			Traffic("WispCollisionConfirmed", {}):SendTo("HolyOilPass", "CatchFire")
-		end
 		stop()
 	end)
 

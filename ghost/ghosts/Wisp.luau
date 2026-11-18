@@ -19,11 +19,10 @@ function Wisp.new(dependencies)
 		if Processor.RuledOut then return end
 		if signal == "HolyOilCollidable" then
 			if type(payload.CanCollide) ~= "boolean" then return end
-			Processor.CanCollide = payload.CanCollide == true
-			if Processor.CanCollide then
-				verdict("RuleOut", 99, "Passes through Holy Oil", "burning Holy Oil's GhostWall remained collidable")
+			if payload.CanCollide then
+				verdict("RuleOut", 99, "Passes through Holy Oil", "burning Holy Oil's GhostWall is collidable")
 			else
-				verdict("Support", 99, "Passes through Holy Oil", "burning Holy Oil's GhostWall became non-collidable")
+				verdict("Support", 99, "Passes through Holy Oil", "burning Holy Oil's GhostWall is non-collidable")
 			end
 		elseif signal == "FavouriteHuntRoom" then
 			if payload.InFavourite == false then
@@ -34,12 +33,6 @@ function Wisp.new(dependencies)
 				verdict("Support", math.min(95, 5 + count * 10), "Hunts from favourite room",
 					"the ghost started a hunt in its favourite room (" .. count
 						.. (count == 1 and " time)" or " times)"))
-			end
-		elseif signal == "HolyOilFireResult" then
-			if payload.CaughtFire == false then
-				verdict("RuleOut", 99, "Catches fire in Holy Oil", "the ghost passed through burning Holy Oil without catching fire")
-			elseif payload.CaughtFire == true and Processor.CanCollide ~= true then
-				verdict("Support", 99, "Catches fire in Holy Oil", "the ghost caught fire after passing through burning Holy Oil")
 			end
 		end
 	end)

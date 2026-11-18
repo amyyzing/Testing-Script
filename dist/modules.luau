@@ -6209,70 +6209,6 @@ return function(dependencies)
 end
 
 end)())
-modules["ghost/discardable-trackers/catch-fire.luau"] = pack((function()
-return function(dependencies)
-	local Traffic = assert(dependencies.Traffic, "catch-fire requires Traffic")
-	local Ghost = assert(dependencies.Ghost, "catch-fire requires Ghost")
-	local delay = dependencies.DelayTask or task and task.delay
-	assert(type(delay) == "function", "catch-fire requires task.delay")
-	local probeSeconds = tonumber(dependencies.ProbeSeconds) or 0.5
-	local Tracker = {Kind = "discardable", Running = true, Connections = {}}
-
-	local function isFire(object)
-		return object.Name == "Fire" and object:IsA("ParticleEmitter")
-	end
-
-	local function hasFire()
-		for _, object in ipairs(Ghost:GetDescendants()) do
-			if isFire(object) then return true end
-		end
-		return false
-	end
-
-	local function stop(result)
-		if not Tracker.Running then return end
-		Tracker.Running = false
-		Tracker.Result = result
-		Tracker.Disconnect()
-		for _, connection in ipairs(Tracker.Connections) do connection:Disconnect() end
-		table.clear(Tracker.Connections)
-	end
-
-	local function finish(caughtFire, payload)
-		if not Tracker.Running then return end
-		stop(caughtFire)
-		Traffic("HolyOilFireResult", {
-			HolyOil = payload.HolyOil,
-			CaughtFire = caughtFire,
-		}):SendTo("Wisp")
-	end
-
-	local function probe(payload)
-		if Tracker.Pending then return end
-		Tracker.Pending = true
-		if hasFire() then finish(true, payload) return end
-		table.insert(Tracker.Connections, Ghost.DescendantAdded:Connect(function(object)
-			if Tracker.Running and isFire(object) then finish(true, payload) end
-		end))
-		delay(probeSeconds, function()
-			if Tracker.Running then finish(hasFire(), payload) end
-		end)
-	end
-
-	Tracker.Disconnect = Traffic:Receive("CatchFire", function(signal, payload)
-		if signal == "WispCollisionConfirmed" then
-			stop("unneeded")
-		elseif signal == "HolyOilPassed" and type(payload) == "table"
-			and payload.Passed == true then
-			probe(payload)
-		end
-	end)
-
-	function Tracker:Destroy() stop("destroyed") end
-	return Tracker
-end
-
-end)())
 modules["ghost/discardable-trackers/cross-animation.luau"] = pack((function()
 return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "cross-animation requires Traffic")
@@ -6458,9 +6394,6 @@ return function(dependencies)
 			GhostWall = wall,
 			CanCollide = canCollide,
 		}):SendTo("Wisp")
-		if not canCollide then
-			Traffic("WispCollisionConfirmed", {}):SendTo("HolyOilPass", "CatchFire")
-		end
 		stop()
 	end)
 
@@ -6626,57 +6559,6 @@ return function(dependencies)
 		end
 	end
 
-	return Tracker
-end
-
-end)())
-modules["ghost/discardable-trackers/holy-oil-pass.luau"] = pack((function()
-return function(dependencies)
-	local Traffic = assert(dependencies.Traffic, "holy-oil-pass requires Traffic")
-	local Ghost = assert(dependencies.Ghost, "holy-oil-pass requires Ghost")
-	local Tracker = {
-		Kind = "discardable",
-		Running = true,
-		Connections = {},
-		Bound = setmetatable({}, {__mode = "k"}),
-	}
-
-	local function stop(result)
-		if not Tracker.Running then return end
-		Tracker.Running = false
-		Tracker.Result = result
-		Tracker.Disconnect()
-		for _, connection in ipairs(Tracker.Connections) do connection:Disconnect() end
-		table.clear(Tracker.Connections)
-	end
-
-	local function bind(oil)
-		local wall = oil and oil:FindFirstChild("GhostWall", true)
-		if not wall or not wall:IsA("BasePart") or Tracker.Bound[wall] then return end
-		Tracker.Bound[wall] = true
-		table.insert(Tracker.Connections, wall.Touched:Connect(function(hit)
-			if not Tracker.Running or oil:GetAttribute("Burning") ~= true or not hit then return end
-			local touchedGhost = hit == Ghost
-				or hit.IsDescendantOf and hit:IsDescendantOf(Ghost)
-			if not touchedGhost then return end
-			Traffic("HolyOilPassed", {
-				HolyOil = oil,
-				GhostWall = wall,
-				Passed = true,
-			}):SendTo("CatchFire")
-			stop("passed")
-		end))
-	end
-
-	Tracker.Disconnect = Traffic:Receive("HolyOilPass", function(signal, payload)
-		if signal == "WispCollisionConfirmed" then
-			stop("unneeded")
-		elseif signal == "HolyOilActivated" and type(payload) == "table" then
-			bind(payload.HolyOil)
-		end
-	end)
-
-	function Tracker:Destroy() stop("destroyed") end
 	return Tracker
 end
 
@@ -7107,7 +6989,7 @@ return function(dependencies)
 		Traffic("HolyOilActivated", {
 			HolyOil = oil,
 			Burning = true,
-		}):SendTo("HolyOilCollidable", "HolyOilPass")
+		}):SendTo("HolyOilCollidable")
 	end
 
 	local function bindOil(oil)
@@ -10326,11 +10208,10 @@ function Wisp.new(dependencies)
 		if Processor.RuledOut then return end
 		if signal == "HolyOilCollidable" then
 			if type(payload.CanCollide) ~= "boolean" then return end
-			Processor.CanCollide = payload.CanCollide == true
-			if Processor.CanCollide then
-				verdict("RuleOut", 99, "Passes through Holy Oil", "burning Holy Oil's GhostWall remained collidable")
+			if payload.CanCollide then
+				verdict("RuleOut", 99, "Passes through Holy Oil", "burning Holy Oil's GhostWall is collidable")
 			else
-				verdict("Support", 99, "Passes through Holy Oil", "burning Holy Oil's GhostWall became non-collidable")
+				verdict("Support", 99, "Passes through Holy Oil", "burning Holy Oil's GhostWall is non-collidable")
 			end
 		elseif signal == "FavouriteHuntRoom" then
 			if payload.InFavourite == false then
@@ -10341,12 +10222,6 @@ function Wisp.new(dependencies)
 				verdict("Support", math.min(95, 5 + count * 10), "Hunts from favourite room",
 					"the ghost started a hunt in its favourite room (" .. count
 						.. (count == 1 and " time)" or " times)"))
-			end
-		elseif signal == "HolyOilFireResult" then
-			if payload.CaughtFire == false then
-				verdict("RuleOut", 99, "Catches fire in Holy Oil", "the ghost passed through burning Holy Oil without catching fire")
-			elseif payload.CaughtFire == true and Processor.CanCollide ~= true then
-				verdict("Support", 99, "Catches fire in Holy Oil", "the ghost caught fire after passing through burning Holy Oil")
 			end
 		end
 	end)

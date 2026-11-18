@@ -23,7 +23,7 @@ return function(dependencies)
 		Traffic("HolyOilActivated", {
 			HolyOil = oil,
 			Burning = true,
-		}):SendTo("HolyOilCollidable", "HolyOilPass")
+		}):SendTo("HolyOilCollidable")
 	end
 
 	local function bindOil(oil)
