@@ -17,6 +17,7 @@ return function(dependencies)
 
 	local function evaluate(oil)
 		if not Tracker.Running or Tracker.Activated[oil]
+			or not oil:IsDescendantOf(World)
 			or oil:GetAttribute("Burning") ~= true
 			or not oil:FindFirstChild("GhostWall", true) then return end
 		Tracker.Activated[oil] = true

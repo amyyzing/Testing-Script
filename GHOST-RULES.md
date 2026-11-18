@@ -14,6 +14,8 @@ Checks have separate directions. A necessary condition shared by other ghosts
 does not provide positive support just because it holds. A qualified contradiction
 can exclude it. Missing random activations stay inconclusive, and a missing or
 reparented observation target cannot count as a successful negative observation.
+Cross removal cancels its motion check. Holy Oil colour checks restart their
+stability window after reparenting and ignore models outside Workspace.
 Specter's residence is an explicit weak heuristic exception: 30 continuous
 non-hunting seconds gives low support (35), and 90 gives medium (60), capped
 there regardless of repetition. These grades are not identity probabilities or
@@ -30,11 +32,11 @@ negatives remain exclusions; timeout choices use the challenge-compatible pool.
 | --- | --- | --- |
 | Aswang | Salt slowdown, speed increase after kills | Qualified salt/kill speed windows |
 | Banshee | Breaks 1–3 glass objects, custom wail | New glass bursts provide support, not certainty |
-| Demon | Spins burning crosses, increased cross range | Qualified cross motion |
+| Demon | Spins burning crosses, increased cross range | Qualified cross motion; removing or reparenting the Cross or tracked part cancels the observation without a negative |
 | Dullahan | LOS acceleration 0.1/s | Three timed micro-increment ramps corroborate; duplicate notifications and large speed jumps are ignored |
 | Dybbuk | Throws corpses; journal describes Music Box stun | Evidence matching; physics motion alone is not accepted as a ghost throw |
 | Entity | Teleports itself or an object, with smoke at the object's departure point | Rapid relocation plus nearby origin smoke within three seconds; corroborated short and same-room moves qualify |
-| Ghoul | Cannot disable electronics; reacts to chat | Qualifies disabling observations away from living players. Its three clues also fit fake-Orb Doppelganger, so they cannot force a definite Ghoul verdict |
+| Ghoul | Cannot disable electronics; reacts to chat | Qualifies disabling observations away from living players; unknown player positions and automation mutation windows are inconclusive. Its three clues also fit fake-Orb Doppelganger, so they cannot force a definite Ghoul verdict |
 | Keres | Speed drops after kills, targets lowest Energy | Kill speed windows; model gender is exclusion-only, and unknown models do not default to male |
 | Leviathan | Native `LeviathanGlitch` item attribute | Direct glitch signal is strong; ordinary switch bursts are weak |
 | Nightmare | False throw/shatter sounds, increased dark-room hunt chance | Evidence matching; isolated sounds/hunts cannot identify it |

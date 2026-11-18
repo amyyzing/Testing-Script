@@ -4,6 +4,7 @@ return function(dependencies)
 	local Players = dependencies.Players or game:GetService("Players")
 	local defer = dependencies.Defer or task.defer
 	local clock = dependencies.Clock or os.clock
+	local isMutatingItems = dependencies.IsMutatingItems
 	local radius = tonumber(dependencies.PlayerRadius) or 15
 	local radiusSquared = radius * radius
 	local eligible = {
@@ -36,6 +37,7 @@ return function(dependencies)
 		for _, player in ipairs(Players:GetPlayers()) do
 			if player:GetAttribute("Dead") ~= true then
 				local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+				if not root then return true end -- Unknown position cannot prove the player is far away.
 				if root then
 					local dx = root.Position.X - position.X
 					local dy = root.Position.Y - position.Y
@@ -85,6 +87,7 @@ return function(dependencies)
 				}):SendTo("FlickerArray")
 			end
 			if self.GhoulResolved or previous ~= true or current ~= false then return end
+			if isMutatingItems and isMutatingItems() then return end
 			local position = itemPosition(item)
 			if not position or playerIsNear(position) then return end
 			self.GhoulResolved = true

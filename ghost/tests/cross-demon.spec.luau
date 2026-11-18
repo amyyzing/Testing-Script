@@ -34,10 +34,10 @@ local function cframe(x, y, z, angle)
 	return {Position = {X = x, Y = y, Z = z}, Rotation = rotation}
 end
 
-local function run(animated)
+local function run(animated, gap)
 	local heartbeat = signal()
 	local now = 0
-	local part = {Name = "Cross", Parent = true, CFrame = cframe(0, 0, 0, 0)}
+	local part = {Name = "Cross", Parent = true, CFrame = cframe(0, 0, 0, 0), AncestryChanged = signal()}
 	part.Position = part.CFrame.Position
 	function part:IsA(class) return class == "BasePart" end
 	local cross = {
@@ -46,6 +46,7 @@ local function run(animated)
 		ItemName = "Cross",
 		EquipDisabled = false,
 		Changed = signal(),
+		AncestryChanged = signal(),
 	}
 	function cross:IsA(class) return class == "Model" end
 	function cross:GetAttribute(name) return self[name] end
@@ -81,6 +82,12 @@ local function run(animated)
 		"an idle Cross must not create a Demon verdict")
 	cross:SetDisabled(true)
 	expect(heartbeat:Count() == 1, "a burning Cross should start one temporary Heartbeat callback")
+	if gap then
+		local object = gap == "part" and part or cross
+		object.Parent = nil
+		if gap ~= "missed signal" then object.AncestryChanged:Fire() end
+		if gap ~= "missed signal" then object.Parent = true end
+	end
 	if animated then
 		part.CFrame = cframe(0, 0.5, 0, math.rad(60))
 		part.Position = part.CFrame.Position
@@ -90,6 +97,8 @@ local function run(animated)
 	end
 	heartbeat:Fire()
 	expect(heartbeat:Count() == 0, "the Heartbeat callback should stop after the probe finishes")
+	expect(cross.AncestryChanged:Count() == 0 and part.AncestryChanged:Count() == 0,
+		"completed or canceled observations must release ancestry listeners")
 
 	burn:Destroy()
 	animation:Destroy()
@@ -103,5 +112,10 @@ expect((positive.Confidence[3] == 65 and positive.SourceConfidence[3] == 99) and
 local negative = run(false)
 expect(table.find(negative.RuledOut, 3) ~= nil,
 	"a burning Cross without the animation should rule out Demon")
+for _, gap in ipairs({"cross", "part", "missed signal"}) do
+	local canceled = run(false, gap)
+	expect(canceled.Confidence[3] == nil and not table.find(canceled.RuledOut, 3),
+		"a missing or reparented Cross observation must stay inconclusive: " .. gap)
+end
 
 print("cross-demon.spec: EquipDisabled burn and Cross animation verdicts passed")

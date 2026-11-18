@@ -129,6 +129,12 @@ end
 local nonCollidable = oilHarness(false)
 expect(nonCollidable.Verdict.Confidence[24] == nil,
 	"the default non-collidable wall before ignition must not identify Wisp")
+local detached = oilHarness(true)
+detached.Oil.Parent = nil
+detached.Oil:SetAttribute("Burning", true)
+expect(not table.find(detached.Verdict.RuledOut, 24) and detached.Collidable.Running,
+	"detached oil cannot create a Wisp contradiction")
+detached.Destroy()
 nonCollidable.Oil:SetAttribute("Burning", true)
 expect((nonCollidable.Verdict.Confidence[24] == 65 and nonCollidable.Verdict.SourceConfidence[24] == 99)
 	and nonCollidable.Collidable.Result == false,

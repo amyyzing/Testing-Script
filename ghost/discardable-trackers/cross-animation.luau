@@ -21,15 +21,22 @@ return function(dependencies)
 		return part and part:IsA("BasePart") and part or nil
 	end
 
-	local function finish(cross, animated)
-		if not Tracker.Active[cross] then return end
+	local function release(cross)
+		local observation = Tracker.Active[cross]
+		if not observation then return end
 		Tracker.Active[cross] = nil
 		Tracker.ActiveCount -= 1
+		for _, connection in ipairs(observation.Connections) do connection:Disconnect() end
+		if Tracker.ActiveCount == 0 then stopHeartbeat() end
+		return observation
+	end
+
+	local function finish(cross, animated)
+		if not release(cross) then return end
 		Traffic("CrossAnimation", {
 			Cross = cross,
 			Animated = animated,
 		}):SendTo("Demon")
-		if Tracker.ActiveCount == 0 then stopHeartbeat() end
 	end
 
 	local function startHeartbeat()
@@ -41,9 +48,12 @@ return function(dependencies)
 	Tracker.DisconnectTraffic = Traffic:Receive("CrossAnimation", function(signal, payload)
 		if signal ~= "CrossBurn" or not payload or payload.EquipDisabled ~= true then return end
 		local cross, part = payload.Cross, findPart(payload.Cross)
-		if not cross or not part or Tracker.Active[cross] then return end
+		if not cross or not cross.Parent or not part or not part.Parent or Tracker.Active[cross] then return end
 		Tracker.Active[cross] = {
 			Part = part,
+			Parent = cross.Parent,
+			PartParent = part.Parent,
+			Connections = {},
 			Started = clock(),
 			StartPosition = part.Position,
 			LastCFrame = part.CFrame,
@@ -52,6 +62,12 @@ return function(dependencies)
 			HorizontalSquared = 0,
 		}
 		Tracker.ActiveCount += 1
+		for _, object in ipairs({cross, part}) do
+			if object.AncestryChanged then
+				table.insert(Tracker.Active[cross].Connections,
+					object.AncestryChanged:Connect(function() release(cross) end))
+			end
+		end
 		startHeartbeat()
 	end)
 
@@ -60,8 +76,9 @@ return function(dependencies)
 		local now = clock()
 		for cross, observation in pairs(Tracker.Active) do
 			local part = observation.Part
-			if not cross.Parent or not part.Parent then
-				finish(cross, false)
+			if not cross.Parent or not part.Parent or cross.Parent ~= observation.Parent
+				or part.Parent ~= observation.PartParent then
+				release(cross)
 			else
 				local current = part.CFrame
 				local relative = observation.LastCFrame.Rotation:ToObjectSpace(current.Rotation)
@@ -93,8 +110,7 @@ return function(dependencies)
 		if not self.Running then return end
 		self.Running = false
 		self.DisconnectTraffic()
-		stopHeartbeat()
-		table.clear(self.Active)
+		for cross in pairs(self.Active) do release(cross) end
 	end
 
 	return Tracker

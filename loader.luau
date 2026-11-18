@@ -538,6 +538,9 @@ local function startTrackers()
 			Traffic = Traffic,
 			Workspace = Services.Workspace,
 			Players = Services.Players,
+			IsMutatingItems = function()
+				return session.Automation and session.Automation:IsMutatingItems() or false
+			end,
 		}))
 		remember(createItemOrbit({
 			Traffic = Traffic,

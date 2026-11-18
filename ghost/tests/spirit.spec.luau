@@ -32,8 +32,17 @@ local function node(name, className)
 		Signals = {},
 		ChildAdded = signal(),
 		DescendantAdded = signal(),
+		AncestryChanged = signal(),
 	}
 	function object:IsA(kind) return self.ClassName == kind end
+	function object:IsDescendantOf(ancestor)
+		local parent = self.Parent
+		while parent do
+			if parent == ancestor then return true end
+			parent = parent.Parent
+		end
+		return false
+	end
 	function object:GetAttribute(name) return self.Attributes[name] end
 	function object:GetAttributeChangedSignal(name)
 		self.Signals["A:" .. name] = self.Signals["A:" .. name] or signal()
@@ -130,6 +139,10 @@ local function harness(first, last)
 			delayed = {}
 			for _, callback in ipairs(pending) do callback() end
 		end,
+		RunNextDelayed = function()
+			local callback = table.remove(delayed, 1)
+			if callback then callback() end
+		end,
 		Destroy = function()
 			tracker:Destroy()
 			processor:Destroy()
@@ -185,5 +198,29 @@ expect(transition.Tracker.Result == "Spirit"
 	and not table.find(transition.Verdict.RuledOut, 19),
 	"an orange starting gradient that settles blue must resolve as Spirit")
 transition.Destroy()
+
+local gap = harness(colour(1, 0.694118, 0.384314), colour(1, 0.333333, 0))
+gap.Ghost:SetAttribute("Hunting", true)
+gap.Oil:SetAttribute("Burning", true)
+local originalParent = gap.Oil.Parent
+gap.Oil.Parent = nil
+gap.Oil.AncestryChanged:Fire()
+gap.Oil.Parent = originalParent
+gap.Oil.AncestryChanged:Fire()
+gap.RunNextDelayed()
+expect(gap.Tracker.Running and not table.find(gap.Verdict.RuledOut, 19),
+	"removing and restoring oil must invalidate the old pending colour observation")
+gap.RunNextDelayed()
+expect(table.find(gap.Verdict.RuledOut, 19), "restored oil needs a fresh complete stability window")
+gap.Destroy()
+
+local outside = harness(colour(1, 0.694118, 0.384314), colour(1, 0.333333, 0))
+outside.Oil.Parent = node("Inventory", "Folder")
+outside.Ghost:SetAttribute("Hunting", true)
+outside.Oil:SetAttribute("Burning", true)
+outside.RunDelayed()
+expect(outside.Tracker.Running and not table.find(outside.Verdict.RuledOut, 19),
+	"an oil model outside Workspace cannot qualify a colour observation")
+outside.Destroy()
 
 print("spirit.spec: qualified blue and normal Holy Oil sequences passed")

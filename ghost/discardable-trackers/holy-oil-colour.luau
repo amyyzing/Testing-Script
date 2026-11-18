@@ -76,7 +76,7 @@ return function(dependencies)
 	end
 
 	local function evaluate(oil)
-		if not Tracker.Running or not oil.Parent
+		if not Tracker.Running or not oil:IsDescendantOf(World)
 			or Ghost:GetAttribute("Hunting") ~= true
 			or oil:GetAttribute("Burning") ~= true then
 			clearCandidate(oil)
@@ -94,7 +94,7 @@ return function(dependencies)
 		delay(stableSeconds, function()
 			if not Tracker.Running or Tracker.CandidateSerial ~= serial
 				or Tracker.CandidateOil ~= oil or Tracker.CandidateKind ~= kind then return end
-			if not oil.Parent or Ghost:GetAttribute("Hunting") ~= true
+			if not oil:IsDescendantOf(World) or Ghost:GetAttribute("Hunting") ~= true
 				or oil:GetAttribute("Burning") ~= true then clearCandidate(oil) return end
 			if classify(oil) == kind then finish(kind, oil) return end
 			clearCandidate(oil)
@@ -109,8 +109,13 @@ return function(dependencies)
 	end
 
 	local function bindOil(oil)
-		if not Tracker.Running or Tracker.Bound[oil] or not isHolyOil(oil) then return end
+		if not Tracker.Running or not isHolyOil(oil) then return end
+		if Tracker.Bound[oil] then evaluate(oil) return end
 		Tracker.Bound[oil] = true
+		table.insert(Tracker.Connections, oil.AncestryChanged:Connect(function()
+			clearCandidate(oil)
+			evaluate(oil)
+		end))
 		table.insert(Tracker.Connections,
 			oil:GetAttributeChangedSignal("Burning"):Connect(function() evaluate(oil) end))
 		local function bindEmitter(object)

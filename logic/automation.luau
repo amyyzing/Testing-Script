@@ -470,6 +470,10 @@ return function(dependencies)
 		return self:SetEnabled(not doRoundState.enabled)
 	end
 
+	function controller:IsMutatingItems()
+		return os.clock() < (perkTrackerState.suppressItemDisableUntil or 0)
+	end
+
 	function controller:Destroy()
 		if stopped then return end
 		legacy.SetEnabled(false)

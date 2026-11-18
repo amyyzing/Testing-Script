@@ -11,8 +11,9 @@ return function(dependencies)
 	Tracker.Disconnect = Traffic:Receive("HolyOilCollidable", function(signal, payload)
 		if signal ~= "HolyOilActivated" or type(payload) ~= "table" then return end
 		local oil = payload.HolyOil
+		if not oil or not oil.Parent then return end
 		local wall = oil and oil:FindFirstChild("GhostWall", true)
-		if not wall or not wall:IsA("BasePart") then return end
+		if not wall or not wall.Parent or not wall:IsA("BasePart") then return end
 		local canCollide = wall.CanCollide == true
 		Tracker.Result = canCollide
 		Traffic("HolyOilCollidable", {

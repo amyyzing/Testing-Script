@@ -150,6 +150,10 @@ expect(perkStateSeen.evidenceMode == "Normal", "normal rounds should keep strict
 mimicry = true
 expect(perkStateSeen.evidenceMode == "Mimicry", "timeout fallback must follow the current native challenge context")
 mimicry = false
+expect(not controller:IsMutatingItems(), "idle automation must not suppress electronic observations")
+perkStateSeen.suppressItemDisableUntil = os.clock() + 2.5
+expect(controller:IsMutatingItems(), "the tracker guard must use the existing automation mutation deadline")
+perkStateSeen.suppressItemDisableUntil = 0
 click:Fire()
 expect(controller.Enabled and stateSeen.enabled,
 	"the GUI button must enable the legacy round controller")

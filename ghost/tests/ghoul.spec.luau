@@ -77,11 +77,13 @@ end)
 Traffic:Receive("Humming", function(signalName, payload)
 	if signalName == "SpiritBoxState" then table.insert(spiritStates, payload) end
 end)
+local mutating = false
 local tracker = createItemState({
 	Traffic = Traffic,
 	Workspace = World,
 	Players = Players,
 	Defer = function(callback) callback() end,
+	IsMutatingItems = function() return mutating end,
 })
 
 expect(ruleOutSignals == 0, "an item that starts disabled must only be baselined")
@@ -100,13 +102,24 @@ expect(#itemStateChanges == 2 and itemStateChanges[2].Previous == true
 	"an eligible boolean state switch should be sent to the flicker array")
 laser:SetEnabled(true)
 root.Position = {X = 15.01, Y = 0, Z = 0}
+mutating = true
+laser:SetEnabled(false)
+expect(ruleOutSignals == 0, "an automation mutation window must not create a Ghoul contradiction")
+laser:SetEnabled(true)
+mutating = false
+local savedRoot = root
+root = nil
+laser:SetEnabled(false)
+expect(ruleOutSignals == 0, "a missing living-player root cannot prove an unattended disable")
+laser:SetEnabled(true)
+root = savedRoot
 laser:SetEnabled(false)
 expect(ruleOutSignals == 1 and Verdict:Snapshot()["ruled-out"][1] == 7,
 	"a target item disabled with no nearby living player should rule out Ghoul")
 laser:SetEnabled(true)
 laser:SetEnabled(false)
 expect(ruleOutSignals == 1, "Ghoul should only be resolved once")
-expect(#itemStateChanges == 6,
+expect(#itemStateChanges == 10,
 	"Ghoul resolving must not stop later item switches from reaching the flicker array")
 
 -- Picking up and dropping an already-enabled box must restore its humming gate.

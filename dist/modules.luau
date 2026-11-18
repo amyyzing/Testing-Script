@@ -5241,6 +5241,7 @@ return function(dependencies)
 	local Players = dependencies.Players or game:GetService("Players")
 	local defer = dependencies.Defer or task.defer
 	local clock = dependencies.Clock or os.clock
+	local isMutatingItems = dependencies.IsMutatingItems
 	local radius = tonumber(dependencies.PlayerRadius) or 15
 	local radiusSquared = radius * radius
 	local eligible = {
@@ -5273,6 +5274,7 @@ return function(dependencies)
 		for _, player in ipairs(Players:GetPlayers()) do
 			if player:GetAttribute("Dead") ~= true then
 				local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+				if not root then return true end -- Unknown position cannot prove the player is far away.
 				if root then
 					local dx = root.Position.X - position.X
 					local dy = root.Position.Y - position.Y
@@ -5322,6 +5324,7 @@ return function(dependencies)
 				}):SendTo("FlickerArray")
 			end
 			if self.GhoulResolved or previous ~= true or current ~= false then return end
+			if isMutatingItems and isMutatingItems() then return end
 			local position = itemPosition(item)
 			if not position or playerIsNear(position) then return end
 			self.GhoulResolved = true
@@ -6246,15 +6249,22 @@ return function(dependencies)
 		return part and part:IsA("BasePart") and part or nil
 	end
 
-	local function finish(cross, animated)
-		if not Tracker.Active[cross] then return end
+	local function release(cross)
+		local observation = Tracker.Active[cross]
+		if not observation then return end
 		Tracker.Active[cross] = nil
 		Tracker.ActiveCount -= 1
+		for _, connection in ipairs(observation.Connections) do connection:Disconnect() end
+		if Tracker.ActiveCount == 0 then stopHeartbeat() end
+		return observation
+	end
+
+	local function finish(cross, animated)
+		if not release(cross) then return end
 		Traffic("CrossAnimation", {
 			Cross = cross,
 			Animated = animated,
 		}):SendTo("Demon")
-		if Tracker.ActiveCount == 0 then stopHeartbeat() end
 	end
 
 	local function startHeartbeat()
@@ -6266,9 +6276,12 @@ return function(dependencies)
 	Tracker.DisconnectTraffic = Traffic:Receive("CrossAnimation", function(signal, payload)
 		if signal ~= "CrossBurn" or not payload or payload.EquipDisabled ~= true then return end
 		local cross, part = payload.Cross, findPart(payload.Cross)
-		if not cross or not part or Tracker.Active[cross] then return end
+		if not cross or not cross.Parent or not part or not part.Parent or Tracker.Active[cross] then return end
 		Tracker.Active[cross] = {
 			Part = part,
+			Parent = cross.Parent,
+			PartParent = part.Parent,
+			Connections = {},
 			Started = clock(),
 			StartPosition = part.Position,
 			LastCFrame = part.CFrame,
@@ -6277,6 +6290,12 @@ return function(dependencies)
 			HorizontalSquared = 0,
 		}
 		Tracker.ActiveCount += 1
+		for _, object in ipairs({cross, part}) do
+			if object.AncestryChanged then
+				table.insert(Tracker.Active[cross].Connections,
+					object.AncestryChanged:Connect(function() release(cross) end))
+			end
+		end
 		startHeartbeat()
 	end)
 
@@ -6285,8 +6304,9 @@ return function(dependencies)
 		local now = clock()
 		for cross, observation in pairs(Tracker.Active) do
 			local part = observation.Part
-			if not cross.Parent or not part.Parent then
-				finish(cross, false)
+			if not cross.Parent or not part.Parent or cross.Parent ~= observation.Parent
+				or part.Parent ~= observation.PartParent then
+				release(cross)
 			else
 				local current = part.CFrame
 				local relative = observation.LastCFrame.Rotation:ToObjectSpace(current.Rotation)
@@ -6318,8 +6338,7 @@ return function(dependencies)
 		if not self.Running then return end
 		self.Running = false
 		self.DisconnectTraffic()
-		stopHeartbeat()
-		table.clear(self.Active)
+		for cross in pairs(self.Active) do release(cross) end
 	end
 
 	return Tracker
@@ -6386,8 +6405,9 @@ return function(dependencies)
 	Tracker.Disconnect = Traffic:Receive("HolyOilCollidable", function(signal, payload)
 		if signal ~= "HolyOilActivated" or type(payload) ~= "table" then return end
 		local oil = payload.HolyOil
+		if not oil or not oil.Parent then return end
 		local wall = oil and oil:FindFirstChild("GhostWall", true)
-		if not wall or not wall:IsA("BasePart") then return end
+		if not wall or not wall.Parent or not wall:IsA("BasePart") then return end
 		local canCollide = wall.CanCollide == true
 		Tracker.Result = canCollide
 		Traffic("HolyOilCollidable", {
@@ -6482,7 +6502,7 @@ return function(dependencies)
 	end
 
 	local function evaluate(oil)
-		if not Tracker.Running or not oil.Parent
+		if not Tracker.Running or not oil:IsDescendantOf(World)
 			or Ghost:GetAttribute("Hunting") ~= true
 			or oil:GetAttribute("Burning") ~= true then
 			clearCandidate(oil)
@@ -6500,7 +6520,7 @@ return function(dependencies)
 		delay(stableSeconds, function()
 			if not Tracker.Running or Tracker.CandidateSerial ~= serial
 				or Tracker.CandidateOil ~= oil or Tracker.CandidateKind ~= kind then return end
-			if not oil.Parent or Ghost:GetAttribute("Hunting") ~= true
+			if not oil:IsDescendantOf(World) or Ghost:GetAttribute("Hunting") ~= true
 				or oil:GetAttribute("Burning") ~= true then clearCandidate(oil) return end
 			if classify(oil) == kind then finish(kind, oil) return end
 			clearCandidate(oil)
@@ -6515,8 +6535,13 @@ return function(dependencies)
 	end
 
 	local function bindOil(oil)
-		if not Tracker.Running or Tracker.Bound[oil] or not isHolyOil(oil) then return end
+		if not Tracker.Running or not isHolyOil(oil) then return end
+		if Tracker.Bound[oil] then evaluate(oil) return end
 		Tracker.Bound[oil] = true
+		table.insert(Tracker.Connections, oil.AncestryChanged:Connect(function()
+			clearCandidate(oil)
+			evaluate(oil)
+		end))
 		table.insert(Tracker.Connections,
 			oil:GetAttributeChangedSignal("Burning"):Connect(function() evaluate(oil) end))
 		local function bindEmitter(object)
@@ -7046,6 +7071,7 @@ return function(dependencies)
 
 	local function evaluate(oil)
 		if not Tracker.Running or Tracker.Activated[oil]
+			or not oil:IsDescendantOf(World)
 			or oil:GetAttribute("Burning") ~= true
 			or not oil:FindFirstChild("GhostWall", true) then return end
 		Tracker.Activated[oil] = true
@@ -12497,6 +12523,10 @@ return function(dependencies)
 
 	function controller:Toggle()
 		return self:SetEnabled(not doRoundState.enabled)
+	end
+
+	function controller:IsMutatingItems()
+		return os.clock() < (perkTrackerState.suppressItemDisableUntil or 0)
 	end
 
 	function controller:Destroy()
