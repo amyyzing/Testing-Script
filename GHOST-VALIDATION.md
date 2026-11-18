@@ -12,20 +12,20 @@ the table does not imply five fresh games on the latest build for every ghost.
 
 | Ghost | Native coverage | Remaining limitation |
 | --- | --- | --- |
-| Aswang | Five qualified salt-slowdown identifications | Solo death-gap speed measurements are being checked before post-kill attribution is qualified |
+| Aswang | Five qualified salt-slowdown identifications; native solo kill trace confirmed 21 to 23 for over eight seconds | Five fresh post-kill classification controls still pending |
 | Banshee | Glass observations and native probability flag reviewed | Glass frequency is variable; no unique automatic identity claim |
 | Demon | Five floating-Cross identifications and ordinary-Cross comparison | Interrupted-Cross cancellation has engine/regression coverage, not a new five-game series |
 | Dullahan | Five repeated micro-acceleration identifications after the recorded development failures | Controlled line-of-sight exposure is required |
 | Dybbuk | Five corrected Music Box stun identifications at 0.5x, 1x and 2x; ordinary-ghost comparisons, including the actual detector at close range | Initial low-speed miss corrected; one disconnected return remains separately unverified. These are five qualifying confirmations, not five uninterrupted attempts. Corpse motion alone is unqualified |
 | Entity | Five origin-smoke/relocation identifications | Uncorroborated physics displacement is not unique |
 | Ghoul | One unattended-electronics counter-control, actual Ghoul | Default guess was Doppelganger; overlapping clues remain ambiguous, not a correct identity credit |
-| Keres | Native flag and offline paired-speed logic reviewed | Solo post-kill speed observations still need qualification; model gender is exclusion-only |
+| Keres | Native solo kill trace confirmed 21 to 19 for over eight seconds; original detector miss reproduced and fixed by replay | Five fresh post-kill classification controls still pending; model gender is exclusion-only |
 | Leviathan | Five native glitch-attribute identifications | Ordinary switch frequency remains weak |
 | Nightmare | Current native probability modifiers reviewed | Random sounds or a single hunt do not identify it |
 | Oni | Five stable-base-speed identifications with Energy controls | Low-Energy Wretch and unknown difficulty scale must remain distinguishable |
 | Phantom | Five repeated blink-speed identifications | Unstable speed windows remain inconclusive |
 | Ravager | Five qualified multi-assembly vortex identifications | Missing random activation is not a negative |
-| Revenant | Last-survivor and custom hunt-stop confounds covered by regressions | Abrupt hunt stopping is low support only; solo timing is being compared with ordinary round ending |
+| Revenant | Native solo kill stopped its hunt about 0.7 seconds after death; normal Vex kept hunting for the full eight-second capture | Abrupt stopping is LOW only; settings or ordinary round ending can imitate it |
 | Shadow | Native cooling coefficient and signed-temperature windows reviewed; weak cue also observed on other ghosts | Uncalibrated cooling cannot identify or exclude Shadow |
 | Siren | Five exact native humming-response identifications | Pursuit slowdown was also observed on Revenant and is not unique |
 | Doppelganger | Five shared native blue-candle policy controls; prior copied-salt diagnostic retained | Exhaustive mimic roster is unresolved; finish its comprehensive audit last |

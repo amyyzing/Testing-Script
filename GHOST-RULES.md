@@ -30,20 +30,20 @@ negatives remain exclusions; timeout choices use the challenge-compatible pool.
 
 | Ghost | Current source behavior | Automatic handling and limits |
 | --- | --- | --- |
-| Aswang | Salt slowdown, speed increase after kills | Qualified salt/kill speed windows |
+| Aswang | Salt slowdown, speed increase after kills | Qualified salt/kill speed windows; pre-animation baseline survives the measured delay before the death flag |
 | Banshee | Breaks 1–3 glass objects, custom wail | New glass bursts provide support, not certainty |
 | Demon | Spins burning crosses, increased cross range | Qualified cross motion; removing or reparenting the Cross or tracked part cancels the observation without a negative |
 | Dullahan | LOS acceleration 0.1/s | Three timed micro-increment ramps corroborate; duplicate notifications and large speed jumps are ignored |
 | Dybbuk | Throws corpses; journal describes Music Box stun | Fresh HasBeenPlayed transition plus a deep speed drop and three-second recovery; ordinary, late and interrupted responses stay inconclusive. No idle Heartbeat. Corpse motion alone is not a ghost throw |
 | Entity | Teleports itself or an object, with smoke at the object's departure point | Rapid relocation plus nearby origin smoke within three seconds; corroborated short and same-room moves qualify |
 | Ghoul | Cannot disable electronics; reacts to chat | Qualifies disabling observations away from living players; unknown player positions and automation mutation windows are inconclusive. Its three clues also fit fake-Orb Doppelganger, so they cannot force a definite Ghoul verdict |
-| Keres | Speed drops after kills, targets lowest Energy | Kill speed windows; model gender is exclusion-only, and unknown models do not default to male |
+| Keres | Speed drops after kills, targets lowest Energy | Paired pre-animation/post-kill speeds; native solo trace confirmed 21 to 19 before the delayed death flag. Model gender is exclusion-only |
 | Leviathan | Native `LeviathanGlitch` item attribute | Direct glitch signal is strong; ordinary switch bursts are weak |
 | Nightmare | False throw/shatter sounds, increased dark-room hunt chance | Evidence matching; isolated sounds/hunts cannot identify it |
 | Oni | Hunt speed 14 | Known scale and two hunts required; substantial Energy separates its base 14 from Wretch |
 | Phantom | Faster while invisible, blink speed 13.5 | Seven stable pairs compare invisible and visible speed; a drifting baseline stays inconclusive |
 | Ravager | Multiple throws, hunting item vortex | Sustained multi-object orbit qualification passed five native-confirmed Ravager rounds; an absent vortex stays inconclusive |
-| Revenant | Stops hunting after a kill, rests 15s | Qualified hunt stopping is low support (35) because custom difficulty can cause it for other ghosts. No hard exclusion from continuation; solo death-gap timing is under review, and ordinary last-survivor round endings are not attributed |
+| Revenant | Stops hunting after a kill, rests 15s | Qualified abrupt hunt stopping is low support (35), including solo, because settings or round ending can imitate it. The native solo Revenant stopped about 0.7 seconds after death; the normal control kept hunting throughout eight seconds. No hard exclusion from continuation |
 | Shadow | Temperature-alter coefficient 0.5 | Signed net cooling per second is logged with warm-up/plateau states; uncalibrated slow cooling is weak and cannot exclude |
 | Siren | Journal describes sprint slowing and humming | Native Revenant also produced 0.8x slowdown: speed-only support is weak; no slowdown remains inconclusive. Neither identifies nor excludes Siren. Model gender is exclusion-only. Exact active Spirit Box humming passed five native-confirmed Siren rounds with full evidence; hidden or absent responses remain inconclusive |
 | Doppelganger | Fake Orb, teleport, extinguish lights, SpiritCandle | False-Orb evidence handling; candle ability supports both it and Spirit |

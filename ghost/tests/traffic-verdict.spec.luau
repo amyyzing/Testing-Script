@@ -123,4 +123,17 @@ Traffic("KillSpeed", {
 expect(table.find(Verdict.RuledOut, 1), "a recovered temporary increase must not remain a permanent kill perk")
 
 aswang:Destroy()
+
+aswang = Aswang.new({Traffic = Traffic})
+Verdict:Reset()
+Traffic("KillSpeed", {
+	baselineKill = {s = 21, v = false},
+	beforeKill = {{s = 2, v = true}, {s = 2, v = false},
+		{s = 21, v = true}, {s = 21, v = false}},
+	afterKill = {{s = 21, v = false}, {s = 21, v = true}, {s = 21, v = false}},
+	completed = true,
+}):SendTo("Aswang")
+expect(Verdict.SourceConfidence[1] == nil and table.find(Verdict.RuledOut, 1),
+	"an earlier temporary slowdown cannot masquerade as a permanent post-kill speed increase")
+aswang:Destroy()
 print("traffic-verdict.spec: Aswang salt and kill verdicts passed")

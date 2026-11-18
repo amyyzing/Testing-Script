@@ -49,8 +49,13 @@ function Aswang.new(dependencies)
 			local baselines, observed = {}, {}
 			for _, point in ipairs(before) do
 				if type(point.v) == "boolean" and type(point.s) == "number" and point.s > 0 then
-					baselines[point.v] = math.min(baselines[point.v] or math.huge, point.s)
+					baselines[point.v] = point.s
 				end
+			end
+			local baseline = data.baselineKill
+			if type(baseline) == "table" and type(baseline.v) == "boolean"
+				and type(baseline.s) == "number" and baseline.s > 0 then
+				baselines[baseline.v] = baseline.s
 			end
 			for index = 2, #after do
 				local point = after[index]

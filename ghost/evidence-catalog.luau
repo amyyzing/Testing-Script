@@ -273,9 +273,9 @@ local Profiles = {
 		note("Ordinary throws and one moving object are not a vortex.", SOURCE.Ravager, "user-observed", false, "Caveat"),
 	})),
 	profile("Revenant", {"EMFLevel5", "FreezingTemperatures", "GhostWriting"}, "user-observed", perks({}, {
-		note("A hunt stopping abruptly after a qualified kill is low support; custom difficulty can cause the same behavior for other ghosts. Solo round-ending timing is being compared separately.", SOURCE.Revenant, "user-observed", false, "Weakness"),
+		note("A hunt stopping abruptly after a qualified kill is low support, including solo; custom difficulty or round ending can cause the same behavior for other ghosts.", SOURCE.Revenant, "live-game", false, "Weakness"),
 	}, {
-		note("Hunt continuation is inconclusive. Last-survivor and unknown-survivor deaths are ignored.", SOURCE.Revenant, "user-observed", false, "Caveat"),
+		note("Hunt continuation is inconclusive. Solo deaths retain a measurable hunt window; abrupt stopping remains low because settings or round ending can imitate it. Unknown kill observations are ignored.", SOURCE.Revenant, "live-game", false, "Caveat"),
 	})),
 	profile("Shadow", {"EMFLevel5", "GhostWriting", "LaserProjector"}, "user-observed", perks({
 		note("The current TemperatureAlterCoefficient is 0.5. Slow cooling provides weak support, since room conditions affect absolute temperature changes.", SOURCE.Shadow, "live-game", false, "Trait"),

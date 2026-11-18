@@ -78,8 +78,10 @@ for _,endFirst in ipairs({false, true}) do
  if endFirst then last.Traffic("HuntingState", {Hunting = false, Time = 1}):SendTo("Revenant") end
  last.Traffic("PlayerKilled", {AliveRemaining = 0, Time = 1.01}):SendTo("Revenant")
  if not endFirst then last.Traffic("HuntingState", {Hunting = false, Time = 1.02}):SendTo("Revenant") end
- expect(#last.Verdict.Selected == 0 and #last.Verdict.RuledOut == 0 and #last.Delayed == 0,
-  "a last-survivor death cannot distinguish Revenant from a round ending")
+ expect(#last.Delayed == 1, "a solo kill must retain the observable post-death hunt window")
+ last.Delayed[1].Callback()
+ expect(last.Verdict.Confidence[14] == 35 and #last.Verdict.RuledOut == 0,
+  "a solo abrupt stop is only low support, not certainty about its cause")
  last.Revenant:Destroy()
 end
 
@@ -89,8 +91,8 @@ finalKill.Traffic("PlayerKilled", {AliveRemaining = 1, Time = .1}):SendTo("Reven
 finalKill.Traffic("HuntingState", {Hunting = false, Time = .2}):SendTo("Revenant")
 finalKill.Traffic("PlayerKilled", {AliveRemaining = 0, Time = .21}):SendTo("Revenant")
 finalKill.Delayed[1].Callback()
-expect(#finalKill.Verdict.Selected == 0 and #finalKill.Verdict.RuledOut == 0,
- "a last-survivor notification must cancel a pending probe before attribution")
+expect(finalKill.Verdict.Confidence[14] == 35 and #finalKill.Verdict.RuledOut == 0,
+ "a last-survivor notification must never promote an ambiguous stop beyond low support")
 finalKill.Revenant:Destroy()
 
 local unknown = harness()

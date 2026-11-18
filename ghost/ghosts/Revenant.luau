@@ -52,7 +52,7 @@ function Revenant.new(dependencies)
 				Processor.LastHuntEnd = eventTime
 			end
 		elseif signal == "PlayerKilled" then
-			if type(payload.AliveRemaining) ~= "number" or payload.AliveRemaining <= 0 then
+			if type(payload.AliveRemaining) ~= "number" or payload.AliveRemaining < 0 then
 				Processor.PendingKill = nil
 				Processor.Generation += 1
 				return

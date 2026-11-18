@@ -6047,7 +6047,8 @@ return function(dependencies)
 	local Ghost = assert(dependencies.Ghost, "speed-tracker requires Ghost")
 	local clock = dependencies.Clock or os.clock
 	local World = dependencies.Workspace or workspace
-	local killMatchWindow = tonumber(dependencies.KillMatchWindow) or 0.75
+	-- Native solo kills changed speed about 1.1 seconds before the Dead flag.
+	local killMatchWindow = tonumber(dependencies.KillMatchWindow) or 2
 	local Tracker = {
 		Kind = "active", Running = true,
 		hunting = nil, samples = {}, sampleMeta = {}, displayIndex = 0,
@@ -8328,9 +8329,9 @@ local Profiles = {
 		note("Ordinary throws and one moving object are not a vortex.", SOURCE.Ravager, "user-observed", false, "Caveat"),
 	})),
 	profile("Revenant", {"EMFLevel5", "FreezingTemperatures", "GhostWriting"}, "user-observed", perks({}, {
-		note("A hunt stopping abruptly after a qualified kill is low support; custom difficulty can cause the same behavior for other ghosts. Solo round-ending timing is being compared separately.", SOURCE.Revenant, "user-observed", false, "Weakness"),
+		note("A hunt stopping abruptly after a qualified kill is low support, including solo; custom difficulty or round ending can cause the same behavior for other ghosts.", SOURCE.Revenant, "live-game", false, "Weakness"),
 	}, {
-		note("Hunt continuation is inconclusive. Last-survivor and unknown-survivor deaths are ignored.", SOURCE.Revenant, "user-observed", false, "Caveat"),
+		note("Hunt continuation is inconclusive. Solo deaths retain a measurable hunt window; abrupt stopping remains low because settings or round ending can imitate it. Unknown kill observations are ignored.", SOURCE.Revenant, "live-game", false, "Caveat"),
 	})),
 	profile("Shadow", {"EMFLevel5", "GhostWriting", "LaserProjector"}, "user-observed", perks({
 		note("The current TemperatureAlterCoefficient is 0.5. Slow cooling provides weak support, since room conditions affect absolute temperature changes.", SOURCE.Shadow, "live-game", false, "Trait"),
@@ -9579,8 +9580,13 @@ function Aswang.new(dependencies)
 			local baselines, observed = {}, {}
 			for _, point in ipairs(before) do
 				if type(point.v) == "boolean" and type(point.s) == "number" and point.s > 0 then
-					baselines[point.v] = math.min(baselines[point.v] or math.huge, point.s)
+					baselines[point.v] = point.s
 				end
+			end
+			local baseline = data.baselineKill
+			if type(baseline) == "table" and type(baseline.v) == "boolean"
+				and type(baseline.s) == "number" and baseline.s > 0 then
+				baselines[baseline.v] = baseline.s
 			end
 			for index = 2, #after do
 				local point = after[index]
@@ -9851,8 +9857,13 @@ function Keres.new(dependencies)
 		local baselines, observed = {}, {}
 		for _, point in ipairs(before) do
 			if type(point.v) == "boolean" and type(point.s) == "number" and point.s > 0 then
-				baselines[point.v] = math.min(baselines[point.v] or math.huge, point.s)
+				baselines[point.v] = point.s
 			end
+		end
+		local baseline = data.baselineKill
+		if type(baseline) == "table" and type(baseline.v) == "boolean"
+			and type(baseline.s) == "number" and baseline.s > 0 then
+			baselines[baseline.v] = baseline.s
 		end
 		for index = 2, #after do
 			local point = after[index]
@@ -10085,7 +10096,7 @@ function Revenant.new(dependencies)
 				Processor.LastHuntEnd = eventTime
 			end
 		elseif signal == "PlayerKilled" then
-			if type(payload.AliveRemaining) ~= "number" or payload.AliveRemaining <= 0 then
+			if type(payload.AliveRemaining) ~= "number" or payload.AliveRemaining < 0 then
 				Processor.PendingKill = nil
 				Processor.Generation += 1
 				return
