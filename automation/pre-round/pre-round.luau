@@ -96,7 +96,7 @@ local roundUtilities: any = createRoundUtilities(dependencies)
 	local ROUND_BASE_CAMP_RETRY_MAX = roundUtilities.BaseCampRetryMax
 	local function roundTeleportOptions(generation)
 		return {
-			ReleaseMovementOnCancel = true,
+			ReleaseMovement = true,
 			ForcePreferredPosition = true,
 			IsActive = function()
 				return doRoundOperationActive(generation)

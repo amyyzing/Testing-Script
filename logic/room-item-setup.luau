@@ -53,7 +53,7 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 		end
 		local function operationTeleportOptions()
 			return {
-				ReleaseMovementOnCancel = true,
+				ReleaseMovement = true,
 				IsActive = operationIsActive,
 			}
 		end

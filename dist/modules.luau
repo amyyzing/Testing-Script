@@ -670,7 +670,7 @@ local roundUtilities: any = createRoundUtilities(dependencies)
 	local ROUND_BASE_CAMP_RETRY_MAX = roundUtilities.BaseCampRetryMax
 	local function roundTeleportOptions(generation)
 		return {
-			ReleaseMovementOnCancel = true,
+			ReleaseMovement = true,
 			ForcePreferredPosition = true,
 			IsActive = function()
 				return doRoundOperationActive(generation)
@@ -3354,7 +3354,7 @@ local function teleportNearRoundTarget(target, preferredPosition, generation)
 		MaximumTargetDistance = 9.25,
 		LookAtPosition = center,
 		RequireStrict = true,
-		ReleaseMovementOnCancel = true,
+		ReleaseMovement = true,
 		IsActive = function()
 			return generation == nil
 				or (runtimeIsActive()
@@ -3381,7 +3381,7 @@ local function teleportToRoundDoorFace(target, approach, generation)
 		MaximumPreferredDistance = approach.MaximumPreferredDistance or 0.8,
 		LookDirection = approach.Facing,
 		RequireStrict = true,
-		ReleaseMovementOnCancel = true,
+		ReleaseMovement = true,
 		CandidateValidator = function(position)
 			local relative = Vector3.new(
 				position.X - geometry.Center.X,
@@ -14400,7 +14400,7 @@ perkTrackerState.placeItemsInFavouriteRoom = function(owner)
 		end
 		local function operationTeleportOptions()
 			return {
-				ReleaseMovementOnCancel = true,
+				ReleaseMovement = true,
 				IsActive = operationIsActive,
 			}
 		end
@@ -16525,9 +16525,9 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 	-- Inherit its original movement state, rather than its temporary anchor.
 	local previousRestore = movementRestore and movementRestore.Root == root
 		and movementRestore or nil
-	local originalAnchored = if previousRestore then previousRestore.Anchored else root.Anchored
-	local originalAutoRotate = if previousRestore then previousRestore.AutoRotate else humanoid.AutoRotate
-	local originalPlatformStand = if previousRestore then previousRestore.PlatformStand else humanoid.PlatformStand
+	local originalAnchored = if options.ReleaseMovement then false elseif previousRestore then previousRestore.Anchored else root.Anchored
+	local originalAutoRotate = if options.ReleaseMovement then true elseif previousRestore then previousRestore.AutoRotate else humanoid.AutoRotate
+	local originalPlatformStand = if options.ReleaseMovement then false elseif previousRestore then previousRestore.PlatformStand else humanoid.PlatformStand
 	local disabledStates = previousRestore and previousRestore.States or {}
 	movementRestore = {Root = root, Anchored = originalAnchored,
 		AutoRotate = originalAutoRotate, PlatformStand = originalPlatformStand, States = disabledStates}
@@ -16697,7 +16697,7 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 			root.AssemblyAngularVelocity = Vector3.zero
 			Services.RunService.Heartbeat:Wait()
 		end
-		local releaseMovement = options.ReleaseMovementOnCancel == true
+		local releaseMovement = (options.ReleaseMovement == true or options.ReleaseMovementOnCancel == true)
 			and not teleportIsActive()
 		if ownsCharacter and root.Parent then
 			root.Anchored = if releaseMovement then false else originalAnchored
@@ -16730,7 +16730,7 @@ perkTrackerState.teleportToRoomBoundingBoxCenter = function(room, options)
 				or "no grounded destination remained stable during teleport"
 	end
 	if not teleportIsActive() then
-		local releaseMovement = options.ReleaseMovementOnCancel == true
+		local releaseMovement = options.ReleaseMovement == true or options.ReleaseMovementOnCancel == true
 		local ownsCharacter = teleportOwnsCharacter()
 		if ownsCharacter and root.Parent and character.Parent then
 			pcall(function()

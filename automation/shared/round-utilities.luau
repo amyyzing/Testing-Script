@@ -708,7 +708,7 @@ local function teleportNearRoundTarget(target, preferredPosition, generation)
 		MaximumTargetDistance = 9.25,
 		LookAtPosition = center,
 		RequireStrict = true,
-		ReleaseMovementOnCancel = true,
+		ReleaseMovement = true,
 		IsActive = function()
 			return generation == nil
 				or (runtimeIsActive()
@@ -735,7 +735,7 @@ local function teleportToRoundDoorFace(target, approach, generation)
 		MaximumPreferredDistance = approach.MaximumPreferredDistance or 0.8,
 		LookDirection = approach.Facing,
 		RequireStrict = true,
-		ReleaseMovementOnCancel = true,
+		ReleaseMovement = true,
 		CandidateValidator = function(position)
 			local relative = Vector3.new(
 				position.X - geometry.Center.X,
