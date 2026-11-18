@@ -24,7 +24,7 @@ server-only behavior automatically.
 | Nightmare | False throw/shatter sounds, increased dark-room hunt chance | Evidence matching; isolated sounds/hunts cannot identify it |
 | Oni | Hunt speed 14 | Known scale and two hunts required; substantial Energy separates its base 14 from Wretch |
 | Phantom | Faster while invisible, blink speed 13.5 | Seven stable pairs compare invisible and visible speed; a drifting baseline stays inconclusive |
-| Ravager | Multiple throws, hunting item vortex | Sustained multi-object orbit qualification |
+| Ravager | Multiple throws, hunting item vortex | Sustained multi-object orbit qualification passed five native-confirmed Ravager rounds; an absent vortex stays inconclusive |
 | Revenant | Stops hunting after a kill, rests 15s | Hunt stopping is Maybe support only because custom difficulty can cause it for other ghosts. No hard exclusion from continuation; last-survivor and unknown-survivor deaths are ignored |
 | Shadow | Temperature-alter coefficient 0.5 | Signed net cooling per second is logged with warm-up/plateau states; uncalibrated slow cooling is weak and cannot exclude |
 | Siren | Journal describes sprint slowing and humming | Native Revenant also produced 0.8x slowdown: speed-only support is weak; no slowdown remains inconclusive. Neither identifies nor excludes Siren. Exact active Spirit Box humming passed five native-confirmed Siren rounds with full evidence; hidden or absent responses remain inconclusive |
