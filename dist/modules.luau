@@ -9517,7 +9517,12 @@ local Aswang = {Name = "Aswang", Index = 1}
 function Aswang.new(dependencies)
 	local Traffic = assert(dependencies.Traffic, "Aswang requires Traffic")
 	local epsilon = tonumber(dependencies.SpeedEpsilon) or 0.01
-	local Processor = {}
+	local Processor = {LastVerdict = {}}
+	local function report(signal, payload)
+		if Processor.LastVerdict[payload.Perk] == signal then return end
+		Processor.LastVerdict[payload.Perk] = signal
+		Traffic(signal, payload):SendTo("Verdict")
+	end
 
 	Processor.Disconnect = Traffic:Receive("Aswang", function(signal, data)
 		data = type(data) == "table" and data or {}
@@ -9539,14 +9544,14 @@ function Aswang.new(dependencies)
 				end
 			end
 			if dropped or data.completed and comparedAfterSplit then
-				Traffic(dropped and "Support" or "RuleOut", {
+				report(dropped and "Support" or "RuleOut", {
 					Ghost = "Aswang",
 					Perk = "Salt slowdown",
 					Observation = dropped and "Slowed on salt" or "No salt slowdown",
 					Confidence = 99,
 					Reason = dropped and "hunting disturbed-salt contact reduced speed"
 						or "hunting salt contact caused no speed reduction",
-				}):SendTo("Verdict")
+				})
 			end
 		elseif signal == "KillSpeed" then
 			local before = data.beforeKill or {}
@@ -9568,14 +9573,14 @@ function Aswang.new(dependencies)
 			local rose = observed[true] > baselines[true] + epsilon
 				and observed[false] > baselines[false] + epsilon
 			if rose or data.completed then
-				Traffic(rose and "Support" or "RuleOut", {
+				report(rose and "Support" or "RuleOut", {
 					Ghost = "Aswang",
 					Perk = "Speed rises after kill",
 					Observation = rose and "Sped up after kill" or "No speed gain after kill",
 					Confidence = 99,
 					Reason = rose and "stable speed rose after a unique player kill"
 						or "stable speed did not rise after a unique player kill",
-				}):SendTo("Verdict")
+				})
 			end
 		end
 	end)
