@@ -75,4 +75,11 @@ upgrade.Environment = {BridgeURL = environment.BridgeURL, DemonologyMCPResume = 
 local upgraded = createResume(upgrade)
 assert(upgraded ~= legacy and legacy.Destroyed and upgraded.Version,
 	"a cached controller from the older resume implementation must be replaced")
+local cachedDependencies = dependencies(world)
+cachedDependencies.Environment = {BridgeURL = "https://bridge.example"}
+local destroyed = createResume(cachedDependencies)
+destroyed:Destroy()
+local reopened = createResume(cachedDependencies)
+assert(reopened ~= destroyed and reopened.Enabled and reopened.Queued,
+	"revisiting a cached destroyed controller must create a live controller and arm the next hop")
 print("mcp-teleport.spec: independent multi-hop queue, stale flags, retries and duplicate prevention passed")

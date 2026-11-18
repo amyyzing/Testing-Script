@@ -13851,7 +13851,7 @@ end
 
 end)())
 modules["logic/mcp-teleport.luau"] = pack((function()
-local VERSION = 2
+local VERSION = 3
 return function(dependencies)
 	local environment = dependencies.Environment or (getgenv and getgenv()) or _G
 	local world = dependencies.Game or game
@@ -13859,7 +13859,8 @@ return function(dependencies)
 	local compile = dependencies.Compile or loadstring or load
 	local spawn = dependencies.Spawn or task.spawn
 	local existing = environment.DemonologyMCPResume
-	if existing and existing.Version == VERSION and existing.Game == world and existing.JobId == tostring(world.JobId) then
+	if existing and existing.Version == VERSION and existing.Enabled ~= false
+		and existing.Game == world and existing.JobId == tostring(world.JobId) then
 		existing:Arm()
 		if dependencies.Recover and existing.Recover then
 			existing:Recover(dependencies.BridgeURL, dependencies.AuthToken, dependencies.ArrivalId)
