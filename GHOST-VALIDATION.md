@@ -2,8 +2,10 @@
 
 Updated 2026-11-18. A qualifying identity control records the script's default
 prediction before submission, then compares it with a fresh native job result.
-Unobserved perks, fixture failures, deaths and ambiguous counter-controls are
-not credited as successful identifications. Five successes are empirical
+Unobserved perks, fixture failures, uncontrolled deaths and ambiguous
+counter-controls are not credited as successful identifications. Intentional
+solo kill controls retain the prediction and speed trace before checking the
+native result; a death by itself earns no credit. Five successes are empirical
 coverage of the recorded conditions, not proof of universal uniqueness.
 
 Most earlier five-round series predate the latest shared confidence and
@@ -12,14 +14,14 @@ the table does not imply five fresh games on the latest build for every ghost.
 
 | Ghost | Native coverage | Remaining limitation |
 | --- | --- | --- |
-| Aswang | Five qualified salt-slowdown identifications; native solo kill trace confirmed 21 to 23 for over eight seconds | Five fresh post-kill classification controls still pending |
+| Aswang | Five qualified salt-slowdown identifications; five native-confirmed solo post-kill classifications on c9ea459, including temporary slowdown and recovery | Three zero-kill setup failures were skipped. One private constant-speed assertion incorrectly rejected a correct prediction; its original failure and the reviewed native trace are preserved |
 | Banshee | Glass observations and native probability flag reviewed | Glass frequency is variable; no unique automatic identity claim |
 | Demon | Five floating-Cross identifications and ordinary-Cross comparison | Interrupted-Cross cancellation has engine/regression coverage, not a new five-game series |
 | Dullahan | Five repeated micro-acceleration identifications after the recorded development failures | Controlled line-of-sight exposure is required |
 | Dybbuk | Five corrected Music Box stun identifications at 0.5x, 1x and 2x; ordinary-ghost comparisons, including the actual detector at close range | Initial low-speed miss corrected; one disconnected return remains separately unverified. These are five qualifying confirmations, not five uninterrupted attempts. Corpse motion alone is unqualified |
 | Entity | Five origin-smoke/relocation identifications | Uncorroborated physics displacement is not unique |
 | Ghoul | One unattended-electronics counter-control, actual Ghoul | Default guess was Doppelganger; overlapping clues remain ambiguous, not a correct identity credit |
-| Keres | Native solo kill trace confirmed 21 to 19 for over eight seconds; original detector miss reproduced and fixed by replay | Five fresh post-kill classification controls still pending; model gender is exclusion-only |
+| Keres | Native solo kill trace confirmed 21 to 19 for over eight seconds; original detector miss reproduced and fixed by replay | Five fresh post-kill classification controls still pending. MCP disconnected during the first fresh control's return; that result is uncredited until retrieved. Model gender is exclusion-only |
 | Leviathan | Five native glitch-attribute identifications | Ordinary switch frequency remains weak |
 | Nightmare | Current native probability modifiers reviewed | Random sounds or a single hunt do not identify it |
 | Oni | Five stable-base-speed identifications with Energy controls | Low-Energy Wretch and unknown difficulty scale must remain distinguishable |
@@ -59,5 +61,9 @@ Important recent records include `vex-mimicry-five-confirmed.json`,
 Dybbuk low-speed miss. The corrected positive series is
 `dybbuk-music-final-five-confirmed.json`; its ordinary detector counter-control
 is `vex-latest-music-counter-control-confirmed.json`.
+The post-kill Aswang series is `aswang-solo-kill-five-confirmed.json`.
+Native kill animations delayed the death flag by about 1.1 to 3.3 seconds;
+the full-event replay includes the longer-animation miss that required the
+bounded five-second speed correlation window. The earlier miss is uncredited.
 No hidden ghost type, synthetic evidence, fabricated
 kill or manually chosen answer is fed into the detector to earn trial credit.
