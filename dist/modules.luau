@@ -8647,7 +8647,11 @@ local function filterCandidates(evidence, ruleOuts, options)
 	return result
 end
 
-local function classifyOrbCombination(evidence)
+local function classifyOrbCombination(evidence, evidenceLimit)
+	evidenceLimit = tonumber(evidenceLimit)
+	if not evidenceLimit or evidenceLimit < 0 or evidenceLimit > 3 or evidenceLimit % 1 ~= 0 then
+		evidenceLimit = 3
+	end
 	local observed = collectEvidence(evidence)
 	local evidenceCount = 0
 	for _, evidenceKey in ipairs(EVIDENCE_ORDER) do
@@ -8665,6 +8669,7 @@ local function classifyOrbCombination(evidence)
 		})
 	end
 	local fourthEvidence = orbObserved and evidenceCount >= 4
+	local excessEvidence = orbObserved and evidenceCount > evidenceLimit
 	local impossibleCombination = orbObserved
 		and evidenceCount >= 3
 		and #realCandidates == 0
@@ -8672,8 +8677,10 @@ local function classifyOrbCombination(evidence)
 		OrbObserved = orbObserved,
 		EvidenceCount = evidenceCount,
 		FourthEvidence = fourthEvidence,
+		EvidenceLimit = evidenceLimit,
+		ExcessEvidence = excessEvidence,
 		ImpossibleCombination = impossibleCombination,
-		Qualified = fourthEvidence or impossibleCombination,
+		Qualified = excessEvidence or impossibleCombination,
 		RealCandidates = realCandidates,
 		Evidence = observed,
 	}
@@ -8756,7 +8763,7 @@ local function selectHighestConfidenceGuess(options)
 	-- themselves are contradictory.
 	local confirmedEvidence = collectEvidence(options.ConfirmedEvidence)
 	if next(confirmedEvidence) ~= nil then
-		local orbCombination = classifyOrbCombination(confirmedEvidence)
+		local orbCombination = classifyOrbCombination(confirmedEvidence, options.EvidenceLimit)
 		if orbCombination.Qualified and allowed.Doppelganger then
 			candidates = {"Doppelganger"}
 			allowed = {Doppelganger = true}
@@ -10703,7 +10710,8 @@ return function(dependencies)
 	local function evidenceCompatible(index)
 		if type(EvidenceCatalog) ~= "table" then return true end
 		local ghost = GHOSTS[index]
-		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence)
+		local limit = dependencies.ReadEvidenceLimit and dependencies.ReadEvidenceLimit()
+		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence, limit)
 		if orb.Qualified then return ghost == "Doppelganger" end
 		for evidence in pairs(Verdict.Evidence) do
 			if not EvidenceCatalog.SupportsEvidence(ghost, evidence, {
@@ -10760,8 +10768,10 @@ return function(dependencies)
 		if type(EvidenceCatalog) ~= "table" then return nil end
 		local count = 0
 		for _ in pairs(Verdict.Evidence) do count += 1 end
-		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence)
+		local limit = dependencies.ReadEvidenceLimit and dependencies.ReadEvidenceLimit()
+		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence, limit)
 		if orb.Qualified then return indexes.Doppelganger end
+		if orb.EvidenceLimit and count > orb.EvidenceLimit then return nil, true end
 		if count ~= 3 then return nil end
 		local candidates = EvidenceCatalog.FilterCandidates(Verdict.Evidence, {}, {
 			NamesOnly = true,
@@ -10889,7 +10899,9 @@ return function(dependencies)
 	end
 
 	function Verdict:GetEvidenceResolvedGhost()
-		local index = resolvedEvidenceIndex() or soleRemainingIndex()
+		local index, excess = resolvedEvidenceIndex()
+		if excess then return nil end
+		index = index or soleRemainingIndex()
 		return index and not isRuledOut(index) and GHOSTS[index] or nil
 	end
 
@@ -16817,7 +16829,8 @@ return function(dependencies)
 		if not ok or type(definition) ~= "table" or not list then return end
 		local data = {GameId = Game.GameId, Time = now(), Source = "NativeLobby"}
 		for _, option in ipairs(definition.Options or {}) do
-			if option.ID == "GhostWalkSpeedMultiplier" or option.ID == "GhostLowerTemperatureRange" then
+			if option.ID == "GhostWalkSpeedMultiplier" or option.ID == "GhostLowerTemperatureRange"
+				or option.ID == "EvidenceGiven" then
 				local row = list:FindFirstChild(option.ID)
 				local index = row and row:GetAttribute("Index")
 				local toggle = type(index) == "number" and option.Toggles[index]
@@ -16833,8 +16846,13 @@ return function(dependencies)
 		local map = World:FindFirstChild("Map")
 		local size = map and map:GetAttribute("MapSize")
 		local custom = self.Data and self.Data.GhostWalkSpeedMultiplier
+		local evidenceLimit = self.Data and tonumber(self.Data.EvidenceGiven)
+		if evidenceLimit and (evidenceLimit < 0 or evidenceLimit > 3 or evidenceLimit % 1 ~= 0) then
+			evidenceLimit = nil
+		end
 		local mapFactor = size == "Large" and 1.1 or size == "Medium" and 1.05 or 1
 		return {CustomMultiplier = custom, MapMultiplier = mapFactor,
+			EvidenceLimit = evidenceLimit,
 			Known = type(custom) == "number" and size == "Small",
 			TemperatureMode = self.Data and self.Data.GhostLowerTemperatureRange}
 	end

@@ -3,6 +3,7 @@ local stored, callback
 local rows = {
  GhostWalkSpeedMultiplier={GetAttribute=function()return 6 end},
  GhostLowerTemperatureRange={GetAttribute=function()return 2 end},
+ EvidenceGiven={GetAttribute=function()return 3 end},
 }
 local list={FindFirstChild=function(_,name)return rows[name]end}
 local computer={FindFirstChild=function()return list end}
@@ -21,16 +22,19 @@ local deps={
  Require=function()return {Options={
  {ID="GhostWalkSpeedMultiplier",Toggles={"50%","75%","100%","125%","150%","200%"},Values={["200%"]=2}},
  {ID="GhostLowerTemperatureRange",Toggles={"Easy","Medium"}},
+ {ID="EvidenceGiven",Toggles={"0","1","2","3"}},
  }}end,
 }
 local lobby=create(deps)
 assert(not lobby:GetScale().Known)
 callback("Enum.TeleportState.Started")
 assert(stored.GhostWalkSpeedMultiplier==2 and stored.GhostLowerTemperatureRange=="Medium")
+assert(stored.EvidenceGiven=="2" and lobby:GetScale().EvidenceLimit==2)
 lobby:Destroy() assert(callback==nil)
 native=false
 local round=create(deps)
 assert(round:GetScale().Known and round:GetScale().CustomMultiplier==2 and stored==false)
+assert(round:GetScale().EvidenceLimit==2, "the native evidence limit must survive the lobby handoff")
 assert(not create(deps):GetScale().Known, "a fresh unrelated load cannot inherit consumed tuning")
 stored={GameId=99,Time=100,GhostWalkSpeedMultiplier=2}
 assert(not create(deps):GetScale().Known, "foreign game settings must be rejected")

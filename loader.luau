@@ -428,6 +428,7 @@ local function startTrackers()
 			Player = player,
 			MarkJournal = markJournal,
 			EvidenceCatalog = GhostCatalog,
+			ReadEvidenceLimit = function() return session.RoundTuning:GetScale().EvidenceLimit end,
 		})
 		session.Traffic, session.Verdict, session.Ghost = Traffic, Verdict, ghost
 		local journalSyncElapsed = 0

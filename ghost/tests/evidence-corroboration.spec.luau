@@ -13,6 +13,24 @@ local Verdict = createVerdict({
 	ApplyJournalState = function() return true, true end,
 })
 
+local limitedTraffic = createTraffic()
+local limitedVerdict = createVerdict({Traffic = limitedTraffic, EvidenceCatalog = EvidenceCatalog,
+	ReadEvidenceLimit = function() return 2 end,
+	ApplyJournalState = function() return true, true end})
+for _, name in ipairs({"FreezingTemperatures", "SpiritBox", "GhostOrb"}) do
+	limitedTraffic("EvidenceState", {Evidence = name, State = true}):SendTo("Verdict")
+end
+expect(limitedVerdict:GetEvidenceResolvedGhost() == "Doppelganger",
+	"a third Orb clue under a confirmed two-evidence limit must not resolve to Ghoul")
+limitedVerdict:Reset()
+for _, name in ipairs({"EMFLevel5", "SpiritBox", "GhostWriting"}) do
+	limitedTraffic("EvidenceState", {Evidence = name, State = true}):SendTo("Verdict")
+end
+expect(limitedVerdict:GetEvidenceResolvedGhost() == nil,
+	"excess evidence without Orb is contradictory, not a certain ordinary ghost")
+expect(not EvidenceCatalog.ClassifyOrbCombination({"FreezingTemperatures", "SpiritBox", "GhostOrb"}, 2.5).Qualified,
+	"invalid evidence limits must preserve the three-evidence default")
+
 for _, profile in ipairs(EvidenceCatalog.Profiles) do
 	local exact = EvidenceCatalog.FilterCandidates(profile.Evidence, {}, {
 		NamesOnly = true,

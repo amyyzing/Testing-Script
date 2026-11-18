@@ -149,7 +149,8 @@ return function(dependencies)
 	local function evidenceCompatible(index)
 		if type(EvidenceCatalog) ~= "table" then return true end
 		local ghost = GHOSTS[index]
-		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence)
+		local limit = dependencies.ReadEvidenceLimit and dependencies.ReadEvidenceLimit()
+		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence, limit)
 		if orb.Qualified then return ghost == "Doppelganger" end
 		for evidence in pairs(Verdict.Evidence) do
 			if not EvidenceCatalog.SupportsEvidence(ghost, evidence, {
@@ -206,8 +207,10 @@ return function(dependencies)
 		if type(EvidenceCatalog) ~= "table" then return nil end
 		local count = 0
 		for _ in pairs(Verdict.Evidence) do count += 1 end
-		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence)
+		local limit = dependencies.ReadEvidenceLimit and dependencies.ReadEvidenceLimit()
+		local orb = EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence, limit)
 		if orb.Qualified then return indexes.Doppelganger end
+		if orb.EvidenceLimit and count > orb.EvidenceLimit then return nil, true end
 		if count ~= 3 then return nil end
 		local candidates = EvidenceCatalog.FilterCandidates(Verdict.Evidence, {}, {
 			NamesOnly = true,
@@ -335,7 +338,9 @@ return function(dependencies)
 	end
 
 	function Verdict:GetEvidenceResolvedGhost()
-		local index = resolvedEvidenceIndex() or soleRemainingIndex()
+		local index, excess = resolvedEvidenceIndex()
+		if excess then return nil end
+		index = index or soleRemainingIndex()
 		return index and not isRuledOut(index) and GHOSTS[index] or nil
 	end
 

@@ -590,7 +590,11 @@ local function filterCandidates(evidence, ruleOuts, options)
 	return result
 end
 
-local function classifyOrbCombination(evidence)
+local function classifyOrbCombination(evidence, evidenceLimit)
+	evidenceLimit = tonumber(evidenceLimit)
+	if not evidenceLimit or evidenceLimit < 0 or evidenceLimit > 3 or evidenceLimit % 1 ~= 0 then
+		evidenceLimit = 3
+	end
 	local observed = collectEvidence(evidence)
 	local evidenceCount = 0
 	for _, evidenceKey in ipairs(EVIDENCE_ORDER) do
@@ -608,6 +612,7 @@ local function classifyOrbCombination(evidence)
 		})
 	end
 	local fourthEvidence = orbObserved and evidenceCount >= 4
+	local excessEvidence = orbObserved and evidenceCount > evidenceLimit
 	local impossibleCombination = orbObserved
 		and evidenceCount >= 3
 		and #realCandidates == 0
@@ -615,8 +620,10 @@ local function classifyOrbCombination(evidence)
 		OrbObserved = orbObserved,
 		EvidenceCount = evidenceCount,
 		FourthEvidence = fourthEvidence,
+		EvidenceLimit = evidenceLimit,
+		ExcessEvidence = excessEvidence,
 		ImpossibleCombination = impossibleCombination,
-		Qualified = fourthEvidence or impossibleCombination,
+		Qualified = excessEvidence or impossibleCombination,
 		RealCandidates = realCandidates,
 		Evidence = observed,
 	}
@@ -699,7 +706,7 @@ local function selectHighestConfidenceGuess(options)
 	-- themselves are contradictory.
 	local confirmedEvidence = collectEvidence(options.ConfirmedEvidence)
 	if next(confirmedEvidence) ~= nil then
-		local orbCombination = classifyOrbCombination(confirmedEvidence)
+		local orbCombination = classifyOrbCombination(confirmedEvidence, options.EvidenceLimit)
 		if orbCombination.Qualified and allowed.Doppelganger then
 			candidates = {"Doppelganger"}
 			allowed = {Doppelganger = true}

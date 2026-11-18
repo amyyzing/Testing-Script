@@ -33,7 +33,8 @@ return function(dependencies)
 		if not ok or type(definition) ~= "table" or not list then return end
 		local data = {GameId = Game.GameId, Time = now(), Source = "NativeLobby"}
 		for _, option in ipairs(definition.Options or {}) do
-			if option.ID == "GhostWalkSpeedMultiplier" or option.ID == "GhostLowerTemperatureRange" then
+			if option.ID == "GhostWalkSpeedMultiplier" or option.ID == "GhostLowerTemperatureRange"
+				or option.ID == "EvidenceGiven" then
 				local row = list:FindFirstChild(option.ID)
 				local index = row and row:GetAttribute("Index")
 				local toggle = type(index) == "number" and option.Toggles[index]
@@ -49,8 +50,13 @@ return function(dependencies)
 		local map = World:FindFirstChild("Map")
 		local size = map and map:GetAttribute("MapSize")
 		local custom = self.Data and self.Data.GhostWalkSpeedMultiplier
+		local evidenceLimit = self.Data and tonumber(self.Data.EvidenceGiven)
+		if evidenceLimit and (evidenceLimit < 0 or evidenceLimit > 3 or evidenceLimit % 1 ~= 0) then
+			evidenceLimit = nil
+		end
 		local mapFactor = size == "Large" and 1.1 or size == "Medium" and 1.05 or 1
 		return {CustomMultiplier = custom, MapMultiplier = mapFactor,
+			EvidenceLimit = evidenceLimit,
 			Known = type(custom) == "number" and size == "Small",
 			TemperatureMode = self.Data and self.Data.GhostLowerTemperatureRange}
 	end
