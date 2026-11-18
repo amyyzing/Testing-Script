@@ -4917,7 +4917,9 @@ return function(dependencies)
 		if object:IsA("Model") and object:GetAttribute("ItemName") == "EMF Reader" then
 			inspectItemModel(object)
 		end
-		if object:IsA("BasePart") and object.Name == "GhostOrb" then setAutomatic("GhostOrb") end
+		if object:IsA("BasePart") and object.Name == "GhostOrb" and object.Parent == Workspace then
+			setAutomatic("GhostOrb")
+		end
 		if tracker.Automatic.Handprints then return end
 		local handprints = Workspace and Workspace:FindFirstChild("Handprints")
 		if not handprints or not object:IsDescendantOf(handprints) then return end

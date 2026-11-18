@@ -144,7 +144,7 @@ local ghost = world:Add(instance("Model", "Ghost", {
 local map = world:Add(instance("Folder", "Map"))
 local rooms = map:Add(instance("Folder", "Rooms"))
 rooms:Add(instance("Folder", "Office", {Temperature = -0.4}))
-world:Add(instance("Part", "GhostOrb"))
+map:Add(instance("Part", "GhostOrb"))
 map:Add(instance("Part", "Handprint1"))
 map:Add(instance("Part", "Footprint"))
 local saltPiles = world:Add(instance("Folder", "SaltPiles"))
@@ -212,6 +212,10 @@ local tracker = createEvidenceState({
 })
 
 expect(not found.EMFLevel5, "EMF-5 should remain unknown before LastEMFLevel5Time changes")
+expect(not found.GhostOrb, "a nested prop named GhostOrb must not count as native camera evidence")
+local nativeOrb = world:Add(instance("Part", "GhostOrb"))
+world.DescendantAdded:Fire(nativeOrb)
+expect(found.GhostOrb, "the native camera's direct Workspace.GhostOrb must count")
 ghost:SetAttribute("LastEMFLevel5Time", 12.5)
 expect(found.EMFLevel5, "LastEMFLevel5Time should confirm EMF-5 immediately")
 expect(not found.Handprints,
