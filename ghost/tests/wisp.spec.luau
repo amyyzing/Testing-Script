@@ -158,13 +158,12 @@ local roomTracker = createFavouriteHuntRoom({
 })
 for count = 1, 9 do
 	roomTraffic("HuntingState", {Hunting = true, Time = count}):SendTo("FavouriteHuntRoom")
-	expect(roomVerdict.Confidence[24] == math.min(65, 5 + count * 10)
-		and roomVerdict.SourceConfidence[24] == 5 + count * 10,
-		"favourite-room hunt confidence should rise by ten percent per hunt")
+	expect(roomVerdict.Confidence[24] == nil and roomVerdict.SourceConfidence[24] == nil,
+		"a favourite-room hunt cannot support Wisp, even when repeated")
 	roomTraffic("HuntingState", {Hunting = false, Time = count + 0.5}):SendTo("FavouriteHuntRoom")
 end
-expect((roomVerdict.Confidence[24] == 65 and roomVerdict.SourceConfidence[24] == 95),
-	"repeated favourite-room starts must stay medium while Doppelganger fits")
+expect(roomVerdict.Confidence[24] == nil and roomVerdict.SourceConfidence[24] == nil,
+	"absence of an outside-room start must not become positive support")
 currentRoom = {Name = "Hallway"}
 roomTraffic("HuntingState", {Hunting = true, Time = 10}):SendTo("FavouriteHuntRoom")
 expect(table.find(roomVerdict.RuledOut, 24),

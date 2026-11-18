@@ -7703,212 +7703,99 @@ end
 end)())
 modules["ghost/dormant-trackers/specter-trial.luau"] = pack((function()
 return function(dependencies)
-	local Traffic = assert(dependencies.Traffic, "specter-trial requires Traffic")
-	local Ghost = assert(dependencies.Ghost, "specter-trial requires Ghost")
-	local RunService = assert(dependencies.RunService, "specter-trial requires RunService")
-	local clock = dependencies.Clock or os.clock
-	local readPosition = dependencies.Position
-	local readCurrentRoom = dependencies.ReadCurrentRoom
-	local sampleInterval = tonumber(dependencies.SampleInterval) or 0.1
-	local analysisInterval = tonumber(dependencies.AnalysisInterval) or 0.2
-	local settledWindow = tonumber(dependencies.SettledWindow) or 0.8
-	local stationaryThreshold = tonumber(dependencies.StationaryThreshold) or 0.22
-	local armSeconds = tonumber(dependencies.ArmSeconds) or 5
-	local roomSettleSeconds = tonumber(dependencies.RoomChangeSettleSeconds) or 2
-	local Tracker = {
-		Kind = "dormant",
-		Running = true,
-		Hunting = Ghost:GetAttribute("Hunting") == true,
-		Motion = {},
-		Sequence = 0,
-		Accumulator = 0,
-	}
-
-	local function token(value)
-		if value and value.Name then value = value.Name end
-		return string.lower(tostring(value or ""):gsub("[^%w]", ""))
-	end
-
-	local function sameRoom(first, second)
-		local left, right = token(first), token(second)
-		return left ~= "" and left == right
-	end
-
-	local function position()
-		if readPosition then return readPosition(Ghost) end
-		if Ghost:IsA("BasePart") then return Ghost.Position end
-		return Ghost:GetPivot().Position
-	end
-
-	local function distance(first, second)
-		local x, y, z = first.X - second.X, first.Y - second.Y, first.Z - second.Z
-		return math.sqrt(x * x + y * y + z * z)
-	end
-
-	local function currentRoom(refresh)
-		if readCurrentRoom then return readCurrentRoom(refresh == true) end
-		return Ghost:GetAttribute("CurrentRoom")
-	end
-
-	local function favouriteRoom()
-		return Ghost:GetAttribute("FavoriteRoom")
-			or Ghost:GetAttribute("FavouriteRoom")
-	end
-
-	local function clearTrial()
-		Tracker.CandidateAt = nil
-		Tracker.Armed = false
-		Tracker.ActiveTrialId = nil
-	end
-
-	local function resetMotion(now)
-		table.clear(Tracker.Motion)
-		Tracker.LastPosition = position()
-		Tracker.LastPositionAt = now
-		Tracker.MovementSpeed = 0
-	end
-
-	local function measure(now)
-		local current = position()
-		if Tracker.LastPosition and Tracker.LastPositionAt then
-			local elapsed = now - Tracker.LastPositionAt
-			if elapsed > 0 then
-				Tracker.MovementSpeed = distance(current, Tracker.LastPosition) / elapsed
-			end
-		end
-		Tracker.LastPosition, Tracker.LastPositionAt = current, now
-		return Tracker.MovementSpeed or 0
-	end
-
-	local function settledSpeed(now, fallback)
-		local values = {}
-		for _, sample in ipairs(Tracker.Motion) do
-			if sample.Time >= now - settledWindow then table.insert(values, sample.Speed) end
-		end
-		if #values == 0 then return fallback end
-		table.sort(values)
-		local middle = math.floor((#values + 1) / 2)
-		if #values % 2 == 1 then return values[middle] end
-		return (values[middle] + values[middle + 1]) * 0.5
-	end
-
-	local function emit(outcome, now)
-		local trialId = Tracker.ActiveTrialId
-		if not trialId then
-			Tracker.Sequence += 1
-			trialId = "specter-trial:" .. Tracker.Sequence
-		end
-		Traffic("SpecterTrial", {
-			TrialId = trialId,
-			Outcome = outcome,
-			Qualified = true,
-			Completed = true,
-			FavouriteRoomUnchanged = true,
-			ArmedSeconds = math.max(armSeconds, now - (Tracker.CandidateAt or now)),
-			Time = now,
-		}):SendTo("Specter")
-		if outcome == "Departure" then Tracker.Resolved = true end
-	end
-
-	local function analyze(now, measuredSpeed)
-		if Tracker.Hunting or Tracker.Resolved then return end
-		local favourite = favouriteRoom()
-		if token(favourite) == "" then clearTrial() return end
-		local room = currentRoom(false)
-		local inFavourite = sameRoom(room, favourite)
-		local stationary = settledSpeed(now, measuredSpeed) <= stationaryThreshold
-
-		if not Tracker.TrackedFavourite then
-			Tracker.TrackedFavourite = favourite
-		elseif not sameRoom(Tracker.TrackedFavourite, favourite) then
-			Tracker.TrackedFavourite = favourite
-			Tracker.RoomChangePause = true
-			Tracker.RoomChangeSettledAt = nil
-			clearTrial()
-		end
-
-		if Tracker.RoomChangePause then
-			if inFavourite and stationary then
-				Tracker.RoomChangeSettledAt = Tracker.RoomChangeSettledAt or now
-				if now - Tracker.RoomChangeSettledAt + 1e-6 >= roomSettleSeconds then
-					Tracker.RoomChangePause = false
-					Tracker.RoomChangeSettledAt = nil
-					Tracker.CandidateAt = now
-				end
-			else
-				Tracker.RoomChangeSettledAt = nil
-			end
-			return
-		end
-
-		if not inFavourite or not stationary then
-			if Tracker.Armed then emit("Departure", now) end
-			clearTrial()
-			return
-		end
-		Tracker.CandidateAt = Tracker.CandidateAt or now
-		if not Tracker.Armed and now - Tracker.CandidateAt + 1e-6 >= armSeconds then
-			Tracker.Sequence += 1
-			Tracker.ActiveTrialId = "specter-trial:" .. Tracker.Sequence
-			Tracker.Armed = true
-		end
-	end
-
-	local function setHunting(hunting, now)
-		if hunting == Tracker.Hunting then return end
-		local speed = measure(now)
-		if hunting then
-			if Tracker.Armed and not Tracker.RoomChangePause then
-				local favourite = favouriteRoom()
-				if sameRoom(Tracker.TrackedFavourite, favourite) then
-					local residence = sameRoom(currentRoom(true), favourite)
-						and speed <= stationaryThreshold
-					emit(residence and "Residence" or "Departure", now)
-				end
-			end
-			clearTrial()
-			Tracker.RoomChangePause = false
-			Tracker.RoomChangeSettledAt = nil
-		elseif not hunting then
-			resetMotion(now)
-		end
-		Tracker.Hunting = hunting
-	end
-
-	resetMotion(clock())
-	Tracker.Disconnect = Traffic:Receive("SpecterTrial", function(signal, payload)
-		if signal == "HuntingState" and type(payload) == "table" then
-			setHunting(payload.Hunting == true, tonumber(payload.Time) or clock())
-		end
-	end)
-	Tracker.Connection = RunService.Heartbeat:Connect(function(deltaTime)
-		if not Tracker.Running or Tracker.Resolved then return end
-		Tracker.Accumulator += math.max(0, tonumber(deltaTime) or 0)
-		if Tracker.Accumulator < sampleInterval then return end
-		Tracker.Accumulator %= sampleInterval
-		local now = clock()
-		local speed = measure(now)
-		if Tracker.Hunting then return end
-		table.insert(Tracker.Motion, {Time = now, Speed = speed})
-		while Tracker.Motion[1] and Tracker.Motion[1].Time < now - 12 do
-			table.remove(Tracker.Motion, 1)
-		end
-		if not Tracker.LastAnalysisAt
-			or now - Tracker.LastAnalysisAt + 1e-6 >= analysisInterval then
-			Tracker.LastAnalysisAt = now
-			analyze(now, speed)
-		end
-	end)
-
-	function Tracker:Destroy()
-		if not self.Running then return end
-		self.Running = false
-		self.Disconnect()
-		self.Connection:Disconnect()
-		table.clear(self.Motion)
-	end
-
-	return Tracker
+ local Traffic = assert(dependencies.Traffic, "specter-trial requires Traffic")
+ local Ghost = assert(dependencies.Ghost, "specter-trial requires Ghost")
+ local RunService = assert(dependencies.RunService, "specter-trial requires RunService")
+ local clock = dependencies.Clock or os.clock
+ local readCurrentRoom = dependencies.ReadCurrentRoom
+ local sampleInterval = tonumber(dependencies.SampleInterval) or 0.1
+ local analysisInterval = tonumber(dependencies.AnalysisInterval) or 0.2
+ local armSeconds = tonumber(dependencies.ArmSeconds) or 5
+ local roomSettleSeconds = tonumber(dependencies.RoomChangeSettleSeconds) or 2
+ local Tracker = {Kind = "dormant", Running = true,
+  Hunting = Ghost:GetAttribute("Hunting") == true, Sequence = 0, Accumulator = 0}
+ local function token(value)
+  if value and value.Name then value = value.Name end
+  return string.lower(tostring(value or ""):gsub("[^%w]", ""))
+ end
+ local function currentRoom(refresh)
+  if readCurrentRoom then return readCurrentRoom(refresh == true) end
+  return Ghost:GetAttribute("CurrentRoom")
+ end
+ local function clearTrial()
+  Tracker.CandidateAt = nil
+  Tracker.Armed = false
+  Tracker.OutsideAt = nil
+ end
+ local function analyze(now)
+  if Tracker.Resolved then return end
+  if Tracker.Hunting or Ghost:GetAttribute("Hunting") == true then clearTrial() return end
+  local favourite = token(Ghost:GetAttribute("FavoriteRoom") or Ghost:GetAttribute("FavouriteRoom"))
+  local room = token(currentRoom(false))
+  if favourite == "" or room == "" then clearTrial() return end
+  if Tracker.TrackedFavourite and Tracker.TrackedFavourite ~= favourite then
+   clearTrial()
+   Tracker.RoomChangePause = true
+   Tracker.RoomChangeSettledAt = nil
+  end
+  Tracker.TrackedFavourite = favourite
+  if Tracker.RoomChangePause then
+   if room == favourite then
+    Tracker.RoomChangeSettledAt = Tracker.RoomChangeSettledAt or now
+    if now - Tracker.RoomChangeSettledAt + 1e-6 >= roomSettleSeconds then
+     Tracker.RoomChangePause = false
+     Tracker.CandidateAt = now
+    end
+   else
+    Tracker.RoomChangeSettledAt = nil
+   end
+   return
+  end
+  if room == favourite then
+   Tracker.OutsideAt = nil
+   Tracker.CandidateAt = Tracker.CandidateAt or now
+   if not Tracker.Armed and now - Tracker.CandidateAt + 1e-6 >= armSeconds then
+    Tracker.Sequence += 1
+    Tracker.Armed = true
+   end
+   return
+  end
+  if not Tracker.Armed then clearTrial() return end
+  room = token(currentRoom(true))
+  if room == "" or room == favourite then Tracker.OutsideAt = nil return end
+  Tracker.OutsideAt = Tracker.OutsideAt or now
+  if now - Tracker.OutsideAt + 1e-6 < 0.5 then return end
+  Tracker.Resolved = true
+  Traffic("SpecterTrial", {TrialId = "specter-trial:" .. Tracker.Sequence,
+   Outcome = "Departure", Qualified = true, Completed = true,
+   FavouriteRoomUnchanged = true, ArmedSeconds = now - Tracker.CandidateAt,
+   Room = room, FavouriteRoom = favourite, Time = now}):SendTo("Specter")
+ end
+ Tracker.Disconnect = Traffic:Receive("SpecterTrial", function(signal, payload)
+  if signal ~= "HuntingState" or type(payload) ~= "table" then return end
+  local hunting = payload.Hunting == true
+  if hunting == Tracker.Hunting then return end
+  Tracker.Hunting = hunting
+  clearTrial()
+ end)
+ Tracker.Connection = RunService.Heartbeat:Connect(function(deltaTime)
+  if not Tracker.Running or Tracker.Resolved then return end
+  Tracker.Accumulator += math.max(0, tonumber(deltaTime) or 0)
+  if Tracker.Accumulator < sampleInterval then return end
+  Tracker.Accumulator %= sampleInterval
+  local now = clock()
+  if not Tracker.LastAnalysisAt or now - Tracker.LastAnalysisAt + 1e-6 >= analysisInterval then
+   Tracker.LastAnalysisAt = now
+   analyze(now)
+  end
+ end)
+ function Tracker:Destroy()
+  if not self.Running then return end
+  self.Running = false
+  self.Disconnect()
+  self.Connection:Disconnect()
+ end
+ return Tracker
 end
 
 end)())
@@ -8299,7 +8186,7 @@ local Profiles = {
 		note("SpiritCandle is shared with Spirit and supports both candidates. False Ghost Orb evidence remains the distinguishing evidence path.", SOURCE.Doppelganger, "live-game", false, "Caveat"),
 	}), nil, {"GhostOrb"}),
 	profile("Specter", {"EMFLevel5", "FreezingTemperatures", "LaserProjector"}, "user-observed", perks({
-		note("Across a completed five-second arm trial, the non-hunting ghost remains stationary in its unchanged favourite room until the next hunt begins.", SOURCE.Specter, "user-observed", false, "Trait"),
+		note("The native roam coefficient is zero. Remaining in the favourite room is inconclusive and never provides positive support.", SOURCE.Specter, "live-game", false, "Caveat"),
 	}, {}, {
 		note("Leaving the unchanged favourite room before that trial's hunt begins is a Specter negative; room-change trials are discarded.", SOURCE.Specter, "user-observed", false, "RuleOut"),
 	})),
@@ -8326,10 +8213,11 @@ local Profiles = {
 		note("Two alternating settled hunt-state transitions match the WalkSpeed curve for average player Energy captured at each exact switch; the sanity spread must be large enough to exceed speed tolerance.", SOURCE.Wretch, "user-observed", false, "Trait"),
 	}, {}, {
 		note("A qualified transition-time WalkSpeed does not match its same-transition average-Energy prediction. Live sanity changes between transitions do not change speed.", SOURCE.Wretch, "user-observed", false, "RuleOut"),
+		note("The native CantHuntNearLitCandle flag is true. Missing hunts cannot support Wretch; a candle-based negative requires qualified proximity and an eligible hunt, which are not yet established.", SOURCE.Wretch, "live-game", false, "Caveat"),
 	})),
 	profile("Wisp", {"GhostOrb", "LaserProjector", "Wither"}, "user-observed", perks({
 		note("While hunting through burning Holy Oil, GhostWall.CanCollide is false.", SOURCE.Wisp, "user-observed", false, "Ability"),
-		note("A hunt begins inside the current favourite room.", SOURCE.Wisp, "user-observed", false, "Trait"),
+		note("Hunt location is negative-only: repeated starts in the favourite room do not support Wisp.", SOURCE.Wisp, "user-observed", false, "Caveat"),
 	}, {}, {
 		note("GhostWall.CanCollide remaining true during a qualified burning-oil passage, or a hunt starting outside the favourite room, is a strong negative.", SOURCE.Wisp, "user-observed", false, "RuleOut"),
 	}), {"The Wisp", "Will-o-the-Wisp", "Will o the Wisp"}),
@@ -8372,7 +8260,7 @@ local PerkConfidence = {
 	Revenant = 50,
 	Shadow = 35,
 	Siren = 65,
-	Specter = 65,
+	Specter = 0,
 	Spirit = 65,
 	Umbra = 65,
 	Vex = 65,
@@ -10116,27 +10004,14 @@ local Specter = {Name = "Specter", Index = 18}
 
 function Specter.new(dependencies)
 	local Traffic = assert(dependencies.Traffic, "Specter requires Traffic")
-	local Processor = {ResidenceCount = 0, Trials = {}, RuledOut = false}
+	local Processor = {RuledOut = false}
 
 	Processor.Disconnect = Traffic:Receive("Specter", function(signal, payload)
-		if signal ~= "SpecterTrial" or type(payload) ~= "table"
+		if Processor.RuledOut or signal ~= "SpecterTrial" or type(payload) ~= "table"
 			or payload.Qualified ~= true or payload.Completed ~= true
 			or payload.FavouriteRoomUnchanged ~= true
 			or (tonumber(payload.ArmedSeconds) or 0) < 5 then return end
-		local trialId = tostring(payload.TrialId or "default")
-		if Processor.Trials[trialId] then return end
-		Processor.Trials[trialId] = payload.Outcome
-		if payload.Outcome == "Residence" and not Processor.RuledOut then
-			Processor.ResidenceCount += 1
-			local count = Processor.ResidenceCount
-			Traffic("Support", {
-				Ghost = "Specter",
-				Perk = "Stays in favourite room", Observation = "Stayed in favourite room",
-				Confidence = count >= 2 and 65 or 35,
-				Reason = "the ghost remained stationary in its unchanged favourite room from the five-second arm point until hunt start ("
-					.. count .. (count == 1 and " time)" or " times)"),
-			}):SendTo("Verdict")
-		elseif payload.Outcome == "Departure" then
+		if payload.Outcome == "Departure" then
 			Processor.RuledOut = true
 			Traffic("RuleOut", {
 				Ghost = "Specter",
@@ -10256,7 +10131,7 @@ local Wisp = {Name = "Wisp", Index = 24}
 
 function Wisp.new(dependencies)
 	local Traffic = assert(dependencies.Traffic, "Wisp requires Traffic")
-	local Processor = {FavouriteHunts = 0, RuledOut = false}
+	local Processor = {RuledOut = false}
 
 	local function verdict(signal, confidence, perk, reason)
 		if signal == "RuleOut" then Processor.RuledOut = true end
@@ -10281,12 +10156,6 @@ function Wisp.new(dependencies)
 		elseif signal == "FavouriteHuntRoom" then
 			if payload.InFavourite == false then
 				verdict("RuleOut", 99, "Hunts from favourite room", "the ghost started a hunt outside its favourite room")
-			elseif payload.InFavourite == true and Processor.FavouriteHunts < 9 then
-				Processor.FavouriteHunts += 1
-				local count = Processor.FavouriteHunts
-				verdict("Support", math.min(95, 5 + count * 10), "Hunts from favourite room",
-					"the ghost started a hunt in its favourite room (" .. count
-						.. (count == 1 and " time)" or " times)"))
 			end
 		end
 	end)

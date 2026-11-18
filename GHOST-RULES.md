@@ -29,13 +29,13 @@ server-only behavior automatically.
 | Shadow | Temperature-alter coefficient 0.5 | Signed net cooling per second is logged with warm-up/plateau states; uncalibrated slow cooling is weak and cannot exclude |
 | Siren | Journal describes sprint slowing and humming | Native Revenant also produced 0.8x slowdown: speed-only support is weak; no slowdown remains inconclusive. Neither identifies nor excludes Siren. Exact active Spirit Box humming passed five native-confirmed Siren rounds with full evidence; hidden or absent responses remain inconclusive |
 | Doppelganger | Fake Orb, teleport, extinguish lights, SpiritCandle | False-Orb evidence handling; candle ability supports both it and Spirit |
-| Specter | Roam probability coefficient 0 | Trials discard changes to favourite room |
+| Specter | Roam probability coefficient 0 | Negative-only: a sustained known departure from an unchanged favourite room while not hunting. Staying put, same-room movement, unknown rooms, and hunt transitions provide no support or exclusion |
 | Spirit | Blue flames and SpiritCandle ability | Qualified oil gradients; candle flag alone is shared with Doppelganger |
 | Umbra | No footsteps, lit-room speed coefficient 0.8 | A root Sound named CurrentSound excludes, regardless of playback, volume or asset. Its absence after a two-second loading grace supports. Other names are ignored; late CurrentSound creation corrects absence. Automatic completion waits while Doppelganger fits confirmed evidence |
 | Vesper | Hunts by sound, hears voices anywhere | Evidence matching; unqualified pursuit does not prove auditory targeting |
 | Vex | Invisible on LIDAR, walks through walls | True replicated flag supports; late values are watched and absence is inconclusive |
-| Wretch | Energy-dependent speed 9–14, avoids hunts near lit candles | Known scale requires meaningful Energy change; unknown scale requires three Energy levels sharing one scale. Post-kill samples are ignored |
-| Wisp | Hunt starts in favourite room, ignores oil, lights candles | Read GhostWall.CanCollide only after Holy Oil is burning; default unlit walls are non-collidable for other ghosts too |
+| Wretch | Energy-dependent speed 9–14; native CantHuntNearLitCandle flag | Known scale requires meaningful Energy change; unknown scale requires three Energy levels sharing one scale. Post-kill samples are ignored. Missing hunts near candles never support it; candle exclusion awaits qualified native proximity and hunt conditions |
+| Wisp | Hunt starts in favourite room, ignores oil, lights candles | Hunt location is negative-only: an outside start excludes, while repeated inside starts add no support. Read GhostWall.CanCollide only after Holy Oil is burning; default unlit walls are non-collidable for other ghosts too |
 | Wraith | Energy drain coefficient 1.5; journal confirms undisturbed salt | Qualified direct salt contact; missing salt events do not identify it |
 
 The test suite validates code contracts and representative observations. It is

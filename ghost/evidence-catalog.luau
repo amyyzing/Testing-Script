@@ -295,7 +295,7 @@ local Profiles = {
 		note("SpiritCandle is shared with Spirit and supports both candidates. False Ghost Orb evidence remains the distinguishing evidence path.", SOURCE.Doppelganger, "live-game", false, "Caveat"),
 	}), nil, {"GhostOrb"}),
 	profile("Specter", {"EMFLevel5", "FreezingTemperatures", "LaserProjector"}, "user-observed", perks({
-		note("Across a completed five-second arm trial, the non-hunting ghost remains stationary in its unchanged favourite room until the next hunt begins.", SOURCE.Specter, "user-observed", false, "Trait"),
+		note("The native roam coefficient is zero. Remaining in the favourite room is inconclusive and never provides positive support.", SOURCE.Specter, "live-game", false, "Caveat"),
 	}, {}, {
 		note("Leaving the unchanged favourite room before that trial's hunt begins is a Specter negative; room-change trials are discarded.", SOURCE.Specter, "user-observed", false, "RuleOut"),
 	})),
@@ -322,10 +322,11 @@ local Profiles = {
 		note("Two alternating settled hunt-state transitions match the WalkSpeed curve for average player Energy captured at each exact switch; the sanity spread must be large enough to exceed speed tolerance.", SOURCE.Wretch, "user-observed", false, "Trait"),
 	}, {}, {
 		note("A qualified transition-time WalkSpeed does not match its same-transition average-Energy prediction. Live sanity changes between transitions do not change speed.", SOURCE.Wretch, "user-observed", false, "RuleOut"),
+		note("The native CantHuntNearLitCandle flag is true. Missing hunts cannot support Wretch; a candle-based negative requires qualified proximity and an eligible hunt, which are not yet established.", SOURCE.Wretch, "live-game", false, "Caveat"),
 	})),
 	profile("Wisp", {"GhostOrb", "LaserProjector", "Wither"}, "user-observed", perks({
 		note("While hunting through burning Holy Oil, GhostWall.CanCollide is false.", SOURCE.Wisp, "user-observed", false, "Ability"),
-		note("A hunt begins inside the current favourite room.", SOURCE.Wisp, "user-observed", false, "Trait"),
+		note("Hunt location is negative-only: repeated starts in the favourite room do not support Wisp.", SOURCE.Wisp, "user-observed", false, "Caveat"),
 	}, {}, {
 		note("GhostWall.CanCollide remaining true during a qualified burning-oil passage, or a hunt starting outside the favourite room, is a strong negative.", SOURCE.Wisp, "user-observed", false, "RuleOut"),
 	}), {"The Wisp", "Will-o-the-Wisp", "Will o the Wisp"}),
@@ -368,7 +369,7 @@ local PerkConfidence = {
 	Revenant = 50,
 	Shadow = 35,
 	Siren = 65,
-	Specter = 65,
+	Specter = 0,
 	Spirit = 65,
 	Umbra = 65,
 	Vex = 65,

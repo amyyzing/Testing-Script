@@ -89,30 +89,32 @@ residence:Settle(5.2)
 expect(residence.Tracker.Armed,
 	"five stationary seconds in the unchanged favourite room should arm Specter")
 residence:SetHunting(true)
-expect(residence.Verdict.Confidence[18] == 35 and residence.Verdict.Selected[1] == 18,
-	"the first armed residence through hunt start should support Specter at 35 percent")
+expect(residence.Verdict.Confidence[18] == nil,
+	"staying in the favourite room cannot support Specter")
 residence:SetHunting(false)
 residence:Settle(5.2)
 residence:SetHunting(true)
-expect(residence.Verdict.Confidence[18] == 65,
-	"a second qualified residence should raise Specter to 65 percent")
-expect(residenceResult.Perk == "Stays in favourite room" and residenceResult.Certainty == "Medium",
-	"qualified residence support needs named medium metadata for the perk log")
+expect(residence.Verdict.Confidence[18] == nil and residenceResult == nil,
+	"repeated residence cannot turn absence of a contradiction into support")
 residence:Destroy()
 
 local movedAtHunt = harness()
 movedAtHunt:Settle(5.2)
 movedAtHunt.State.Position = {X = 2, Y = 0, Z = 0}
 movedAtHunt:SetHunting(true)
-expect(table.find(movedAtHunt.Verdict.RuledOut, 18),
-	"last-moment movement after arming must rule out Specter instead of using stale stationary data")
+expect(not table.find(movedAtHunt.Verdict.RuledOut, 18),
+	"movement at hunt start must not be treated as a non-hunting departure")
 movedAtHunt:Destroy()
 
 local movedBeforeHunt = harness()
 movedBeforeHunt:Settle(5.2)
 for _ = 1, 5 do movedBeforeHunt:Step(0.1, 1) end
+expect(not table.find(movedBeforeHunt.Verdict.RuledOut, 18),
+	"walking within the favourite room must not rule out Specter")
+movedBeforeHunt.State.Current = "Hallway"
+movedBeforeHunt:Settle(0.8)
 expect(table.find(movedBeforeHunt.Verdict.RuledOut, 18),
-	"sustained movement after arming but before a hunt should rule out Specter")
+	"a sustained known outside-room departure while not hunting must rule out Specter")
 movedBeforeHunt:Destroy()
 
 local earlyHunt = harness()
@@ -144,8 +146,50 @@ roomChanged:Settle(0.5)
 expect(roomChanged.Tracker.Armed,
 	"five fresh stationary seconds after the two-second room settle should arm Specter")
 roomChanged:SetHunting(true)
-expect(roomChanged.Verdict.Confidence[18] == 35,
-	"the fresh unchanged-room trial should complete normally")
+expect(roomChanged.Verdict.Confidence[18] == nil,
+	"a fresh unchanged-room trial still cannot provide positive support")
 roomChanged:Destroy()
 
-print("specter.spec: legacy stationary favourite-room trials passed")
+local unknownRoom = harness()
+unknownRoom:Settle(5.2)
+unknownRoom.State.Current = nil
+unknownRoom:Settle(1)
+expect(not table.find(unknownRoom.Verdict.RuledOut, 18), "an unknown room is not an outside-room contradiction")
+unknownRoom:Destroy()
+
+local huntingOutside = harness()
+huntingOutside:Settle(5.2)
+huntingOutside.State.Current = "Hallway"
+huntingOutside:SetHunting(true)
+huntingOutside:Settle(1)
+expect(not table.find(huntingOutside.Verdict.RuledOut, 18), "being outside during a hunt is permitted")
+huntingOutside:Destroy()
+
+local boundaryJitter = harness()
+boundaryJitter:Settle(5.2)
+boundaryJitter.State.Current = "Hallway"
+boundaryJitter:Settle(0.2)
+boundaryJitter.State.Current = "Library"
+boundaryJitter:Settle(0.8)
+expect(not table.find(boundaryJitter.Verdict.RuledOut, 18), "a brief boundary sample is not a sustained departure")
+boundaryJitter:Destroy()
+
+local delayedHunt = harness()
+delayedHunt:Settle(5.2)
+delayedHunt.State.Current = "Hallway"
+delayedHunt:Settle(0.2)
+delayedHunt.State.Hunting = true
+delayedHunt:Settle(1)
+delayedHunt.State.Hunting = false
+delayedHunt:Settle(1)
+expect(not table.find(delayedHunt.Verdict.RuledOut, 18),
+	"native hunt state must invalidate the old trial even before a traffic notification")
+delayedHunt:Destroy()
+
+local catalog = require("../evidence-catalog")
+local fallback = catalog.NewTracker()
+fallback:RecordDetection("Specter", "Stayed in favourite room")
+expect(fallback.Detections.Specter.Confidence == 0,
+	"catalog defaults must not revive positive support for absence of roaming")
+
+print("specter.spec: favourite-room departures are negative-only")
