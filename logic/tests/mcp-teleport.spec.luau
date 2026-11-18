@@ -41,6 +41,13 @@ assert(nextResume ~= first and nextResume.Recovered and requests == 3,
 assert(#queued == 2, "arrival must arm another hop without requiring the GUI")
 assert(createResume(dependencies(nextWorld, true)) == nextResume and requests == 3,
 	"repeated recovery must reuse the current connector")
+local revisit = dependencies(nextWorld, true)
+revisit.ArrivalId = "second-visit-to-the-same-lobby"
+assert(createResume(revisit) == nextResume and requests == 4,
+	"a new arrival at the same cached job must refresh a stale connector")
+assert(createResume(revisit) == nextResume and requests == 4,
+	"duplicate execution of the same arrival must not refresh twice")
+assert(#queued == 3, "a revisited cached job must arm its next hop again")
 nextWorld.JobId = "another-server"
 local persistent = dependencies(nextWorld, true)
 persistent.Compile = function() return function()
@@ -54,11 +61,18 @@ persistent.Spawn = function(callback)
 	assert(coroutine.resume(runtimeThread))
 end
 local changedJob = createResume(persistent)
-assert(changedJob ~= nextResume and changedJob.Recovered and #queued == 3,
+assert(changedJob ~= nextResume and changedJob.Recovered and #queued == 4,
 	"a changed job must recover even if the executor reuses the same game object")
 assert(coroutine.status(runtimeThread) == "suspended",
 	"the long-running connector must not block recovery completion")
 local missing = createResume({Environment = {}, Game = {}, Player = player,
 	ModuleUrl = "https://repo.example/module", Wait = function() end, Spawn = function(callback) callback() end})
 assert(not missing.Queued and missing.LastError, "unsupported queue API must report unavailability")
+local legacy = {Game = world, JobId = world.JobId}
+function legacy:Destroy() self.Destroyed = true end
+local upgrade = dependencies(world)
+upgrade.Environment = {BridgeURL = environment.BridgeURL, DemonologyMCPResume = legacy}
+local upgraded = createResume(upgrade)
+assert(upgraded ~= legacy and legacy.Destroyed and upgraded.Version,
+	"a cached controller from the older resume implementation must be replaced")
 print("mcp-teleport.spec: independent multi-hop queue, stale flags, retries and duplicate prevention passed")
