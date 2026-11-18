@@ -9518,9 +9518,10 @@ function Aswang.new(dependencies)
 	local Traffic = assert(dependencies.Traffic, "Aswang requires Traffic")
 	local epsilon = tonumber(dependencies.SpeedEpsilon) or 0.01
 	local Processor = {LastVerdict = {}}
-	local function report(signal, payload)
-		if Processor.LastVerdict[payload.Perk] == signal then return end
-		Processor.LastVerdict[payload.Perk] = signal
+	local function report(signal, payload, observation)
+		local previous = Processor.LastVerdict[payload.Perk]
+		if previous and previous.Signal == signal and previous.Observation == observation then return end
+		Processor.LastVerdict[payload.Perk] = {Signal = signal, Observation = observation}
 		Traffic(signal, payload):SendTo("Verdict")
 	end
 
@@ -9551,7 +9552,7 @@ function Aswang.new(dependencies)
 					Confidence = 99,
 					Reason = dropped and "hunting disturbed-salt contact reduced speed"
 						or "hunting salt contact caused no speed reduction",
-				})
+				}, before)
 			end
 		elseif signal == "KillSpeed" then
 			local before = data.beforeKill or {}
@@ -9580,7 +9581,7 @@ function Aswang.new(dependencies)
 					Confidence = 99,
 					Reason = rose and "stable speed rose after a unique player kill"
 						or "stable speed did not rise after a unique player kill",
-				})
+				}, before)
 			end
 		end
 	end)
