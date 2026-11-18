@@ -22,6 +22,8 @@ return function(dependencies)
   Tracker.CandidateAt = nil
   Tracker.Armed = false
   Tracker.OutsideAt = nil
+  Tracker.ResidenceStage = 0
+  Tracker.ResidenceAt = nil
  end
  local function analyze(now)
   if Tracker.Resolved then return end
@@ -50,12 +52,25 @@ return function(dependencies)
   if room == favourite then
    Tracker.OutsideAt = nil
    Tracker.CandidateAt = Tracker.CandidateAt or now
+   Tracker.ResidenceAt = Tracker.ResidenceAt or now
    if not Tracker.Armed and now - Tracker.CandidateAt + 1e-6 >= armSeconds then
     Tracker.Sequence += 1
     Tracker.Armed = true
    end
+   local elapsed = now - Tracker.ResidenceAt
+   -- Timing grades a weak lead; it is not a native identity threshold.
+   local stage = elapsed >= 90 and 2 or elapsed >= 30 and 1 or 0
+   if stage > (Tracker.ResidenceStage or 0) then
+    Tracker.ResidenceStage = stage
+    Traffic("SpecterTrial", {TrialId = "specter-trial:" .. Tracker.Sequence,
+     Outcome = "Residence", Qualified = true, Completed = true, Hunting = false,
+     FavouriteRoomUnchanged = true, ArmedSeconds = elapsed,
+     Room = room, FavouriteRoom = favourite, Time = now}):SendTo("Specter")
+   end
    return
   end
+  Tracker.ResidenceAt = nil
+  Tracker.ResidenceStage = 0
   if not Tracker.Armed then clearTrial() return end
   room = token(currentRoom(true))
   if room == "" or room == favourite then Tracker.OutsideAt = nil return end

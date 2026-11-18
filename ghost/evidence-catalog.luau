@@ -295,7 +295,7 @@ local Profiles = {
 		note("SpiritCandle is shared with Spirit and supports both candidates. False Ghost Orb evidence remains the distinguishing evidence path.", SOURCE.Doppelganger, "live-game", false, "Caveat"),
 	}), nil, {"GhostOrb"}),
 	profile("Specter", {"EMFLevel5", "FreezingTemperatures", "LaserProjector"}, "user-observed", perks({
-		note("The native roam coefficient is zero. Remaining in the favourite room is inconclusive and never provides positive support.", SOURCE.Specter, "live-game", false, "Caveat"),
+		note("The native roam coefficient is zero. Continuous non-hunting residence supplies a low lead after 30 seconds and medium after 90, never definite identification. These are heuristic timing grades, not native thresholds. Throwing frequency is not tracked as a perk.", SOURCE.Specter, "live-game", false, "Caveat"),
 	}, {}, {
 		note("Leaving the unchanged favourite room before that trial's hunt begins is a Specter negative; room-change trials are discarded.", SOURCE.Specter, "user-observed", false, "RuleOut"),
 	})),

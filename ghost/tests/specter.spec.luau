@@ -90,13 +90,58 @@ expect(residence.Tracker.Armed,
 	"five stationary seconds in the unchanged favourite room should arm Specter")
 residence:SetHunting(true)
 expect(residence.Verdict.Confidence[18] == nil,
-	"staying in the favourite room cannot support Specter")
+	"a short residence cannot support Specter")
 residence:SetHunting(false)
 residence:Settle(5.2)
 residence:SetHunting(true)
 expect(residence.Verdict.Confidence[18] == nil and residenceResult == nil,
-	"repeated residence cannot turn absence of a contradiction into support")
+	"short residences separated by hunts must not accumulate support")
 residence:Destroy()
+
+local timed = harness()
+local supports = 0
+timed.Traffic:Receive("Verdict", function(signal, payload)
+	if signal == "Support" and payload.Ghost == "Specter" then supports += 1 end
+end)
+timed:Settle(29.9)
+expect(timed.Verdict.Confidence[18] == nil, "residence support must wait for its observation window")
+timed:Settle(0.4)
+expect(timed.Verdict.Confidence[18] == 35, "30 continuous seconds should provide low support")
+timed:Settle(60)
+expect(timed.Verdict.Confidence[18] == 60, "90 continuous seconds should provide medium support")
+timed.Traffic("Support", {Ghost = "Vex", Confidence = 99, Perk = "Invisible on LIDAR"}):SendTo("Verdict")
+expect(timed.Verdict.Confidence[22] == 65 and timed.Verdict.Confidence[18] == 60,
+	"weak residence must remain below a strong native signature while Doppelganger fits")
+timed.Verdict:RuleOut("Doppelganger", 99, "independent exclusion")
+timed:Settle(180)
+expect(timed.Verdict.Confidence[18] == 60 and supports == 2,
+	"residence must remain medium after repetition and independent Doppelganger exclusion")
+expect(timed.Verdict.Confidence[22] == 99,
+	"weak residence must not suppress a stronger native signature")
+timed.State.Current = "Hallway"
+timed:Settle(0.8)
+expect(table.find(timed.Verdict.RuledOut, 18) and timed.Verdict.Confidence[18] == nil,
+	"one qualified departure must remove all residence support and fully exclude Specter")
+timed.State.Current = "Library"
+timed:Settle(120)
+expect(timed.Verdict.Confidence[18] == nil and supports == 2,
+	"later residence cannot resurrect a ruled-out Specter")
+timed:Destroy()
+
+local interrupted = harness()
+interrupted:Settle(25)
+interrupted.State.Current = "Hallway"
+interrupted:Settle(0.2)
+interrupted.State.Current = "Library"
+interrupted:Settle(10)
+expect(interrupted.Verdict.Confidence[18] == nil,
+	"a boundary interruption must restart the continuous residence window without excluding")
+interrupted.State.Current = nil
+interrupted:Settle(1)
+interrupted.State.Current = "Library"
+interrupted:Settle(25)
+expect(interrupted.Verdict.Confidence[18] == nil, "unknown-room time must not contribute to residence")
+interrupted:Destroy()
 
 local movedAtHunt = harness()
 movedAtHunt:Settle(5.2)
@@ -147,7 +192,7 @@ expect(roomChanged.Tracker.Armed,
 	"five fresh stationary seconds after the two-second room settle should arm Specter")
 roomChanged:SetHunting(true)
 expect(roomChanged.Verdict.Confidence[18] == nil,
-	"a fresh unchanged-room trial still cannot provide positive support")
+	"a short fresh unchanged-room trial cannot provide positive support")
 roomChanged:Destroy()
 
 local unknownRoom = harness()
@@ -190,6 +235,6 @@ local catalog = require("../evidence-catalog")
 local fallback = catalog.NewTracker()
 fallback:RecordDetection("Specter", "Stayed in favourite room")
 expect(fallback.Detections.Specter.Confidence == 0,
-	"catalog defaults must not revive positive support for absence of roaming")
+	"unqualified catalog defaults must not bypass timed residence checks")
 
-print("specter.spec: favourite-room departures are negative-only")
+print("specter.spec: residence stays low-to-medium and qualified departure excludes")

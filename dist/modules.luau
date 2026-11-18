@@ -7731,6 +7731,8 @@ return function(dependencies)
   Tracker.CandidateAt = nil
   Tracker.Armed = false
   Tracker.OutsideAt = nil
+  Tracker.ResidenceStage = 0
+  Tracker.ResidenceAt = nil
  end
  local function analyze(now)
   if Tracker.Resolved then return end
@@ -7759,12 +7761,25 @@ return function(dependencies)
   if room == favourite then
    Tracker.OutsideAt = nil
    Tracker.CandidateAt = Tracker.CandidateAt or now
+   Tracker.ResidenceAt = Tracker.ResidenceAt or now
    if not Tracker.Armed and now - Tracker.CandidateAt + 1e-6 >= armSeconds then
     Tracker.Sequence += 1
     Tracker.Armed = true
    end
+   local elapsed = now - Tracker.ResidenceAt
+   -- Timing grades a weak lead; it is not a native identity threshold.
+   local stage = elapsed >= 90 and 2 or elapsed >= 30 and 1 or 0
+   if stage > (Tracker.ResidenceStage or 0) then
+    Tracker.ResidenceStage = stage
+    Traffic("SpecterTrial", {TrialId = "specter-trial:" .. Tracker.Sequence,
+     Outcome = "Residence", Qualified = true, Completed = true, Hunting = false,
+     FavouriteRoomUnchanged = true, ArmedSeconds = elapsed,
+     Room = room, FavouriteRoom = favourite, Time = now}):SendTo("Specter")
+   end
    return
   end
+  Tracker.ResidenceAt = nil
+  Tracker.ResidenceStage = 0
   if not Tracker.Armed then clearTrial() return end
   room = token(currentRoom(true))
   if room == "" or room == favourite then Tracker.OutsideAt = nil return end
@@ -8191,7 +8206,7 @@ local Profiles = {
 		note("SpiritCandle is shared with Spirit and supports both candidates. False Ghost Orb evidence remains the distinguishing evidence path.", SOURCE.Doppelganger, "live-game", false, "Caveat"),
 	}), nil, {"GhostOrb"}),
 	profile("Specter", {"EMFLevel5", "FreezingTemperatures", "LaserProjector"}, "user-observed", perks({
-		note("The native roam coefficient is zero. Remaining in the favourite room is inconclusive and never provides positive support.", SOURCE.Specter, "live-game", false, "Caveat"),
+		note("The native roam coefficient is zero. Continuous non-hunting residence supplies a low lead after 30 seconds and medium after 90, never definite identification. These are heuristic timing grades, not native thresholds. Throwing frequency is not tracked as a perk.", SOURCE.Specter, "live-game", false, "Caveat"),
 	}, {}, {
 		note("Leaving the unchanged favourite room before that trial's hunt begins is a Specter negative; room-change trials are discarded.", SOURCE.Specter, "user-observed", false, "RuleOut"),
 	})),
@@ -10007,14 +10022,26 @@ local Specter = {Name = "Specter", Index = 18}
 
 function Specter.new(dependencies)
 	local Traffic = assert(dependencies.Traffic, "Specter requires Traffic")
-	local Processor = {RuledOut = false}
+	local Processor = {RuledOut = false, ResidenceConfidence = 0}
 
 	Processor.Disconnect = Traffic:Receive("Specter", function(signal, payload)
 		if Processor.RuledOut or signal ~= "SpecterTrial" or type(payload) ~= "table"
 			or payload.Qualified ~= true or payload.Completed ~= true
 			or payload.FavouriteRoomUnchanged ~= true
 			or (tonumber(payload.ArmedSeconds) or 0) < 5 then return end
-		if payload.Outcome == "Departure" then
+		if payload.Outcome == "Residence" then
+			if payload.Hunting ~= false or payload.Room ~= payload.FavouriteRoom then return end
+			local elapsed = tonumber(payload.ArmedSeconds) or 0
+			local confidence = elapsed >= 90 and 60 or elapsed >= 30 and 35 or 0
+			if confidence <= Processor.ResidenceConfidence then return end
+			Processor.ResidenceConfidence = confidence
+			Traffic("Support", {
+				Ghost = "Specter", Confidence = confidence,
+				Perk = "Stays in favourite room", Observation = "Stayed in favourite room",
+				Certainty = confidence >= 50 and "Medium" or "Low",
+				Reason = "continued non-hunting residence is a limited lead, not unique identification",
+			}):SendTo("Verdict")
+		elseif payload.Outcome == "Departure" then
 			Processor.RuledOut = true
 			Traffic("RuleOut", {
 				Ghost = "Specter",

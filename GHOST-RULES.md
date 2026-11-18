@@ -14,6 +14,10 @@ Checks have separate directions. A necessary condition shared by other ghosts
 does not provide positive support just because it holds. A qualified contradiction
 can exclude it. Missing random activations stay inconclusive, and a missing or
 reparented observation target cannot count as a successful negative observation.
+Specter's residence is an explicit weak heuristic exception: 30 continuous
+non-hunting seconds gives low support (35), and 90 gives medium (60), capped
+there regardless of repetition. These grades are not identity probabilities or
+native timing thresholds. One qualified departure still excludes it.
 
 | Ghost | Current source behavior | Automatic handling and limits |
 | --- | --- | --- |
@@ -34,7 +38,7 @@ reparented observation target cannot count as a successful negative observation.
 | Shadow | Temperature-alter coefficient 0.5 | Signed net cooling per second is logged with warm-up/plateau states; uncalibrated slow cooling is weak and cannot exclude |
 | Siren | Journal describes sprint slowing and humming | Native Revenant also produced 0.8x slowdown: speed-only support is weak; no slowdown remains inconclusive. Neither identifies nor excludes Siren. Model gender is exclusion-only. Exact active Spirit Box humming passed five native-confirmed Siren rounds with full evidence; hidden or absent responses remain inconclusive |
 | Doppelganger | Fake Orb, teleport, extinguish lights, SpiritCandle | False-Orb evidence handling; candle ability supports both it and Spirit |
-| Specter | Roam probability coefficient 0 | Negative-only: a sustained known departure from an unchanged favourite room while not hunting. Staying put, same-room movement, unknown rooms, and hunt transitions provide no support or exclusion |
+| Specter | Roam probability coefficient 0 | Timed non-hunting residence gives low-to-medium support only; one sustained known departure from an unchanged favourite room excludes. Same-room movement is permitted; unknown rooms, favourite-room changes and hunts reset the timing. Throwing frequency is omitted |
 | Spirit | Blue flames and SpiritCandle ability | Qualified oil gradients; candle flag alone is shared with Doppelganger |
 | Umbra | No footsteps, lit-room speed coefficient 0.8 | A root Sound named CurrentSound excludes, regardless of playback, volume or asset. Its absence after a two-second loading grace supports. Other names are ignored; late CurrentSound creation corrects absence. Automatic completion waits while Doppelganger fits confirmed evidence |
 | Vesper | Hunts by sound, hears voices anywhere | Evidence matching; unqualified pursuit does not prove auditory targeting |
