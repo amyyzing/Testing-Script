@@ -153,14 +153,14 @@ local SOURCE = {
 	Revenant = "https://demonology.fandom.com/wiki/Revenant",
 	Shadow = "https://demonology.fandom.com/wiki/Shadow",
 	Siren = "https://demonology.fandom.com/wiki/Siren",
-	Doppelganger = "live-game:ReplicatedStorage.Modules.GhostInfo",
+	Doppelganger = "live-game:ReplicatedStorage.Modules.GhostTypes.Doppelganger",
 	Specter = "https://demonology.fandom.com/wiki/Specter",
 	Spirit = "https://demonology.fandom.com/wiki/Spirit",
 	Wisp = "https://demonology.fandom.com/wiki/The_Wisp",
 	Umbra = "https://demonology.fandom.com/wiki/Umbra",
 	Vesper = "https://demonology.fandom.com/wiki/Vesper",
 	Vex = "https://demonology.fandom.com/wiki/Vex",
-	Wretch = "live-game:ReplicatedStorage.Modules.GhostInfo",
+	Wretch = "live-game:ReplicatedStorage.Modules.GhostTypes.Wretch",
 	Wraith = "https://demonology.fandom.com/wiki/Wraith",
 }
 

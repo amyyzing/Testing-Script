@@ -61,5 +61,11 @@ not a claim that all 25 ghosts have each been tested in a live round.
 
 Behavioral perk matches are treated as potentially copyable while Doppelganger fits the confirmed evidence. Their effective support is capped at 65 and qualifying rows are marked MEDIUM. Weak readings are not promoted. Independent evidence excluding Doppelganger releases the cap; clearing it restores the cap. High-confidence negative observations retain their existing gates.
 
+The current replicated `GhostTypes.Doppelganger` module directly lists room
+teleporting, switching off a room light and SpiritCandle abilities, plus fake-Orb,
+custom-wail and wall-walking flags. That exposed module is not an exhaustive
+audit of every server consumer. It does not justify declaring other perk
+matches impossible to copy, so the conservative confidence cap remains.
+
 The ghost log shows positive, negative, explicitly MEDIUM shared-perk results,
 and explicitly LOW qualified cues. Raw readings and unqualified findings stay internal.
