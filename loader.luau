@@ -427,8 +427,12 @@ local function startTrackers()
 			MarkJournal = markJournal,
 			EvidenceCatalog = GhostCatalog,
 			ReadEvidenceLimit = function() return session.RoundTuning:GetScale().EvidenceLimit end,
+			ReadMimicry = function() return Services.Workspace:GetAttribute("Challenge_Mimicry") == true end,
 		})
 		session.Traffic, session.Verdict, session.Ghost = Traffic, Verdict, ghost
+		remember({Connection = Services.Workspace:GetAttributeChangedSignal("Challenge_Mimicry"):Connect(function()
+			Traffic("EvidenceContextChanged", {}):SendTo("Verdict")
+		end), Destroy = function(self) self.Connection:Disconnect() end})
 		local journalSyncElapsed = 0
 		local journalSyncConnection = Services.RunService.Heartbeat:Connect(function(delta)
 			if session.Destroyed or not Verdict.JournalDirty then return end

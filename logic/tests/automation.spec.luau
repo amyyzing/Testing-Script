@@ -66,6 +66,7 @@ local roundStarted = {
 		return true
 	end,
 }
+local mimicry = false
 local controller = createAutomation({
 	Services = {Workspace = {}, RunService = nil},
 	Player = {FindFirstChildOfClass = function() return nil end},
@@ -76,6 +77,7 @@ local controller = createAutomation({
 		Confidence = {[1] = 99, [2] = 35},
 		NegativeConfidence = {},
 		Evidence = {GhostOrb = true},
+		IsMimicryActive = function() return mimicry end,
 		IsCompatible = function(_, name) return name == "Wraith" end,
 		GetConfirmedEvidence = function() return {GhostOrb = true} end,
 		GetEvidenceResolvedGhost = function() return "Wraith" end,
@@ -144,6 +146,10 @@ local controller = createAutomation({
 	EvidenceReady = function() return true end,
 })
 
+expect(perkStateSeen.evidenceMode == "Normal", "normal rounds should keep strict evidence fallback")
+mimicry = true
+expect(perkStateSeen.evidenceMode == "Mimicry", "timeout fallback must follow the current native challenge context")
+mimicry = false
 click:Fire()
 expect(controller.Enabled and stateSeen.enabled,
 	"the GUI button must enable the legacy round controller")

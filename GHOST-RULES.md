@@ -19,6 +19,13 @@ non-hunting seconds gives low support (35), and 90 gives medium (60), capped
 there regardless of repetition. These grades are not identity probabilities or
 native timing thresholds. One qualified departure still excludes it.
 
+The native Mimicry challenge lets every ghost fake one random evidence type.
+When its replicated flag is active, each candidate may explain one otherwise
+incompatible clue. Three observations no longer use the normal exact-evidence
+shortcut, and an Orb gives Doppelganger no special boost. Challenge flag changes
+refresh the candidate pool and copyable-perk confidence. Qualified behavioral
+negatives remain exclusions; timeout choices use the challenge-compatible pool.
+
 | Ghost | Current source behavior | Automatic handling and limits |
 | --- | --- | --- |
 | Aswang | Salt slowdown, speed increase after kills | Qualified salt/kill speed windows |
@@ -27,7 +34,7 @@ native timing thresholds. One qualified departure still excludes it.
 | Dullahan | LOS acceleration 0.1/s | Three timed micro-increment ramps corroborate; duplicate notifications and large speed jumps are ignored |
 | Dybbuk | Throws corpses; journal describes Music Box stun | Evidence matching; physics motion alone is not accepted as a ghost throw |
 | Entity | Teleports itself or an object, with smoke at the object's departure point | Rapid relocation plus nearby origin smoke within three seconds; corroborated short and same-room moves qualify |
-| Ghoul | Cannot disable electronics; reacts to chat | Qualifies disabling observations away from living players |
+| Ghoul | Cannot disable electronics; reacts to chat | Qualifies disabling observations away from living players. Its three clues also fit fake-Orb Doppelganger, so they cannot force a definite Ghoul verdict |
 | Keres | Speed drops after kills, targets lowest Energy | Kill speed windows; model gender is exclusion-only, and unknown models do not default to male |
 | Leviathan | Native `LeviathanGlitch` item attribute | Direct glitch signal is strong; ordinary switch bursts are weak |
 | Nightmare | False throw/shatter sounds, increased dark-room hunt chance | Evidence matching; isolated sounds/hunts cannot identify it |

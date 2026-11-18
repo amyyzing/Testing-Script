@@ -291,7 +291,7 @@ local Profiles = {
 	profile("Doppelganger", {"FreezingTemperatures", "GhostWriting", "SpiritBox"}, "live-game", perks({}, {
 		note("Ghost Orb may be false and keeps Doppelganger as Maybe. Extra or conflicting clues do not prove its identity.", SOURCE.Doppelganger, "live-game", false, "Trait"),
 	}, {
-		note("Confirmed EMF Level 5, Handprints, Laser Projector or Wither rules Doppelganger out. Freezing, Writing and Spirit Box remain compatible.", SOURCE.Doppelganger, "live-game", false, "RuleOut"),
+		note("Outside the Mimicry challenge, confirmed EMF Level 5, Handprints, Laser Projector or Wither rules Doppelganger out. Mimicry allows every ghost one extra fake clue. Freezing, Writing and Spirit Box remain compatible.", SOURCE.Doppelganger, "live-game", false, "RuleOut"),
 		note("SpiritCandle is shared with Spirit and supports both candidates. False Ghost Orb evidence remains the distinguishing evidence path.", SOURCE.Doppelganger, "live-game", false, "Caveat"),
 	}), nil, {"GhostOrb"}),
 	profile("Specter", {"EMFLevel5", "FreezingTemperatures", "LaserProjector"}, "user-observed", perks({

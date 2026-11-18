@@ -144,7 +144,6 @@ return function(dependencies)
 	end
 
 	local perkBacking = {
-		evidenceMode = "Normal",
 		journalMutationBusy = false,
 		journalForcedGhost = nil,
 		lastJournalSelectedGhost = nil,
@@ -153,6 +152,10 @@ return function(dependencies)
 	}
 	local perkTrackerState = setmetatable(perkBacking, {
 		__index = function(_, key)
+			if key == "evidenceMode" then
+				return type(Verdict.IsMimicryActive) == "function" and Verdict:IsMimicryActive()
+					and "Mimicry" or "Normal"
+			end
 			if key == "orbObserved" then
 				return Verdict.Evidence and Verdict.Evidence.GhostOrb == true
 			end

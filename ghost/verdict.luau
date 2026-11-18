@@ -147,15 +147,20 @@ return function(dependencies)
 	local function abilityIsRuledOut(index)
 		return Verdict.AbilityRuledOut[index] == true
 	end
+	local function mimicryActive()
+		return dependencies.ReadMimicry and dependencies.ReadMimicry() == true or false
+	end
 
 	local function evidenceCompatible(index)
 		if type(EvidenceCatalog) ~= "table" then return true end
 		local ghost = GHOSTS[index]
+		local conflicts = 0
 		for evidence in pairs(Verdict.Evidence) do
 			if not EvidenceCatalog.SupportsEvidence(ghost, evidence, {
 				IncludeFalseEvidence = true,
 			}) then
-				return false
+				conflicts += 1
+				if conflicts > (mimicryActive() and 1 or 0) then return false end
 			end
 		end
 		for evidence in pairs(Verdict.DisprovedEvidence) do
@@ -212,6 +217,7 @@ return function(dependencies)
 
 	local function resolvedEvidenceIndex()
 		if type(EvidenceCatalog) ~= "table" then return nil end
+		if mimicryActive() then return nil end
 		local count = 0
 		for _ in pairs(Verdict.Evidence) do count += 1 end
 		local limit = dependencies.ReadEvidenceLimit and dependencies.ReadEvidenceLimit()
@@ -319,6 +325,27 @@ return function(dependencies)
 		return true
 	end
 
+	function Verdict:RefreshEvidenceContext()
+		local doppelganger = indexes.Doppelganger
+		if not mimicryActive() and self.Evidence.GhostOrb and evidenceCompatible(doppelganger) then
+			if (self.Confidence[doppelganger] or 0) < 50 then
+				self.Confidence[doppelganger] = 50
+				self.Reasons[doppelganger] = "Orb may be false; Doppelganger remains possible"
+				self.OrbMaybe = true
+			end
+		elseif self.OrbMaybe then
+			if self.Confidence[doppelganger] == 50 then self.Confidence[doppelganger] = nil end
+			self.OrbMaybe = nil
+		end
+		local resolved = resolvedEvidenceIndex()
+		if resolved then self.AbilityRuledOut[resolved] = nil end
+		refreshRuledOut()
+		if self.ForcedIndex and not evidenceCompatible(self.ForcedIndex) then self.ForcedIndex = nil end
+		selectBest(true)
+	end
+
+	function Verdict:IsMimicryActive() return mimicryActive() end
+
 	function Verdict:SetEvidence(evidence, state)
 		if type(EvidenceCatalog) ~= "table" then return false end
 		local key = EvidenceCatalog.NormalizeEvidence(evidence)
@@ -341,26 +368,7 @@ return function(dependencies)
 			self.Evidence[key] = nil
 			self.DisprovedEvidence[key] = nil
 		end
-		local doppelganger = indexes.Doppelganger
-		if self.Evidence.GhostOrb and evidenceCompatible(doppelganger) then
-			if (self.Confidence[doppelganger] or 0) < 50 then
-				self.Confidence[doppelganger] = 50
-				self.Reasons[doppelganger] = "Orb may be false; Doppelganger remains possible"
-				self.OrbMaybe = true
-			end
-		elseif self.OrbMaybe then
-			if self.Confidence[doppelganger] == 50 then self.Confidence[doppelganger] = nil end
-			self.OrbMaybe = nil
-		end
-		local resolved = resolvedEvidenceIndex()
-		if resolved then
-			self.AbilityRuledOut[resolved] = nil
-		end
-		refreshRuledOut()
-		if self.ForcedIndex and not evidenceCompatible(self.ForcedIndex) then
-			self.ForcedIndex = nil
-		end
-		selectBest(true)
+		self:RefreshEvidenceContext()
 		return true
 	end
 
@@ -507,6 +515,8 @@ return function(dependencies)
 			Verdict:RuleOut(payload.Ghost, payload.Confidence, payload.Reason)
 		elseif signal == "EvidenceState" then
 			Verdict:SetEvidence(payload.Evidence, payload.State)
+		elseif signal == "EvidenceContextChanged" then
+			Verdict:RefreshEvidenceContext()
 		end
 	end)
 
