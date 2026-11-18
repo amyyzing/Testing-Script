@@ -243,6 +243,13 @@ reversed:Move(14.6, 0.4)
 expect(reversed.Verdict.Confidence[6] == 99, "smoke arriving before the replicated movement must also qualify")
 reversed:Destroy()
 
+local unmapped = relocationHarness(function(point) return point.X > 10 and "Garage" or nil end)
+unmapped:Move(72.12242648, 0.4)
+unmapped:Smoke(0, 0.5)
+expect(unmapped.Verdict.Confidence[6] == 99,
+	"matching native origin smoke must qualify when the departure room is unmapped")
+unmapped:Destroy()
+
 local unrelated = relocationHarness()
 unrelated:Smoke(100, 0.2)
 unrelated:Move(14.6, 0.4)
