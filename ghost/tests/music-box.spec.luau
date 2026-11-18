@@ -47,7 +47,7 @@ end
 
 for _, base in ipairs({5.25, 10.5, 21}) do
 	local h = harness(base)
-	h:Speed(base / 10.5) -- Native 21 -> 2; scale-independent comparison.
+	h:Speed(2) -- Native stun speed stays fixed while the ordinary speed scales.
 	h:Play()
 	h:Step(3)
 	h:Speed(base)

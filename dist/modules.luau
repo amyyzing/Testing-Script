@@ -7682,6 +7682,10 @@ return function(dependencies)
 	local humanoid = assert(Ghost:FindFirstChildOfClass("Humanoid"), "music-box-stun requires Humanoid")
 	local clock = dependencies.Clock or os.clock
 	local tracker = {Kind = "dormant", Running = true, Speed = humanoid.WalkSpeed}
+	local function isStun(speed, baseline)
+		-- Native first-play probes at 0.5x and 2x both used the fixed speed 2.
+		return speed >= 0 and speed <= 2.05 and speed < baseline - 0.05
+	end
 
 	local function cancel()
 		tracker.Active = nil
@@ -7706,7 +7710,7 @@ return function(dependencies)
 		local speed = recordSpeed(now)
 		if not active.DropAt then
 			if now - active.PlayedAt > 0.5 then cancel() return end
-			if speed <= active.Baseline * 0.25 then
+			if isStun(speed, active.Baseline) then
 				active.DropAt, active.Slow = now, speed
 			end
 			return
@@ -7734,7 +7738,7 @@ return function(dependencies)
 		local speed = recordSpeed(now)
 		local change = tracker.LastChange
 		local recentDrop = change and now - change.Time <= 0.5 and change.Before > 0
-			and speed <= change.Before * 0.25
+			and isStun(speed, change.Before)
 		local baseline = recentDrop and change.Before or speed
 		if baseline <= 0 then return end
 		tracker.Active = {Box = box, PlayedAt = now, Baseline = baseline,
