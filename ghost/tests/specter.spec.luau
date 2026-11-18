@@ -81,6 +81,10 @@ local function harness()
 end
 
 local residence = harness()
+local residenceResult
+residence.Traffic:Receive("Verdict", function(signal, payload)
+	if signal == "Support" and payload.Ghost == "Specter" then residenceResult = payload end
+end)
 residence:Settle(5.2)
 expect(residence.Tracker.Armed,
 	"five stationary seconds in the unchanged favourite room should arm Specter")
@@ -92,6 +96,8 @@ residence:Settle(5.2)
 residence:SetHunting(true)
 expect(residence.Verdict.Confidence[18] == 65,
 	"a second qualified residence should raise Specter to 65 percent")
+expect(residenceResult.Perk == "Stays in favourite room" and residenceResult.Certainty == "Medium",
+	"qualified residence support needs named medium metadata for the perk log")
 residence:Destroy()
 
 local movedAtHunt = harness()

@@ -8,6 +8,7 @@ function Banshee.new(dependencies)
 			or (tonumber(payload.Count) or 0) < 2 then return end
 		Traffic("Support", {
 			Ghost = "Banshee", Confidence = 65,
+			Perk = "Glass burst", Observation = "Multiple glass breaks",
 			Reason = "multiple new broken-glass models appeared within five seconds; supporting rather than unique evidence",
 		}):SendTo("Verdict")
 	end)

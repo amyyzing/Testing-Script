@@ -17,6 +17,7 @@ function Specter.new(dependencies)
 			local count = Processor.ResidenceCount
 			Traffic("Support", {
 				Ghost = "Specter",
+				Perk = "Stays in favourite room", Observation = "Stayed in favourite room",
 				Confidence = count >= 2 and 65 or 35,
 				Reason = "the ghost remained stationary in its unchanged favourite room from the five-second arm point until hunt start ("
 					.. count .. (count == 1 and " time)" or " times)"),
