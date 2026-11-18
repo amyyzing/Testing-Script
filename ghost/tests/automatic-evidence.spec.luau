@@ -96,6 +96,28 @@ local function instance(className, name, attributes, properties)
 	return value
 end
 
+local pulseWorld = instance("Workspace", "Workspace")
+pulseWorld.DescendantAdded = signal()
+local pulseItems = pulseWorld:Add(instance("Folder", "Items"))
+local pulseReader = pulseItems:Add(instance("Model", "Reader", {
+	ItemName = "EMF Reader", ReadingLevel = 1,
+}))
+local pulseTraffic = createTraffic()
+local pulseCount = 0
+pulseTraffic:Receive("Verdict", function(name, data)
+	if name == "EvidenceState" and data.Evidence == "EMFLevel5" and data.State then
+		pulseCount += 1
+	end
+end)
+local pulseTracker = createEvidenceState({Traffic = pulseTraffic, Workspace = pulseWorld,
+	Player = {FindFirstChildOfClass = function() end, FindFirstChild = function() end}})
+pulseReader:SetAttribute("ReadingLevel", 5)
+pulseReader:SetAttribute("ReadingLevel", 1)
+expect(pulseCount == 1, "a real EMF-5 pulse between polling scans must be retained")
+pulseTracker:Destroy()
+pulseReader:SetAttribute("ReadingLevel", 5)
+expect(pulseCount == 1, "destroyed trackers must release their reader listeners")
+
 local world = instance("Workspace", "Workspace")
 world.DescendantAdded = signal()
 local ghost = world:Add(instance("Model", "Ghost", {

@@ -4753,6 +4753,7 @@ return function(dependencies)
 		Details = {},
 		Metrics = {},
 		SubtitleBound = {},
+		EMFReaders = {},
 		HighestEMF = 1,
 		ScanCount = 0,
 		LastEvidenceChangedAt = os.clock(),
@@ -4910,8 +4911,12 @@ return function(dependencies)
 		return false
 	end
 
+	local inspectItemModel
 	local function inspectWorldObject(object)
 		if not object or type(object.IsA) ~= "function" then return end
+		if object:IsA("Model") and object:GetAttribute("ItemName") == "EMF Reader" then
+			inspectItemModel(object)
+		end
 		if object:IsA("BasePart") and object.Name == "GhostOrb" then setAutomatic("GhostOrb") end
 		if tracker.Automatic.Handprints then return end
 		local handprints = Workspace and Workspace:FindFirstChild("Handprints")
@@ -4927,15 +4932,27 @@ return function(dependencies)
 		end
 	end
 
-	local function inspectItemModel(model)
+	inspectItemModel = function(model)
 		if not model:IsA("Model") then return end
 		if not tracker.Automatic.GhostWriting and spiritBookHasWriting(model) then
 			setAutomatic("GhostWriting")
 		end
 		if model:GetAttribute("ItemName") ~= "EMF Reader" then return end
+		local function changed()
+			if not tracker.Destroyed then inspectItemModel(model) end
+		end
+		if not tracker.EMFReaders[model] then
+			tracker.EMFReaders[model] = true
+			connect(model:GetAttributeChangedSignal("ReadingLevel"), changed)
+			connect(model.DescendantAdded, changed)
+		end
 		local readingObject = model:FindFirstChild("ReadingLevel", true)
 		local level
 		if readingObject and (readingObject:IsA("NumberValue") or readingObject:IsA("IntValue")) then
+			if not tracker.EMFReaders[readingObject] then
+				tracker.EMFReaders[readingObject] = true
+				connect(readingObject:GetPropertyChangedSignal("Value"), changed)
+			end
 			level = readingObject.Value
 		else
 			level = model:GetAttribute("ReadingLevel")
@@ -4943,6 +4960,7 @@ return function(dependencies)
 		if type(level) == "number" then
 			tracker.HighestEMF = math.max(tracker.HighestEMF,
 				math.clamp(math.floor(level + 0.5), 1, 5))
+			if tracker.HighestEMF >= 5 then setAutomatic("EMFLevel5") end
 		end
 	end
 
