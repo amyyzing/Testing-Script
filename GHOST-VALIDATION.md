@@ -24,7 +24,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Keres | Five earlier c9ea459 solo classifications; five fresh specific kill-perk confirmations on 48c9685 at 0.5x, 0.75x, 1x, 1.5x and 2x | Fresh paired causal baselines survived the actual callback order; each default/native result matched with one real kill. Earlier disconnected captures remain unverified. Model gender is exclusion-only |
 | Leviathan | Five native glitch-attribute identifications | Ordinary switch frequency remains weak |
 | Nightmare | Evidence-only by user decision: EMF 5, Orb and Spirit Box. No perk module or pending sound/hunt-probability entries are shipped | Random sounds and hunt probability are excluded from guessing, not pending perk work |
-| Oni | Five stable-base-speed identifications with Energy controls; native Medium/Large map controls confirmed factors 1.05 and 1.10, respectively, with actual Oni and zero kills | Absolute-speed inference requires captured custom tuning and a recognized map grade. The factor controls measured mechanics, not successful default guesses; fresh classifier controls on larger maps remain pending. Low-Energy Wretch must remain distinguishable |
+| Oni | Five earlier stable-base-speed identifications with Energy controls; two native map-factor controls; five fresh consecutive identifications on efa5f59 across Medium/Large at custom0.5/1/1.5/2/0.75. Every default/native result was Oni, zero kills, two distinct hunting windows, source95/effective65 and a qualified collidable burning-oil wall | Absolute-speed inference requires captured custom tuning and a recognized map grade. The two earlier factor controls had wrong default guesses and are not identity wins. Low-Energy Wretch must remain distinguishable; the fresh classifier controls kept Energy75 |
 | Phantom | Five repeated blink-speed identifications; one native solo kill comparison exercised 21/27 speed states without false Aswang/Keres/Revenant support | The comparison's default guess was Specter, so it is not a new identity success. Unstable speed windows remain inconclusive |
 | Ravager | Five qualified multi-assembly vortex identifications | Missing random activation is not a negative |
 | Revenant | Five native-confirmed solo LOW35 policy controls on c9ea459; hunt stops were about 0.64 to 0.67 seconds after death. The live log explicitly rendered LOW | These are policy controls, not five unique-identity proofs. Settings or ordinary round ending can imitate the cue |
@@ -37,7 +37,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Vesper | Evidence-only by user decision: Writing, Handprints and Wither. No perk processor or sound/through-wall perk entries are shipped | Earlier auditory research remains archived and uncredited. Sound, pursuit and through-wall behavior are deliberately outside the detector's scope, not pending features |
 | Vex | Five earlier flag identifications, one strong-signature confidence control, five native Mimicry challenge controls; ordinary solo kill comparison kept hunting for eight seconds without Revenant support | Flags are behavior observations, not an exhaustive proof that copying is impossible |
 | Wretch | Five earlier Energy-speed-curve identifications; a constant-Energy solo counter on 064407e; one changing-Energy native kill counter on 6518773 used a real Energy Drink, observed Energy50–55 in the kill window, and suppressed all kill-speed packets without false Aswang/Keres support. Five later no-kill controls rejected continuous live Energy-to-speed inference; the experimental observer was removed | The kill counter is one policy control, not five new identity wins or all multiplayer Energy transitions. Energy restoration alone did not refresh hunting speed; qualified hunt-transition snapshots remain the classifier input. The five no-kill controls earn no identity credit. Candle/forced-hunt conditions remain unqualified |
-| Wisp | Five burning-oil collision controls and a normal-ghost comparison | Inside-room hunt starts are not positive evidence; outside starts can exclude |
+| Wisp | Five earlier burning-oil collision controls; a fresh native Oni/Wisp timing pair; five consecutive Wisp default/native matches on efa5f59 across Medium/Large at custom0.5/1/1.5/2/0.75. Each had zero kills, source99/effective65 and a stable non-collidable wall while hunting and burning. The same build passed five Oni counter-controls with collidable walls | A separate Oni round received false Wisp support from the old immediate check. Its cause did not reproduce in the paired timing control. The new guard requires an active hunt and a stable burning-wall collision state; the successful controls do not prove every replication schedule. Inside-room hunt starts are not positive evidence; outside starts can exclude |
 | Wraith | Five fresh mature hunting-salt classifications on 944e4c4: default/native Wraith, zero kills, source99/effective65 and actual MEDIUM rows. Five native Vex hunting-salt comparisons excluded Wraith without even transient positive support. Lifecycle cancellation, late-disturbance correction and strict sensor geometry also have regression/engine coverage | These are qualifying controls, not uninterrupted attempts. Exact root Touched events were recorded; immediate overlap queries were already empty. Idle contacts remained inconclusive. No-contact rounds, setup failures and the interrupted Vex attempt earn no credit. The original Doppelganger capture's cause remains unproven |
 
 ## Current shared checks
@@ -56,8 +56,21 @@ the table does not imply five fresh games on the latest build for every ghost.
 - Potentially copied positive perks stay medium while Doppelganger fits.
   Independent incompatible evidence can release that cap. Unqualified
   observations do not gain confidence from repetition.
+- The July 17 version (9383c2a) remains a reference for direct native cues:
+  burning-oil wall collision, Holy Oil colour, footstep Sound presence,
+  LIDAR flags, Cross motion and Energy-dependent speed. Its concepts are
+  checked against current native observations; old callback timing, renamed
+  fields and ambiguous repeated favourite-room positives are not restored.
 - Salt/Cross removal, Holy Oil ancestry gaps, unknown living-player positions
   and automation item-mutation windows cannot manufacture negative results.
+- Oil-wall classification requires Hunting and Burning together and an
+  unchanged collision reading for 0.5 seconds. Collision, ancestry, fire or
+  hunt changes invalidate pending readings; destruction disconnects listeners.
+  A delayed false-to-true ignition update produces no transient Wisp support
+  in regressions. The latest native archives are
+  `oni-native-map-scale-five-confirmed.json`,
+  `wisp-native-stable-wall-five-confirmed.json` and
+  `oni-wisp-qualified-ten-confirmed.json`, all on runtime efa5f59.
 - Music Box recognition requires the actual first-play transition, fixed low
   stun speed and about three seconds before recovery. Hunt changes around the
   first play invalidate the check rather than confusing hunt grace with a stun.
