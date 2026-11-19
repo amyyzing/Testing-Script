@@ -36,7 +36,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Umbra | Five exact CurrentSound absence controls plus ordinary-ghost comparisons | Missing root/loading gaps are not silence; late sound creation corrects the result |
 | Vesper | Evidence-only by user decision: Writing, Handprints and Wither. No perk processor or sound/through-wall perk entries are shipped | Earlier auditory research remains archived and uncredited. Sound, pursuit and through-wall behavior are deliberately outside the detector's scope, not pending features |
 | Vex | Five earlier flag identifications, one strong-signature confidence control, five native Mimicry challenge controls; ordinary solo kill comparison kept hunting for eight seconds without Revenant support | Flags are behavior observations, not an exhaustive proof that copying is impossible |
-| Wretch | Five earlier Energy-speed-curve identifications; a constant-Energy solo counter on 064407e; one changing-Energy native kill counter on 6518773 used a real Energy Drink, observed Energy50–55 in the kill window, and suppressed all kill-speed packets without false Aswang/Keres support. Five later no-kill controls rejected continuous live Energy-to-speed inference; the experimental observer was removed | The kill counter is one policy control, not five new identity wins or all multiplayer Energy transitions. Energy restoration alone did not refresh hunting speed; qualified hunt-transition snapshots remain the classifier input. The five no-kill controls earn no identity credit. Candle/forced-hunt conditions remain unqualified |
+| Wretch | Five earlier Energy curves; five fresh map-scaled identifications on efa5f59 across Medium/Large at custom0.5/1/1.5/2/0.75. Each default/native result was Wretch, zero kills, source95/effective65 and two matched hunting snapshots at Energy75/100. One separate changing-Energy kill counter suppressed false Aswang/Keres support; five no-kill controls rejected continuous live inference | The fresh series contains five qualifying confirmations across ten attempts: four fixture skips and one unverified interruption earn no credit. The kill counter is not exhaustive multiplayer coverage. Only qualified hunt transitions feed the curve classifier. Candle/forced-hunt eligibility remains unqualified |
 | Wisp | Five earlier burning-oil collision controls; a fresh native Oni/Wisp timing pair; five consecutive Wisp default/native matches on efa5f59 across Medium/Large at custom0.5/1/1.5/2/0.75. Each had zero kills, source99/effective65 and a stable non-collidable wall while hunting and burning. The same build passed five Oni counter-controls with collidable walls | A separate Oni round received false Wisp support from the old immediate check. Its cause did not reproduce in the paired timing control. The new guard requires an active hunt and a stable burning-wall collision state; the successful controls do not prove every replication schedule. Inside-room hunt starts are not positive evidence; outside starts can exclude |
 | Wraith | Five fresh mature hunting-salt classifications on 944e4c4: default/native Wraith, zero kills, source99/effective65 and actual MEDIUM rows. Five native Vex hunting-salt comparisons excluded Wraith without even transient positive support. Lifecycle cancellation, late-disturbance correction and strict sensor geometry also have regression/engine coverage | These are qualifying controls, not uninterrupted attempts. Exact root Touched events were recorded; immediate overlap queries were already empty. Idle contacts remained inconclusive. No-contact rounds, setup failures and the interrupted Vex attempt earn no credit. The original Doppelganger capture's cause remains unproven |
 
@@ -117,15 +117,23 @@ prove continuous Energy-driven updates. The experimental live observer was
 reverted in f9fb7ea; these controls reject that hypothesis rather than adding
 five identification successes.
 
-One fresh map-scaled Wretch identification on efa5f59 is confirmed:
-Medium/custom0.5, Energy75 speed5.3812499046 followed by Energy100
-speed4.7249999046 in a separate hunt after a real Energy Drink. The default
-guess and native result were Wretch, zero kills, source95/effective65
-(job f9890eb2-cd2f-4186-a6f2-dfe1c3be6ace, CreatedAt1795103933).
-These exact native floats are retained in a regression. Two Large-map
-attempts stopped on drink-pickup setup and remain skipped fixtures; the
-subsequent retry lost its connection before its result could be retrieved.
-There is no five-round claim for this new map-scaled Wretch series.
+Five fresh map-scaled Wretch identifications on efa5f59 are archived as
+`wretch-native-map-scale-five-confirmed.json`. Medium/custom0.5 recorded
+Energy75 speed5.3812499046 and Energy100 speed4.7249999046; Large/custom1
+recorded 11.2749996185 and 9.8999996185. These exact native floats are
+retained in regressions. Further controls covered Medium/custom1.5 and
+Large/custom2/custom0.75. All five recorded the default guess before the
+native result, with zero kills and source95/effective65. Each had two
+distinct, stable, matched hunting snapshots spanning 25 Energy points.
+
+Four fixture skips remain separate: two pickup approaches failed, one runner
+incorrectly required exactly Energy75 despite a correct native Energy63
+snapshot, and one runner used an early drink-progress reading of 80 instead
+of the actual hunting snapshots at 75/100. That last model prediction was
+correct, but its original trace remains uncredited and the final case was
+rerun after fixing the qualifier. A disconnected attempt with no completed
+trace and no native result is also unverified. The five confirmations are
+qualifying controls across ten attempts, not five uninterrupted attempts.
 
 The Revenant series is `revenant-solo-low-policy-five-confirmed.json`.
 The ordinary solo comparison is `vex-solo-kill-counter-confirmed.json`;

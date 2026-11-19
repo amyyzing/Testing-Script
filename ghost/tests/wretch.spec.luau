@@ -113,21 +113,26 @@ expect(hunting.Verdict.Confidence[23] == 35,
 	"average Energy 40 should map to base 12 and accept a configured hunting multiplier")
 hunting:Destroy()
 
-local nativeEnergy = {75}
-local nativeMedium = harness(nativeEnergy, "Medium", 5.381249904632568, false, 0.5)
-nativeMedium.Traffic:Broadcast("HuntingState", {Hunting = false})
-nativeMedium.Traffic:Broadcast("HuntingState", {Hunting = true})
-nativeMedium.RunDelayed()
-expect(nativeMedium.Verdict.SourceConfidence[23] == 35,
-	"the recorded Medium-map first hunt must remain weak until Energy changes")
-nativeMedium.Traffic:Broadcast("HuntingState", {Hunting = false})
-nativeMedium.RunDelayed()
-nativeEnergy[1], nativeMedium.Humanoid.WalkSpeed = 100, 4.724999904632568
-nativeMedium.Traffic:Broadcast("HuntingState", {Hunting = true})
-nativeMedium.RunDelayed()
-expect(nativeMedium.Verdict.SourceConfidence[23] == 95 and nativeMedium.Verdict.Confidence[23] == 65,
-	"native Energy75/100 snapshots at Medium/custom0.5 must corroborate without float-rounding errors")
-nativeMedium:Destroy()
+for _, trace in ipairs({
+	{Map = "Medium", Custom = 0.5, First = 5.381249904632568, Last = 4.724999904632568},
+	{Map = "Large", Custom = 1, First = 11.274999618530273, Last = 9.899999618530273},
+}) do
+	local nativeEnergy = {75}
+	local native = harness(nativeEnergy, trace.Map, trace.First, false, trace.Custom)
+	native.Traffic:Broadcast("HuntingState", {Hunting = false})
+	native.Traffic:Broadcast("HuntingState", {Hunting = true})
+	native.RunDelayed()
+	expect(native.Verdict.SourceConfidence[23] == 35,
+		trace.Map .. " first hunt must remain weak until Energy changes")
+	native.Traffic:Broadcast("HuntingState", {Hunting = false})
+	native.RunDelayed()
+	nativeEnergy[1], native.Humanoid.WalkSpeed = 100, trace.Last
+	native.Traffic:Broadcast("HuntingState", {Hunting = true})
+	native.RunDelayed()
+	expect(native.Verdict.SourceConfidence[23] == 95 and native.Verdict.Confidence[23] == 65,
+		trace.Map .. " native Energy75/100 snapshots must corroborate without float-rounding errors")
+	native:Destroy()
+end
 
 local energies = {100}
 local changing = harness(energies, "Small", 18)
