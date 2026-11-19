@@ -38,7 +38,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Vex | Five earlier flag identifications, one strong-signature confidence control, five native Mimicry challenge controls; ordinary solo kill comparison kept hunting for eight seconds without Revenant support | Flags are behavior observations, not an exhaustive proof that copying is impossible |
 | Wretch | Five earlier Energy-speed-curve identifications; one fresh native solo counter on 064407e held Energy50/speed11.5 across a real kill and eight seconds afterward, with no false Aswang/Keres/Revenant support | Energy did not change in that counter. Multiplayer Energy-change and candle/forced-hunt conditions remain unqualified |
 | Wisp | Five burning-oil collision controls and a normal-ghost comparison | Inside-room hunt starts are not positive evidence; outside starts can exclude |
-| Wraith | Five earlier provisional salt classifications; lifecycle cancellation and late-disturbance correction checked; exact-sensor geometry reproduced in an isolated Roblox-engine fixture | Positives now require a mature hunting crossing. Idle-model overlap is inconclusive. Fresh native identity controls on this stricter path remain pending; no-contact rounds and placement-fixture failures earn no credit. The original Doppelganger capture's cause remains unproven |
+| Wraith | Five fresh mature hunting-salt classifications on 944e4c4: default/native Wraith, zero kills, source99/effective65 and actual MEDIUM rows. One native Vex hunting-salt comparison excluded Wraith without even transient positive support. Lifecycle cancellation, late-disturbance correction and strict sensor geometry also have regression/engine coverage | These are five qualifying Wraith controls, not five uninterrupted attempts. Exact root Touched events were recorded; immediate overlap queries were already empty. Idle contacts remained inconclusive. No-contact rounds and setup failures earn no credit. Broader ordinary-ghost comparisons remain in progress; the original Doppelganger capture's cause remains unproven |
 
 ## Current shared checks
 
@@ -58,6 +58,7 @@ Native artifacts remain in the executor's `DemonologyResearch` directory.
 Important recent records include `vex-mimicry-five-confirmed.json`,
 `dullahan-native-headless-five-confirmed.json`,
 `ghoul-native-electronics-flag-five-confirmed.json`,
+`wraith-mature-hunting-salt-five-confirmed.json`,
 `ghoul-electronics-counter-control-confirmed.json`,
 `specter-residence-policy-confirmed.json`, and the separately preserved initial
 Dybbuk low-speed miss. The corrected positive series is
