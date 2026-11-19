@@ -34,6 +34,7 @@ local function node(name, className)
 		Signals = {},
 		ChildAdded = signal(),
 		DescendantAdded = signal(),
+		AncestryChanged = signal(),
 	}
 	if className == "BasePart" then object.Touched = signal() end
 	function object:IsA(kind)
@@ -43,6 +44,9 @@ local function node(name, className)
 	function object:GetAttributeChangedSignal(attribute)
 		self.Signals[attribute] = self.Signals[attribute] or signal()
 		return self.Signals[attribute]
+	end
+	function object:GetPropertyChangedSignal(property)
+		return self:GetAttributeChangedSignal("property:" .. property)
 	end
 	function object:SetAttribute(attribute, value)
 		self.Attributes[attribute] = value
@@ -101,12 +105,26 @@ local function oilHarness(canCollide)
 	folder:Add(oil)
 	World:Add(folder)
 	local Ghost = node("Ghost", "Model")
+	Ghost.Attributes.Hunting = true
 	local ghostPart = node("HumanoidRootPart", "BasePart")
 	Ghost:Add(ghostPart)
 	local Traffic = createTraffic()
 	local Verdict = createVerdict({Traffic = Traffic})
 	local wisp = Wisp.new({Traffic = Traffic})
-	local collidable = createHolyOilCollidable({Traffic = Traffic})
+	local clock, timers = 0, {}
+	local function advance(seconds)
+		local target = clock + seconds
+		while true do
+			table.sort(timers, function(a, b) return a.At < b.At end)
+			if not timers[1] or timers[1].At > target then break end
+			local timer = table.remove(timers, 1)
+			clock = timer.At
+			timer.Run()
+		end
+		clock = target
+	end
+	local collidable = createHolyOilCollidable({Traffic = Traffic, Ghost = Ghost, Workspace = World,
+		DelayTask = function(seconds, callback) table.insert(timers, {At = clock + seconds, Run = callback}) end})
 	local activate = createHolyOilActivate({Traffic = Traffic, Workspace = World})
 	return {
 		Traffic = Traffic,
@@ -118,6 +136,7 @@ local function oilHarness(canCollide)
 		Activate = activate,
 		Collidable = collidable,
 		Wisp = wisp,
+		Advance = advance,
 		Destroy = function()
 			activate:Destroy()
 			collidable:Destroy()
@@ -136,6 +155,9 @@ expect(not table.find(detached.Verdict.RuledOut, 24) and detached.Collidable.Run
 	"detached oil cannot create a Wisp contradiction")
 detached.Destroy()
 nonCollidable.Oil:SetAttribute("Burning", true)
+expect(nonCollidable.Verdict.SourceConfidence[24] == nil,
+	"an ignition callback must not classify the wall before its collision state settles")
+nonCollidable.Advance(0.51)
 expect((nonCollidable.Verdict.Confidence[24] == 65 and nonCollidable.Verdict.SourceConfidence[24] == 99)
 	and nonCollidable.Collidable.Result == false,
 	"non-collidable burning oil should support Wisp directly")
@@ -146,9 +168,46 @@ nonCollidable.Destroy()
 local collidable = oilHarness(false)
 collidable.Wall.CanCollide = true
 collidable.Oil:SetAttribute("Burning", true)
+collidable.Advance(0.51)
 expect(table.find(collidable.Verdict.RuledOut, 24),
 	"the wall becoming collidable at ignition should rule Wisp out")
 collidable.Destroy()
+
+local race = oilHarness(false)
+local falseSupport = false
+race.Traffic:Receive("Verdict", function(kind, payload)
+	if kind == "Support" and payload.Ghost == "Wisp" then falseSupport = true end
+end)
+race.Oil:SetAttribute("Burning", true)
+race.Advance(0.1)
+race.Wall.CanCollide = true
+race.Wall:GetPropertyChangedSignal("CanCollide"):Fire()
+race.Advance(0.41)
+expect(race.Collidable.Running and not falseSupport,
+	"a delayed collision update must restart qualification without transient Wisp support")
+race.Advance(0.1)
+expect(table.find(race.Verdict.RuledOut, 24) and not falseSupport,
+	"a stable collidable wall after ignition must exclude Wisp")
+race.Destroy()
+
+local interrupted = oilHarness(false)
+interrupted.Oil:SetAttribute("Burning", true)
+interrupted.Advance(0.2)
+interrupted.Ghost:SetAttribute("Hunting", false)
+interrupted.Advance(1)
+expect(interrupted.Collidable.Running and interrupted.Verdict.SourceConfidence[24] == nil,
+	"burning oil outside a hunt cannot identify Wisp")
+interrupted.Ghost:SetAttribute("Hunting", true)
+interrupted.Advance(0.2)
+interrupted.Oil:SetAttribute("Burning", false)
+interrupted.Advance(1)
+expect(interrupted.Collidable.Running and interrupted.Verdict.SourceConfidence[24] == nil,
+	"extinguishing oil cancels its pending collision observation")
+interrupted.Oil:SetAttribute("Burning", true)
+interrupted.Destroy()
+interrupted.Advance(1)
+expect(interrupted.Verdict.SourceConfidence[24] == nil,
+	"destroying the tracker cancels pending collision observations")
 
 local roomTraffic = createTraffic()
 local roomVerdict = createVerdict({Traffic = roomTraffic})

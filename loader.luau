@@ -559,7 +559,7 @@ local function startTrackers()
 			Workspace = Services.Workspace,
 			Ghost = ghost,
 		}))
-		remember(createHolyOilCollidable({Traffic = Traffic}))
+		remember(createHolyOilCollidable({Traffic = Traffic, Ghost = ghost, Workspace = Services.Workspace}))
 		remember(createHolyOilActivate({
 			Traffic = Traffic,
 			Workspace = Services.Workspace,
