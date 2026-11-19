@@ -85,6 +85,7 @@ return function(dependencies)
 			ScaleKnown = scale.Known == true,
 			Stable = payload.Stable == true,
 			Transition = payload.Transition,
+			Live = payload.Live == true,
 		}
 		local bestError = math.huge
 		for _, multiplier in ipairs(type(scale.CustomMultiplier) == "number" and {scale.CustomMultiplier} or customMultipliers) do

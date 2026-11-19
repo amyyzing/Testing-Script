@@ -6070,8 +6070,9 @@ return function(dependencies)
 		local energy = World and World:GetAttribute("AverageEnergy")
 		Traffic("GhostSpeedObserved", {Speed = speed, Visible = visible == true,
 			Hunting = Tracker.hunting == true,
+			Headless = Ghost:GetAttribute("Headless") == true,
 			AverageEnergy = energy, Source = source, Time = clock(),
-		}):SendTo("GhostPatternLog", "Dullahan")
+		}):SendTo("GhostPatternLog", "Dullahan", "WretchSpeed")
 		local point = {s = speed, v = visible == true}
 		table.insert(Tracker.samples, point)
 		table.insert(Tracker.sampleMeta, {source = source, time = clock(), change = speedChange, energy = energy,
@@ -8068,6 +8069,12 @@ return function(dependencies)
 	end
 
 	Tracker.Disconnect = Traffic:Receive("WretchSpeed", function(signal, payload)
+		if signal == "GhostSpeedObserved" and type(payload) == "table" then
+			if Tracker.Started and (not payload.Hunting or Tracker.LastHunting) then
+				Traffic("WretchLiveSpeedObserved", payload):SendTo("Wretch")
+			end
+			return
+		end
 		if signal ~= "HuntingState" or type(payload) ~= "table"
 			or type(payload.Hunting) ~= "boolean" then return end
 		local hunting = payload.Hunting
@@ -8438,9 +8445,9 @@ local Profiles = {
 		note("A missing or false replicated flag is not an automatic Vex rule-out.", SOURCE.Vex, "live-game", false, "Caveat"),
 	})),
 	profile("Wretch", {"GhostOrb", "GhostWriting", "LaserProjector"}, "live-game", perks({
-		note("Two alternating settled hunt-state transitions match the WalkSpeed curve for average player Energy captured at each exact switch; the sanity spread must be large enough to exceed speed tolerance.", SOURCE.Wretch, "user-observed", false, "Trait"),
+		note("Settled hunting speed follows the Energy curve across distinct Energy levels. Live pairs must agree in both blink states for five seconds; known scale needs meaningful Energy change, while unknown scale needs three levels sharing one scale.", SOURCE.Wretch, "user-observed", false, "Trait"),
 	}, {}, {
-		note("A qualified transition-time WalkSpeed does not match its same-transition average-Energy prediction. Live sanity changes between transitions do not change speed.", SOURCE.Wretch, "user-observed", false, "RuleOut"),
+		note("Two qualified hunt-transition mismatches can exclude Wretch. Live Energy and speed can replicate out of order, so mismatched live pairs remain inconclusive. Post-kill pairs are ignored.", SOURCE.Wretch, "user-observed", false, "RuleOut"),
 		note("The native CantHuntNearLitCandle flag is true. Missing hunts cannot support Wretch; a candle-based negative requires qualified proximity and an eligible hunt, which are not yet established.", SOURCE.Wretch, "live-game", false, "Caveat"),
 	})),
 	profile("Wisp", {"GhostOrb", "LaserProjector", "Wither"}, "user-observed", perks({
@@ -9549,6 +9556,7 @@ return function(dependencies)
 			ScaleKnown = scale.Known == true,
 			Stable = payload.Stable == true,
 			Transition = payload.Transition,
+			Live = payload.Live == true,
 		}
 		local bestError = math.huge
 		for _, multiplier in ipairs(type(scale.CustomMultiplier) == "number" and {scale.CustomMultiplier} or customMultipliers) do
@@ -10488,9 +10496,29 @@ modules["ghost/ghosts/Wretch.luau"] = pack((function()
 local Wretch = {Name="Wretch",Index=23}
 function Wretch.new(dependencies)
  local Traffic=assert(dependencies.Traffic,"Wretch requires Traffic")
- local processor={Samples={},UnknownSamples={},Mismatches=0,Seen={},HadKill=false}
+ local processor={Samples={},UnknownSamples={},UnknownLiveSamples={},Mismatches=0,Seen={},HadKill=false,LiveSerial=0}
  processor.Disconnect=Traffic:Receive("Wretch",function(signal,payload)
-  if signal=="PlayerKilled" then processor.HadKill=true return end
+  if signal=="PlayerKilled" then processor.HadKill=true processor.LiveCandidate=nil return end
+  if signal=="WretchLiveSpeedObserved" and type(payload)=="table" then
+   if not payload.Hunting or payload.Headless==true then processor.LiveCandidate=nil return end
+   if processor.Resolved or processor.HadKill or type(payload.AverageEnergy)~="number"
+    or type(payload.Speed)~="number"or payload.Speed<=0 or type(payload.Time)~="number"
+    or type(payload.Visible)~="boolean"then return end
+   local energy=math.clamp(payload.AverageEnergy,0,100)
+   local candidate=processor.LiveCandidate
+   if not candidate or math.abs(candidate.Energy-energy)>.001 or math.abs(candidate.Speed-payload.Speed)>.05 then
+    candidate={Energy=energy,Speed=payload.Speed,Started=payload.Time,States={}}
+    processor.LiveCandidate=candidate
+   end
+   candidate.States[payload.Visible]=true
+   -- Both blink states must agree, past the bounded native kill-notification delay.
+   if candidate.Published or payload.Time-candidate.Started<5
+    or not candidate.States[true]or not candidate.States[false]then return end
+   candidate.Published=true processor.LiveSerial+=1
+   Traffic("WretchSpeedSample",{Hunting=true,AverageEnergy=candidate.Energy,Speed=candidate.Speed,
+    Stable=true,Live=true,Transition="live:"..processor.LiveSerial}):SendTo("SpeedFilter")
+   return
+  end
   if processor.Resolved or signal~="WretchSpeedResult" or type(payload)~="table"
    or processor.HadKill or not payload.Complete or not payload.Stable or not payload.Hunting then return end
   if type(payload.Speed) ~= "number" or payload.Speed <= 0 then return end
@@ -10499,7 +10527,7 @@ function Wretch.new(dependencies)
   if transition then processor.Seen[transition]=true end
   if payload.ScaleKnown~=true then
    local energy=math.clamp(payload.AverageEnergy,0,100)
-   local samples=processor.UnknownSamples
+   local samples=payload.Live and processor.UnknownLiveSamples or processor.UnknownSamples
    for _,sample in ipairs(samples) do if math.abs(sample.Energy-energy)<5 then return end end
    table.insert(samples,{Energy=energy,Scale=payload.Speed/(14-energy*0.05)})
    if #samples<3 then return end
@@ -10511,13 +10539,15 @@ function Wretch.new(dependencies)
    if highEnergy-lowEnergy<20 then return end
    local spread=(highScale-lowScale)/lowScale
    if spread>0.02 and spread<0.05 then return end
+   if payload.Live and spread>0.02 then return end
    processor.Resolved=true
    Traffic(spread<=0.02 and "Support" or "RuleOut",{Ghost="Wretch", Perk = "Energy speed curve",Confidence=95,
-    Reason=spread<=0.02 and "three stable hunts followed the Energy curve at one consistent combined map/custom scale"
+    Reason=spread<=0.02 and "three stable Energy levels followed the curve at one consistent combined map/custom scale"
      or "three stable hunts at distinct Energy levels could not share one Energy-curve scale"}):SendTo("Verdict")
    return
   end
   if not payload.Matched then
+   if payload.Live then return end -- Replication skew is not a live negative.
    processor.Mismatches+=1
    if processor.Mismatches<2 then return end
    processor.Resolved=true

@@ -313,9 +313,9 @@ local Profiles = {
 		note("A missing or false replicated flag is not an automatic Vex rule-out.", SOURCE.Vex, "live-game", false, "Caveat"),
 	})),
 	profile("Wretch", {"GhostOrb", "GhostWriting", "LaserProjector"}, "live-game", perks({
-		note("Two alternating settled hunt-state transitions match the WalkSpeed curve for average player Energy captured at each exact switch; the sanity spread must be large enough to exceed speed tolerance.", SOURCE.Wretch, "user-observed", false, "Trait"),
+		note("Settled hunting speed follows the Energy curve across distinct Energy levels. Live pairs must agree in both blink states for five seconds; known scale needs meaningful Energy change, while unknown scale needs three levels sharing one scale.", SOURCE.Wretch, "user-observed", false, "Trait"),
 	}, {}, {
-		note("A qualified transition-time WalkSpeed does not match its same-transition average-Energy prediction. Live sanity changes between transitions do not change speed.", SOURCE.Wretch, "user-observed", false, "RuleOut"),
+		note("Two qualified hunt-transition mismatches can exclude Wretch. Live Energy and speed can replicate out of order, so mismatched live pairs remain inconclusive. Post-kill pairs are ignored.", SOURCE.Wretch, "user-observed", false, "RuleOut"),
 		note("The native CantHuntNearLitCandle flag is true. Missing hunts cannot support Wretch; a candle-based negative requires qualified proximity and an eligible hunt, which are not yet established.", SOURCE.Wretch, "live-game", false, "Caveat"),
 	})),
 	profile("Wisp", {"GhostOrb", "LaserProjector", "Wither"}, "user-observed", perks({
