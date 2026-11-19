@@ -188,7 +188,7 @@ local createHolyOilColour = loadModule("ghost/discardable-trackers/holy-oil-colo
 local createHolyOilCollidable = loadModule("ghost/discardable-trackers/holy-oil-collidable.luau")
 local createFootstepSound = loadModule("ghost/discardable-trackers/footstep-sound.luau")
 local createLidar = loadModule("ghost/discardable-trackers/lidar.luau")
-local createModelGender = loadModule("ghost/discardable-trackers/model-gender.luau")
+local createModelTraits = loadModule("ghost/discardable-trackers/model-traits.luau")
 local createRoundStarted = loadModule("ghost/discardable-trackers/round-started.luau")
 local createSaltState = loadModule("ghost/discardable-trackers/salt-state-after-hit.luau")
 local createSmokeHolder = loadModule("ghost/discardable-trackers/smoke-holder.luau")
@@ -553,7 +553,7 @@ local function startTrackers()
 			RunService = Services.RunService,
 		}))
 		remember(createRoomTemperature({Traffic = Traffic}))
-		remember(createModelGender({Traffic = Traffic, Ghost = ghost}))
+		remember(createModelTraits({Traffic = Traffic, Ghost = ghost}))
 		remember(createFootstepSound({Traffic = Traffic, Ghost = ghost}))
 		remember(createLidar({Traffic = Traffic, Ghost = ghost}))
 		remember(createHolyOilColour({

@@ -1,6 +1,6 @@
 local createTraffic = require("../traffic")
 local createVerdict = require("../verdict")
-local createModelGender = require("../discardable-trackers/model-gender")
+local createModelTraits = require("../discardable-trackers/model-traits")
 local Keres = require("../ghosts/Keres")
 
 local function expect(condition, message)
@@ -72,18 +72,18 @@ expect(Verdict:Snapshot()["ruled-out"][1] == 8,
 Verdict:Reset()
 local femaleGhost = {VisualModel = "Watcher"}
 function femaleGhost:GetAttribute(name) return self[name] end
-createModelGender({Traffic = Traffic, Ghost = femaleGhost})
+createModelTraits({Traffic = Traffic, Ghost = femaleGhost})
 expect(Verdict.Confidence[8] == nil and Verdict.Selected[1] == nil,
 	"a female VisualModel cannot positively identify Keres")
 
 Verdict:Reset()
 local maleGhost = {VisualModel = "FutureModel"}
 function maleGhost:GetAttribute(name) return self[name] end
-createModelGender({Traffic = Traffic, Ghost = maleGhost})
+createModelTraits({Traffic = Traffic, Ghost = maleGhost})
 expect(not table.find(Verdict.RuledOut, 8) and Verdict.Confidence[8] == nil,
 	"an unfamiliar VisualModel must remain unknown instead of defaulting to male")
 maleGhost.Gender = "Male"
-createModelGender({Traffic = Traffic, Ghost = maleGhost})
+createModelTraits({Traffic = Traffic, Ghost = maleGhost})
 expect(table.find(Verdict.RuledOut, 8), "an explicit male Gender should rule out Keres")
 
 keres:Destroy()

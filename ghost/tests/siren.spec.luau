@@ -1,7 +1,7 @@
 local createTraffic = require("../traffic")
 local createVerdict = require("../verdict")
 local createHumming = require("../dormant-trackers/humming")
-local createModelGender = require("../discardable-trackers/model-gender")
+local createModelTraits = require("../discardable-trackers/model-traits")
 local createPlayerSpeed = require("../active-trackers/player-speed")
 local createLOSSight = require("../dormant-trackers/los-sight")
 local createLOSSpeed = require("../dormant-trackers/los-speed")
@@ -51,7 +51,7 @@ hummingSiren:Destroy()
 local femaleTraffic, femaleVerdict, femaleSiren = verdictHarness()
 local femaleGhost = {VisualModel = "Abaddon"}
 function femaleGhost:GetAttribute(name) return self[name] end
-createModelGender({Traffic = femaleTraffic, Ghost = femaleGhost})
+createModelTraits({Traffic = femaleTraffic, Ghost = femaleGhost})
 expect(femaleVerdict.Confidence[16] == nil and femaleVerdict.Selected[1] == nil,
 	"a female VisualModel cannot positively identify Siren")
 femaleSiren:Destroy()
@@ -59,11 +59,11 @@ femaleSiren:Destroy()
 local maleTraffic, maleVerdict, maleSiren = verdictHarness()
 local maleGhost = {VisualModel = "FutureModel"}
 function maleGhost:GetAttribute(name) return self[name] end
-createModelGender({Traffic = maleTraffic, Ghost = maleGhost})
+createModelTraits({Traffic = maleTraffic, Ghost = maleGhost})
 expect(not table.find(maleVerdict.RuledOut, 16) and maleVerdict.Confidence[16] == nil,
 	"an unfamiliar VisualModel must not rule out Siren")
 maleGhost.Gender = "Male"
-createModelGender({Traffic = maleTraffic, Ghost = maleGhost})
+createModelTraits({Traffic = maleTraffic, Ghost = maleGhost})
 expect(table.find(maleVerdict.RuledOut, 16), "an explicit male Gender should rule out Siren")
 maleSiren:Destroy()
 

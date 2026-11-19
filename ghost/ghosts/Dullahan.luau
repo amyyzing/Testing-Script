@@ -11,6 +11,17 @@ function Dullahan.new(dependencies)
 	end
 
 	processor.Disconnect = Traffic:Receive("Dullahan", function(signal, payload)
+		if signal == "HeadlessState" and type(payload) == "table" then
+			if payload.Exists == true and payload.Value == true and not processor.HeadlessObserved then
+				processor.HeadlessObserved = true
+				Traffic("Support", {
+					Ghost = "Dullahan", Perk = "Headless ghost",
+					Observation = "Headless ghost", Confidence = 99,
+					Reason = "the ghost model's native Headless attribute is true",
+				}):SendTo("Verdict")
+			end
+			return
+		end
 		if processor.Resolved or signal ~= "GhostSpeedObserved" or type(payload) ~= "table"
 			or payload.Source ~= "speed" or payload.Hunting ~= true then return end
 		local time, speed = tonumber(payload.Time), tonumber(payload.Speed)

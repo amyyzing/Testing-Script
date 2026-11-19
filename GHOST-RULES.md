@@ -33,7 +33,7 @@ negatives remain exclusions; timeout choices use the challenge-compatible pool.
 | Aswang | Salt slowdown, speed increase after kills | Qualified salt/kill speed windows; pre-animation baseline survives the measured delay before the death flag |
 | Banshee | Breaks 1–3 glass objects, custom wail | New glass bursts provide support, not certainty |
 | Demon | Spins burning crosses, increased cross range | Qualified cross motion; removing or reparenting the Cross or tracked part cancels the observation without a negative |
-| Dullahan | LOS acceleration 0.1/s | Three timed micro-increment ramps corroborate; duplicate notifications and large speed jumps are ignored |
+| Dullahan | Native Headless flag and LOS acceleration 0.1/s | The root flag is positive-only and remains medium while Doppelganger fits; cosmetic missing heads do not count. The independent three-ramp check remains available |
 | Dybbuk | Throws corpses; journal describes Music Box stun | Fresh HasBeenPlayed transition plus a deep speed drop and three-second recovery; ordinary, late and interrupted responses stay inconclusive. No idle Heartbeat. Corpse motion alone is not a ghost throw |
 | Entity | Teleports itself or an object, with smoke at the object's departure point | Rapid relocation plus nearby origin smoke within three seconds; corroborated short and same-room moves qualify |
 | Ghoul | Cannot disable electronics; reacts to chat | Qualifies disabling observations away from living players; unknown player positions and automation mutation windows are inconclusive. Its three clues also fit fake-Orb Doppelganger, so they cannot force a definite Ghoul verdict |
