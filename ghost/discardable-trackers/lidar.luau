@@ -6,15 +6,17 @@ return function(dependencies)
 		if not Tracker.Running then return end
 		local value = Ghost:GetAttribute("InvisibleOnLIDAR")
 		local exists = value ~= nil
-		for _, object in ipairs(Ghost:GetDescendants()) do
+		for _, object in ipairs(type(value) ~= "boolean" and Ghost:GetDescendants() or {}) do
 			local attribute = object:GetAttribute("InvisibleOnLIDAR")
 			local member = object.Name == "InvisibleOnLIDAR" and object:IsA("ValueBase")
 			local observed = attribute
 			if member then observed = object.Value end
 			if attribute ~= nil or member then
 				exists = true
-				if observed == true then value = true break end
-				if value == nil then value = observed end
+				if type(observed) == "boolean" then
+					value = observed
+					if observed == false then break end
+				end
 			end
 		end
 		Tracker.Exists, Tracker.Value = exists, value

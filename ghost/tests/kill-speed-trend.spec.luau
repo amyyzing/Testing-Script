@@ -3,7 +3,6 @@ local createVerdict = require("../verdict")
 local createTracker = require("../active-trackers/speed-tracker")
 local Aswang = require("../ghosts/Aswang")
 local Keres = require("../ghosts/Keres")
-local Dullahan = require("../ghosts/Dullahan")
 
 local function signal()
 	local callbacks = {}
@@ -28,7 +27,6 @@ for _, direction in ipairs({1, -1}) do
 	local traffic = createTraffic()
 	local verdict = createVerdict({Traffic = traffic})
 	local aswang, keres = Aswang.new({Traffic = traffic}), Keres.new({Traffic = traffic})
-	local dullahan = Dullahan.new({Traffic = traffic})
 	local tracker = createTracker({Traffic = traffic, Ghost = ghost,
 		Clock = function() return now end, Workspace = {GetAttribute = function() return 100 end}})
 	traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
@@ -51,10 +49,7 @@ for _, direction in ipairs({1, -1}) do
 		"ordinary small speed steps near a delayed kill must not identify Aswang or Keres")
 	assert(not table.find(verdict.RuledOut, 1) and not table.find(verdict.RuledOut, 8),
 		"a confounded kill window must remain inconclusive, including at hunt end")
-	if direction == 1 then
-		assert(verdict.SourceConfidence[4] == 95, "the control must actually exercise Dullahan's ramp detector")
-	end
-	tracker:Destroy() aswang:Destroy() keres:Destroy() dullahan:Destroy()
+	tracker:Destroy() aswang:Destroy() keres:Destroy()
 end
 
 for _, case in ipairs({

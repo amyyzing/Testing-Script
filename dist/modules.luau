@@ -6068,10 +6068,6 @@ return function(dependencies)
 			and not transparency
 			or type(transparency) == "number" and transparency < 0.5
 		local energy = World and World:GetAttribute("AverageEnergy")
-		Traffic("GhostSpeedObserved", {Speed = speed, Visible = visible == true,
-			Hunting = Tracker.hunting == true,
-			AverageEnergy = energy, Source = source, Time = clock(),
-		}):SendTo("GhostPatternLog", "Dullahan")
 		local point = {s = speed, v = visible == true}
 		table.insert(Tracker.samples, point)
 		table.insert(Tracker.sampleMeta, {source = source, time = clock(), change = speedChange, energy = energy,
@@ -6688,15 +6684,17 @@ return function(dependencies)
 		if not Tracker.Running then return end
 		local value = Ghost:GetAttribute("InvisibleOnLIDAR")
 		local exists = value ~= nil
-		for _, object in ipairs(Ghost:GetDescendants()) do
+		for _, object in ipairs(type(value) ~= "boolean" and Ghost:GetDescendants() or {}) do
 			local attribute = object:GetAttribute("InvisibleOnLIDAR")
 			local member = object.Name == "InvisibleOnLIDAR" and object:IsA("ValueBase")
 			local observed = attribute
 			if member then observed = object.Value end
 			if attribute ~= nil or member then
 				exists = true
-				if observed == true then value = true break end
-				if value == nil then value = observed end
+				if type(observed) == "boolean" then
+					value = observed
+					if observed == false then break end
+				end
 			end
 		end
 		Tracker.Exists, Tracker.Value = exists, value
@@ -7782,6 +7780,12 @@ return function(dependencies)
 	local RunService = assert(dependencies.RunService, "music-box-stun requires RunService")
 	local humanoid = assert(Ghost:FindFirstChildOfClass("Humanoid"), "music-box-stun requires Humanoid")
 	local clock = dependencies.Clock or os.clock
+	-- A conservative close-range test, not the game's maximum audible radius.
+	local testRange = tonumber(dependencies.TestRange) or 3
+	local readDistance = dependencies.ReadDistance or function(box)
+		if not box.GetPivot or not Ghost.GetPivot then return nil end
+		return (box:GetPivot().Position - Ghost:GetPivot().Position).Magnitude
+	end
 	local tracker = {Kind = "dormant", Running = true, Speed = humanoid.WalkSpeed,
 		Hunting = Ghost:GetAttribute("Hunting") == true}
 	local function isStun(speed, baseline)
@@ -7811,9 +7815,21 @@ return function(dependencies)
 			or (Ghost:GetAttribute("Hunting") == true) ~= active.Hunting then cancel() return end
 		local speed = recordSpeed(now)
 		if not active.DropAt then
-			if now - active.PlayedAt > 0.5 then cancel() return end
+			local distance = readDistance(active.Box)
+			if type(distance) ~= "number" or distance > testRange then active.NegativeEligible = false end
 			if isStun(speed, active.Baseline) then
+				if now - active.PlayedAt > 0.5 then cancel() return end
 				active.DropAt, active.Slow = now, speed
+			elseif math.abs(speed - active.Baseline) > 0.05 then
+				cancel()
+			elseif now - active.PlayedAt >= 3.5 then
+				if not active.NegativeEligible or active.Baseline <= 2.05 then cancel() return end
+				local result = {Qualified = true, Stunned = false, InRange = true,
+					Duration = now - active.PlayedAt, Baseline = active.Baseline,
+					Distance = active.Distance, MusicBox = active.Box}
+				tracker.Result = result
+				tracker:Destroy()
+				Traffic("MusicBoxStun", result):SendTo("Dybbuk")
 			end
 			return
 		end
@@ -7821,7 +7837,8 @@ return function(dependencies)
 		if duration > 3.5 then cancel() return end
 		if math.abs(speed - active.Slow) <= 0.05 then return end
 		if duration >= 2.5 and math.abs(speed - active.Baseline) <= math.max(0.05, active.Baseline * 0.01) then
-			local result = {Qualified = true, Duration = duration, Baseline = active.Baseline,
+			local result = {Qualified = true, Stunned = true, InRange = active.InRange,
+				Duration = duration, Baseline = active.Baseline,
 				SlowSpeed = active.Slow, RecoveredSpeed = speed, MusicBox = active.Box}
 			tracker.Result = result
 			tracker:Destroy()
@@ -7850,7 +7867,10 @@ return function(dependencies)
 			and isStun(speed, change.Before)
 		local baseline = recentDrop and change.Before or speed
 		if baseline <= 0 then return end
+		local distance = readDistance(box)
+		local inRange = type(distance) == "number" and distance <= testRange
 		tracker.Active = {Box = box, PlayedAt = now, Baseline = baseline,
+			Distance = distance, InRange = inRange, NegativeEligible = inRange,
 			Hunting = Ghost:GetAttribute("Hunting") == true,
 			DropAt = recentDrop and change.Time or nil, Slow = recentDrop and speed or nil}
 		tracker.BoxConnection = box.AncestryChanged:Connect(cancel)
@@ -8376,14 +8396,14 @@ local Profiles = {
 		note("An eligible Cross that finishes burning without floating and rotating is a 99% negative.", SOURCE.Demon, "user-observed", false, "RuleOut"),
 	})),
 	profile("Dullahan", {"FreezingTemperatures", "LaserProjector", "Wither"}, "user-observed", perks({
-		note("The current LineOfSightSpeedIncreasePerSecond flag is 0.1. Repeated rising visible speed provides supporting evidence, not certainty from arbitrary distinct speeds.", SOURCE.Dullahan, "live-game", false, "Trait"),
+		note("The native Headless flag identifies the headless state before photography. Acceleration guessing is disabled.", SOURCE.Dullahan, "live-game", false, "Trait"),
 	}, {}, {
-		note("Flat speed without verified sustained target line of sight cannot rule Dullahan out. Decreases or resets make this uncontrolled trial inconclusive.", SOURCE.Dullahan, "live-game", false, "Caveat"),
+		note("A missing or false Headless flag is inconclusive.", SOURCE.Dullahan, "live-game", false, "Caveat"),
 	})),
 	profile("Dybbuk", {"FreezingTemperatures", "Handprints", "Wither"}, "live-game", perks({
 		note("A fresh native Music Box first-play transition coincides with a deep WalkSpeed drop followed by recovery to the pre-play speed after about three seconds. The observation requires unchanged hunting state and no item/ghost ancestry gap.", SOURCE.Dybbuk, "live-game", false, "Trait"),
 	}, {}, {
-		note("Missing, late, short, or interrupted Music Box responses remain inconclusive. Corpse motion alone is not a reliable automatic identification.", SOURCE.Dybbuk, "live-game", false, "Caveat"),
+		note("A first play that remains within the conservative three-stud test range with unchanged speed for 3.5 seconds rules Dybbuk out. Unknown range, interruptions and other speed changes remain inconclusive.", SOURCE.Dybbuk, "live-game", false, "RuleOut"),
 	})),
 	profile("Entity", {"Handprints", "LaserProjector", "SpiritBox"}, "user-observed", perks({
 		note("A rapid object relocation matches a SmokeHolder at its departure point within three seconds. Native short and same-room relocations also qualify.", SOURCE.Entity, "live-game", true, "Ability"),
@@ -8399,7 +8419,7 @@ local Profiles = {
 	}, {
 		note("Model gender is exclusion-only. A female VisualModel does not support Keres.", SOURCE.Keres, "user-observed", false, "Caveat"),
 	}, {
-		note("No speed decrease after a qualified unique kill, or a verified male VisualModel, is a 99% negative.", SOURCE.Keres, "user-observed", false, "RuleOut"),
+		note("A verified male model is the only Keres negative. Missing kill-related slowdown does not rule Keres out.", SOURCE.Keres, "user-observed", false, "RuleOut"),
 	})),
 	profile("Leviathan", {"GhostOrb", "GhostWriting", "Handprints"}, "user-observed", perks({
 		note("An electronic item receives the native LeviathanGlitch attribute. An ordinary seven-toggle burst provides only weak support.", SOURCE.Leviathan, "live-game", true, "Ability"),
@@ -8466,7 +8486,7 @@ local Profiles = {
 	profile("Vex", {"FreezingTemperatures", "GhostOrb", "Wither"}, "user-observed", perks({
 		note("The replicated InvisibleOnLIDAR flag is true. Late-arriving values are observed.", SOURCE.Vex, "live-game", false, "Trait"),
 	}, {}, {
-		note("A missing or false replicated flag is not an automatic Vex rule-out.", SOURCE.Vex, "live-game", false, "Caveat"),
+		note("An explicit false InvisibleOnLIDAR flag rules Vex out, including after earlier invisibility. A missing or malformed flag remains unknown.", SOURCE.Vex, "live-game", false, "RuleOut"),
 	})),
 	profile("Wretch", {"GhostOrb", "GhostWriting", "LaserProjector"}, "live-game", perks({
 		note("Two alternating settled hunt-state transitions match the WalkSpeed curve for average player Energy captured at each exact switch; the sanity spread must be large enough to exceed speed tolerance.", SOURCE.Wretch, "user-observed", false, "Trait"),
@@ -8529,7 +8549,6 @@ local PerkConfidence = {
 }
 
 local PerkTTL = {
-	Dullahan = 25,
 	Dybbuk = 120,
 	Entity = 30,
 	Doppelganger = 120,
@@ -9602,7 +9621,7 @@ return function(dependencies)
 			result.DistinctPairs = payload.DistinctPairs
 			result.Samples = payload.Samples
 			result.HuntId = payload.HuntId
-			Traffic("SpeedFilterResult", result):SendTo("Dullahan", "Oni", "GhostPatternLog")
+			Traffic("SpeedFilterResult", result):SendTo("Oni", "GhostPatternLog")
 		elseif signal == "WretchSpeedSample" then
 			Traffic("WretchSpeedResult", inspectWretch(payload)):SendTo("Wretch", "GhostPatternLog")
 		end
@@ -9768,13 +9787,7 @@ local Dullahan = {Name = "Dullahan", Index = 4}
 
 function Dullahan.new(dependencies)
 	local Traffic = assert(dependencies.Traffic, "Dullahan requires Traffic")
-	local processor = {Matches = 0}
-
-	local function reset(time, speed)
-		processor.StartTime, processor.StartSpeed = time, speed
-		processor.LastTime, processor.LastSpeed = time, speed
-		processor.Count, processor.MaxError = 0, 0
-	end
+	local processor = {}
 
 	processor.Disconnect = Traffic:Receive("Dullahan", function(signal, payload)
 		if signal == "HeadlessState" and type(payload) == "table" then
@@ -9788,38 +9801,6 @@ function Dullahan.new(dependencies)
 			end
 			return
 		end
-		if processor.Resolved or signal ~= "GhostSpeedObserved" or type(payload) ~= "table"
-			or payload.Source ~= "speed" or payload.Hunting ~= true then return end
-		local time, speed = tonumber(payload.Time), tonumber(payload.Speed)
-		if not time or not speed or speed <= 0 then return end
-		if not processor.LastTime then reset(time, speed) return end
-
-		local elapsed = time - processor.LastTime
-		local change = speed - processor.LastSpeed
-		if elapsed <= 0 or math.abs(change) < 0.000001 then return end
-		if elapsed > 0.5 or change < 0 or change > 0.05 then reset(time, speed) return end
-		processor.LastTime, processor.LastSpeed = time, speed
-		processor.Count += 1
-
-		local duration = time - processor.StartTime
-		local gain = speed - processor.StartSpeed
-		processor.MaxError = math.max(processor.MaxError, math.abs(gain - duration * 0.1))
-		if processor.MaxError > 0.03 then reset(time, speed) return end
-		if duration < 1 or processor.Count < 6 then return end
-		local rate = gain / duration
-		if rate < 0.075 or rate > 0.125 then reset(time, speed) return end
-
-		processor.Matches += 1
-		reset(time, speed)
-		if processor.Matches < 3 then return end
-		processor.Resolved = true
-		Traffic("Support", {
-			Ghost = "Dullahan",
-			Perk = "Gradual acceleration",
-			Observation = "Repeated gradual speed gain",
-			Confidence = 95,
-			Reason = "three measured ramps followed the native 0.1-per-second acceleration pattern",
-		}):SendTo("Verdict")
 	end)
 
 	function processor:Destroy() self.Disconnect() end
@@ -9838,10 +9819,14 @@ function Dybbuk.new(dependencies)
 	processor.Disconnect = Traffic:Receive("Dybbuk", function(signal, payload)
 		if processor.Resolved or signal ~= "MusicBoxStun" or type(payload) ~= "table"
 			or payload.Qualified ~= true then return end
+		if payload.Stunned == false and payload.InRange ~= true then return end
 		processor.Resolved = true
-		Traffic("Support", {
+		local stunned = payload.Stunned ~= false
+		Traffic(stunned and "Support" or "RuleOut", {
 			Ghost = "Dybbuk", Perk = "Music Box stun", Confidence = 95,
-			Reason = "first Music Box play caused a deep speed drop and a three-second recovery",
+			Observation = stunned and "Music Box stun" or "No Music Box stun",
+			Reason = stunned and "first Music Box play caused a deep speed drop and a three-second recovery"
+				or "a qualified close-range first play caused no stun",
 		}):SendTo("Verdict")
 	end)
 	function processor:Destroy() self.Disconnect() end
@@ -9936,9 +9921,10 @@ function Keres.new(dependencies)
 	local Processor = {}
 
 	Processor.Disconnect = Traffic:Receive("Keres", function(signal, data)
-		if type(data) ~= "table" then return end
+		if Processor.RuledOut or type(data) ~= "table" then return end
 		if signal == "ModelGender" then
 			if data.Gender ~= "Male" then return end
+			Processor.RuledOut = true
 			Traffic("RuleOut", {
 				Ghost = "Keres",
 				Perk = "Female model", Observation = "Male model",
@@ -9980,14 +9966,13 @@ function Keres.new(dependencies)
 		if not baselines[true] or not baselines[false] or not observed[true] or not observed[false] then return end
 		local dropped = observed[true] < baselines[true] - epsilon
 			and observed[false] < baselines[false] - epsilon
-		if dropped or data.completed then
-			Traffic(dropped and "Support" or "RuleOut", {
+		if dropped then
+			Traffic("Support", {
 				Ghost = "Keres",
 				Perk = "Speed drops after kill",
-				Observation = dropped and "Slowed after kill" or "No slowdown after kill",
+				Observation = "Slowed after kill",
 				Confidence = 99,
-				Reason = dropped and "stable speed permanently dropped after a unique player kill"
-					or "stable speed did not permanently drop after a unique player kill",
+				Reason = "stable speed dropped after a unique player kill",
 			}):SendTo("Verdict")
 		end
 	end)
@@ -10413,17 +10398,20 @@ local Vex = {Name = "Vex", Index = 22}
 
 function Vex.new(dependencies)
 	local Traffic = assert(dependencies.Traffic, "Vex requires Traffic")
-	local Processor = {Checked = false}
+	local Processor = {}
 	Processor.Disconnect = Traffic:Receive("Vex", function(signal, payload)
-		if Processor.Checked or signal ~= "LidarState" or type(payload) ~= "table"
+		if Processor.RuledOut or signal ~= "LidarState" or type(payload) ~= "table"
 			or type(payload.Exists) ~= "boolean" then return end
-		if payload.Exists ~= true or payload.Value ~= true then return end
-		Processor.Checked = true
-		Traffic("Support", {
+		if payload.Exists ~= true or type(payload.Value) ~= "boolean" then return end
+		if payload.Value and Processor.Supported then return end
+		Processor.Supported = payload.Value
+		Processor.RuledOut = not payload.Value
+		Traffic(payload.Value and "Support" or "RuleOut", {
 			Ghost = "Vex",
 			Perk = "Invisible on LIDAR",
+			Observation = payload.Value and "Invisible on LIDAR" or "Visible on LIDAR",
 			Confidence = 99,
-			Reason = "the replicated InvisibleOnLIDAR flag is true",
+			Reason = "the replicated InvisibleOnLIDAR flag is " .. tostring(payload.Value),
 		}):SendTo("Verdict")
 	end)
 	function Processor:Destroy() self.Disconnect() end

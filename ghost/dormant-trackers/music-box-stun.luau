@@ -4,6 +4,12 @@ return function(dependencies)
 	local RunService = assert(dependencies.RunService, "music-box-stun requires RunService")
 	local humanoid = assert(Ghost:FindFirstChildOfClass("Humanoid"), "music-box-stun requires Humanoid")
 	local clock = dependencies.Clock or os.clock
+	-- A conservative close-range test, not the game's maximum audible radius.
+	local testRange = tonumber(dependencies.TestRange) or 3
+	local readDistance = dependencies.ReadDistance or function(box)
+		if not box.GetPivot or not Ghost.GetPivot then return nil end
+		return (box:GetPivot().Position - Ghost:GetPivot().Position).Magnitude
+	end
 	local tracker = {Kind = "dormant", Running = true, Speed = humanoid.WalkSpeed,
 		Hunting = Ghost:GetAttribute("Hunting") == true}
 	local function isStun(speed, baseline)
@@ -33,9 +39,21 @@ return function(dependencies)
 			or (Ghost:GetAttribute("Hunting") == true) ~= active.Hunting then cancel() return end
 		local speed = recordSpeed(now)
 		if not active.DropAt then
-			if now - active.PlayedAt > 0.5 then cancel() return end
+			local distance = readDistance(active.Box)
+			if type(distance) ~= "number" or distance > testRange then active.NegativeEligible = false end
 			if isStun(speed, active.Baseline) then
+				if now - active.PlayedAt > 0.5 then cancel() return end
 				active.DropAt, active.Slow = now, speed
+			elseif math.abs(speed - active.Baseline) > 0.05 then
+				cancel()
+			elseif now - active.PlayedAt >= 3.5 then
+				if not active.NegativeEligible or active.Baseline <= 2.05 then cancel() return end
+				local result = {Qualified = true, Stunned = false, InRange = true,
+					Duration = now - active.PlayedAt, Baseline = active.Baseline,
+					Distance = active.Distance, MusicBox = active.Box}
+				tracker.Result = result
+				tracker:Destroy()
+				Traffic("MusicBoxStun", result):SendTo("Dybbuk")
 			end
 			return
 		end
@@ -43,7 +61,8 @@ return function(dependencies)
 		if duration > 3.5 then cancel() return end
 		if math.abs(speed - active.Slow) <= 0.05 then return end
 		if duration >= 2.5 and math.abs(speed - active.Baseline) <= math.max(0.05, active.Baseline * 0.01) then
-			local result = {Qualified = true, Duration = duration, Baseline = active.Baseline,
+			local result = {Qualified = true, Stunned = true, InRange = active.InRange,
+				Duration = duration, Baseline = active.Baseline,
 				SlowSpeed = active.Slow, RecoveredSpeed = speed, MusicBox = active.Box}
 			tracker.Result = result
 			tracker:Destroy()
@@ -72,7 +91,10 @@ return function(dependencies)
 			and isStun(speed, change.Before)
 		local baseline = recentDrop and change.Before or speed
 		if baseline <= 0 then return end
+		local distance = readDistance(box)
+		local inRange = type(distance) == "number" and distance <= testRange
 		tracker.Active = {Box = box, PlayedAt = now, Baseline = baseline,
+			Distance = distance, InRange = inRange, NegativeEligible = inRange,
 			Hunting = Ghost:GetAttribute("Hunting") == true,
 			DropAt = recentDrop and change.Time or nil, Slow = recentDrop and speed or nil}
 		tracker.BoxConnection = box.AncestryChanged:Connect(cancel)

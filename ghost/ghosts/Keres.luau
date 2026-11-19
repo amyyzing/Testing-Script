@@ -6,9 +6,10 @@ function Keres.new(dependencies)
 	local Processor = {}
 
 	Processor.Disconnect = Traffic:Receive("Keres", function(signal, data)
-		if type(data) ~= "table" then return end
+		if Processor.RuledOut or type(data) ~= "table" then return end
 		if signal == "ModelGender" then
 			if data.Gender ~= "Male" then return end
+			Processor.RuledOut = true
 			Traffic("RuleOut", {
 				Ghost = "Keres",
 				Perk = "Female model", Observation = "Male model",
@@ -50,14 +51,13 @@ function Keres.new(dependencies)
 		if not baselines[true] or not baselines[false] or not observed[true] or not observed[false] then return end
 		local dropped = observed[true] < baselines[true] - epsilon
 			and observed[false] < baselines[false] - epsilon
-		if dropped or data.completed then
-			Traffic(dropped and "Support" or "RuleOut", {
+		if dropped then
+			Traffic("Support", {
 				Ghost = "Keres",
 				Perk = "Speed drops after kill",
-				Observation = dropped and "Slowed after kill" or "No slowdown after kill",
+				Observation = "Slowed after kill",
 				Confidence = 99,
-				Reason = dropped and "stable speed permanently dropped after a unique player kill"
-					or "stable speed did not permanently drop after a unique player kill",
+				Reason = "stable speed dropped after a unique player kill",
 			}):SendTo("Verdict")
 		end
 	end)

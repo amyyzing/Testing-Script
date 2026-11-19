@@ -220,14 +220,14 @@ local Profiles = {
 		note("An eligible Cross that finishes burning without floating and rotating is a 99% negative.", SOURCE.Demon, "user-observed", false, "RuleOut"),
 	})),
 	profile("Dullahan", {"FreezingTemperatures", "LaserProjector", "Wither"}, "user-observed", perks({
-		note("The current LineOfSightSpeedIncreasePerSecond flag is 0.1. Repeated rising visible speed provides supporting evidence, not certainty from arbitrary distinct speeds.", SOURCE.Dullahan, "live-game", false, "Trait"),
+		note("The native Headless flag identifies the headless state before photography. Acceleration guessing is disabled.", SOURCE.Dullahan, "live-game", false, "Trait"),
 	}, {}, {
-		note("Flat speed without verified sustained target line of sight cannot rule Dullahan out. Decreases or resets make this uncontrolled trial inconclusive.", SOURCE.Dullahan, "live-game", false, "Caveat"),
+		note("A missing or false Headless flag is inconclusive.", SOURCE.Dullahan, "live-game", false, "Caveat"),
 	})),
 	profile("Dybbuk", {"FreezingTemperatures", "Handprints", "Wither"}, "live-game", perks({
 		note("A fresh native Music Box first-play transition coincides with a deep WalkSpeed drop followed by recovery to the pre-play speed after about three seconds. The observation requires unchanged hunting state and no item/ghost ancestry gap.", SOURCE.Dybbuk, "live-game", false, "Trait"),
 	}, {}, {
-		note("Missing, late, short, or interrupted Music Box responses remain inconclusive. Corpse motion alone is not a reliable automatic identification.", SOURCE.Dybbuk, "live-game", false, "Caveat"),
+		note("A first play that remains within the conservative three-stud test range with unchanged speed for 3.5 seconds rules Dybbuk out. Unknown range, interruptions and other speed changes remain inconclusive.", SOURCE.Dybbuk, "live-game", false, "RuleOut"),
 	})),
 	profile("Entity", {"Handprints", "LaserProjector", "SpiritBox"}, "user-observed", perks({
 		note("A rapid object relocation matches a SmokeHolder at its departure point within three seconds. Native short and same-room relocations also qualify.", SOURCE.Entity, "live-game", true, "Ability"),
@@ -243,7 +243,7 @@ local Profiles = {
 	}, {
 		note("Model gender is exclusion-only. A female VisualModel does not support Keres.", SOURCE.Keres, "user-observed", false, "Caveat"),
 	}, {
-		note("No speed decrease after a qualified unique kill, or a verified male VisualModel, is a 99% negative.", SOURCE.Keres, "user-observed", false, "RuleOut"),
+		note("A verified male model is the only Keres negative. Missing kill-related slowdown does not rule Keres out.", SOURCE.Keres, "user-observed", false, "RuleOut"),
 	})),
 	profile("Leviathan", {"GhostOrb", "GhostWriting", "Handprints"}, "user-observed", perks({
 		note("An electronic item receives the native LeviathanGlitch attribute. An ordinary seven-toggle burst provides only weak support.", SOURCE.Leviathan, "live-game", true, "Ability"),
@@ -310,7 +310,7 @@ local Profiles = {
 	profile("Vex", {"FreezingTemperatures", "GhostOrb", "Wither"}, "user-observed", perks({
 		note("The replicated InvisibleOnLIDAR flag is true. Late-arriving values are observed.", SOURCE.Vex, "live-game", false, "Trait"),
 	}, {}, {
-		note("A missing or false replicated flag is not an automatic Vex rule-out.", SOURCE.Vex, "live-game", false, "Caveat"),
+		note("An explicit false InvisibleOnLIDAR flag rules Vex out, including after earlier invisibility. A missing or malformed flag remains unknown.", SOURCE.Vex, "live-game", false, "RuleOut"),
 	})),
 	profile("Wretch", {"GhostOrb", "GhostWriting", "LaserProjector"}, "live-game", perks({
 		note("Two alternating settled hunt-state transitions match the WalkSpeed curve for average player Energy captured at each exact switch; the sanity spread must be large enough to exceed speed tolerance.", SOURCE.Wretch, "user-observed", false, "Trait"),
@@ -373,7 +373,6 @@ local PerkConfidence = {
 }
 
 local PerkTTL = {
-	Dullahan = 25,
 	Dybbuk = 120,
 	Entity = 30,
 	Doppelganger = 120,

@@ -28,8 +28,8 @@ Traffic("KillSpeed", {
 	},
 	completed = true,
 }):SendTo("Keres")
-expect(Verdict:Snapshot()["ruled-out"][1] == 8,
-	"a recovered speed should invalidate a provisional Keres decrease")
+expect(not table.find(Verdict.RuledOut, 8),
+	"speed recovery must no longer produce a Keres negative")
 
 Verdict:Reset()
 Traffic("KillSpeed", {
@@ -66,8 +66,8 @@ Traffic("KillSpeed", {
 	afterKill = {{s = 11, v = true}, {s = 11, v = false}, {s = 11, v = true}},
 	completed = true,
 }):SendTo("Keres")
-expect(Verdict:Snapshot()["ruled-out"][1] == 8,
-	"a completed kill section without a speed drop should rule out Keres")
+expect(not table.find(Verdict.RuledOut, 8),
+	"a missing speed drop must no longer rule out Keres")
 
 Verdict:Reset()
 local femaleGhost = {VisualModel = "Watcher"}

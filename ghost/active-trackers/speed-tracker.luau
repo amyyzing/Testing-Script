@@ -21,10 +21,6 @@ return function(dependencies)
 			and not transparency
 			or type(transparency) == "number" and transparency < 0.5
 		local energy = World and World:GetAttribute("AverageEnergy")
-		Traffic("GhostSpeedObserved", {Speed = speed, Visible = visible == true,
-			Hunting = Tracker.hunting == true,
-			AverageEnergy = energy, Source = source, Time = clock(),
-		}):SendTo("GhostPatternLog", "Dullahan")
 		local point = {s = speed, v = visible == true}
 		table.insert(Tracker.samples, point)
 		table.insert(Tracker.sampleMeta, {source = source, time = clock(), change = speedChange, energy = energy,

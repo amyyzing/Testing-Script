@@ -1,45 +1,15 @@
 local createTraffic = require("../traffic")
 local createVerdict = require("../verdict")
 local Dullahan = require("../ghosts/Dullahan")
-
-local function expect(condition, message)
-	if not condition then error(message, 2) end
+local traffic = createTraffic()
+local verdict = createVerdict({Traffic = traffic})
+local detector = Dullahan.new({Traffic = traffic})
+for i = 1, 80 do
+ traffic("GhostSpeedObserved", {Source = "speed", Hunting = true, Time = i * 0.1, Speed = 21 + i * 0.01}):SendTo("Dullahan")
 end
-
-local function run(speeds)
-	local traffic = createTraffic()
-	local verdict = createVerdict({Traffic = traffic})
-	local processor = Dullahan.new({Traffic = traffic})
-	for index, speed in ipairs(speeds) do
-		traffic("GhostSpeedObserved", {Source = "speed", Hunting = true, Time = index * 0.1, Speed = speed}):SendTo("Dullahan")
-	end
-	processor:Destroy()
-	return verdict
-end
-
-local ramp = {}
-for index = 1, 45 do table.insert(ramp, 21 + index * 0.01) end
-local rampVerdict = run(ramp)
-expect(rampVerdict.Confidence[4] == 65 and rampVerdict.SourceConfidence[4] == 95, "repeated tiny increases at the native rate should support Dullahan")
-
-local blink = {}
-for index = 1, 80 do table.insert(blink, index % 2 == 0 and 27 or 21) end
-expect(run(blink).Confidence[4] == nil, "large alternating Phantom changes must not count as gradual acceleration")
-
-local wrongRate = {}
-for index = 1, 80 do table.insert(wrongRate, 21 + index * 0.03) end
-expect(run(wrongRate).Confidence[4] == nil, "an unrelated drift rate must stay inconclusive")
-
-local flat = {}
-for index = 1, 80 do table.insert(flat, 21) end
-expect(run(flat).Confidence[4] == nil, "flat speed must not support Dullahan")
-
-print("dullahan.spec: timed micro-increments, alternate speed and drift rejection passed")
-
-local duplicates = {}
-for index = 1, 45 do
-	table.insert(duplicates, 21 + index * 0.02)
-	table.insert(duplicates, 21 + index * 0.02)
-end
-local duplicateVerdict = run(duplicates)
-expect(duplicateVerdict.Confidence[4] == 65 and duplicateVerdict.SourceConfidence[4] == 95, "duplicate property notifications must not reset a real ramp")
+assert(verdict.SourceConfidence[4] == nil, "acceleration must no longer identify Dullahan")
+traffic("HeadlessState", {Exists = true, Value = true}):SendTo("Dullahan")
+assert(verdict.SourceConfidence[4] == 99 and verdict.Confidence[4] == 65,
+ "the native headless flag must still identify Dullahan with the copied-perk cap")
+detector:Destroy()
+print("dullahan.spec: native flag only; acceleration ignored")

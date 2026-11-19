@@ -109,7 +109,7 @@ return function(dependencies)
 			result.DistinctPairs = payload.DistinctPairs
 			result.Samples = payload.Samples
 			result.HuntId = payload.HuntId
-			Traffic("SpeedFilterResult", result):SendTo("Dullahan", "Oni", "GhostPatternLog")
+			Traffic("SpeedFilterResult", result):SendTo("Oni", "GhostPatternLog")
 		elseif signal == "WretchSpeedSample" then
 			Traffic("WretchSpeedResult", inspectWretch(payload)):SendTo("Wretch", "GhostPatternLog")
 		end

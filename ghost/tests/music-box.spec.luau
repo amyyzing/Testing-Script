@@ -18,8 +18,9 @@ local function signal()
 	}
 end
 
-local function harness(base)
+local function harness(base, distance)
 	local now = 0
+	local range = distance == nil and 1 or distance
 	local changed, heartbeat = signal(), signal()
 	local humanoid = {Parent = true, WalkSpeed = base or 21, AncestryChanged = signal()}
 	function humanoid:GetPropertyChangedSignal() return changed end
@@ -33,12 +34,14 @@ local function harness(base)
 	local verdict = createVerdict({Traffic = traffic})
 	local processor = Dybbuk.new({Traffic = traffic})
 	local tracker = createTracker({Traffic = traffic, Ghost = ghost,
-		RunService = {Heartbeat = heartbeat}, Clock = function() return now end})
+		RunService = {Heartbeat = heartbeat}, Clock = function() return now end,
+		ReadDistance = function() return type(range)=="number" and range or nil end})
 	local h = {Verdict = verdict, Tracker = tracker, Ghost = ghost, Box = box, Humanoid = humanoid}
 	assert(heartbeat:Count() == 0, "idle Music Box observation must not run Heartbeat")
 	function h:Play(other) traffic("MusicBoxFirstPlay", {MusicBox = other or box}):SendTo("MusicBoxStun") end
 	function h:Speed(speed) humanoid.WalkSpeed = speed changed:Fire() end
 	function h:Hunt(value) ghost.Hunting = value huntingChanged:Fire() end
+	function h:Range(value) range=value end
 	function h:Step(seconds) now += seconds heartbeat:Fire() end
 	function h:Destroy() tracker:Destroy() processor:Destroy() end
 	function h:Unresolved(message)
@@ -72,7 +75,9 @@ reordered:Destroy()
 local ordinary = harness()
 ordinary:Play()
 ordinary:Step(5)
-ordinary:Unresolved("an ordinary ghost remaining at normal speed cannot identify or rule out Dybbuk")
+assert(table.find(ordinary.Verdict.RuledOut,5), "in-range first play without a stun must exclude Dybbuk")
+assert(ordinary.Tracker.Result.InRange and ordinary.Tracker.Result.Stunned==false)
+ordinary:Destroy()
 
 local salt = harness()
 salt:Play()
@@ -122,3 +127,12 @@ for _, cause in ipairs({"hunt", "box", "ghost", "humanoid", "drift", "overlap"})
 end
 
 print("music-box.spec: timed first-play response, ordinary control and interruptions passed")
+
+for _,range in ipairs({30, false})do
+ local h=harness(21,range)
+ h:Play() h:Step(5)
+ h:Unresolved("distant or unknown-range playback cannot exclude Dybbuk")
+end
+local leaves=harness()
+leaves:Play() leaves:Range(10) leaves:Step(.2) leaves:Range(1) leaves:Step(5)
+leaves:Unresolved("leaving range invalidates the no-stun test")
