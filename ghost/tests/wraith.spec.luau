@@ -83,6 +83,12 @@ positive.Delayed[1].Callback()
 expect((positive.Verdict.Confidence[25] == 65 and positive.Verdict.SourceConfidence[25] == 99)
 	and positive.Verdict.Selected[1] == 25,
 	"a directly hit salt remaining undisturbed through the grace should support Wraith")
+positive.Traffic("SaltStateAfterHit", {State = "disturbed", ContactId = 1}):SendTo("Wraith")
+expect(table.find(positive.Verdict.RuledOut, 25),
+	"a later native disturbance must correct a provisional undisturbed-salt match")
+positive.Traffic("SaltStateAfterHit", {State = "undisturbed", GraceComplete = true, ContactId = 2}):SendTo("Wraith")
+expect(table.find(positive.Verdict.RuledOut, 25),
+	"another undisturbed contact must not resurrect a contradicted Wraith match")
 positive.Destroy()
 
 local negative = harness()

@@ -1,4 +1,4 @@
-local VERSION = 4
+local VERSION = 5
 return function(dependencies)
 	local environment = dependencies.Environment or (getgenv and getgenv()) or _G
 	local world = dependencies.Game or game
@@ -90,6 +90,7 @@ if not ok then error(failure, 0) end
 		local recovered = pcall(function()
 		environment.BridgeURL = bridge
 		environment.MCPAuthToken = credential
+		self:Arm()
 		local identity = table.concat({tostring(world.PlaceId), tostring(world.JobId), tostring(player and player.UserId or 0)}, ":")
 		if newArrival or environment.MCP_ClientIdentityKey ~= identity then
 			environment.MCP_Loaded, environment.MCP_Loading, environment.MCP_AutoLoading = nil, nil, nil

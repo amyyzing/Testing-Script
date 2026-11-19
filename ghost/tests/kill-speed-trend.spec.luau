@@ -57,4 +57,33 @@ for _, direction in ipairs({1, -1}) do
 	tracker:Destroy() aswang:Destroy() keres:Destroy() dullahan:Destroy()
 end
 
-print("kill-speed-trend.spec: gradual ramps cannot masquerade as discrete kill changes")
+for _, direction in ipairs({1, -1}) do
+	local changed, visibility = signal(), signal()
+	local now = 0
+	local humanoid = {WalkSpeed = 10.5}
+	function humanoid:GetPropertyChangedSignal() return changed end
+	local ghost = {Transparency = 0}
+	function ghost:GetAttribute(name) return self[name] end
+	function ghost:FindFirstChildOfClass() return humanoid end
+	function ghost:GetAttributeChangedSignal() return visibility end
+	local traffic = createTraffic()
+	local verdict = createVerdict({Traffic = traffic})
+	local aswang, keres = Aswang.new({Traffic = traffic}), Keres.new({Traffic = traffic})
+	local tracker = createTracker({Traffic = traffic, Ghost = ghost, Clock = function() return now end,
+		Workspace = {GetAttribute = function() return 0 end}})
+	traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
+	for _, value in ipairs({1, 0, 1, 0}) do now += .2 ghost.Transparency = value visibility:Fire() end
+	now += .2 humanoid.WalkSpeed += direction
+	-- A coalesced native update can expose the new value through visibility first.
+	ghost.Transparency = 1 visibility:Fire()
+	ghost.Transparency = 0 visibility:Fire()
+	changed:Fire()
+	now += 3.3
+	traffic("PlayerKilled", {Time = now, userId = 1}):SendTo("SpeedTracker")
+	for _, value in ipairs({1, 0, 1, 0}) do now += .2 ghost.Transparency = value visibility:Fire() end
+	assert(verdict.SourceConfidence[direction == 1 and 1 or 8] == 99,
+		"visibility-first replication must not overwrite either pre-change speed baseline")
+	tracker:Destroy() aswang:Destroy() keres:Destroy()
+end
+
+print("kill-speed-trend.spec: ramp rejection and visibility-first kill changes passed")

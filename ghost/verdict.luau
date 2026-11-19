@@ -269,6 +269,7 @@ return function(dependencies)
 		refreshConfidence()
 		local bestIndex = resolvedEvidenceIndex()
 		local bestScore = -math.huge
+		local bestStrength = -math.huge
 		if bestIndex and isRuledOut(bestIndex) then
 			bestIndex = nil
 		end
@@ -277,16 +278,23 @@ return function(dependencies)
 			bestIndex = Verdict.ForcedIndex
 		elseif not bestIndex then
 			bestIndex = preferredEvidenceIndex()
-			if bestIndex then bestScore = math.max(0, 50 - (Verdict.NegativeConfidence[bestIndex] or 0)) end
+			if bestIndex then
+				bestScore = math.max(0, 50 - (Verdict.NegativeConfidence[bestIndex] or 0))
+				bestStrength = 50
+			end
 			for index in ipairs(GHOSTS) do
 				local confidence = Verdict.Confidence[index]
 				local currentScore = score(index)
+				local strength = Verdict.SourceConfidence[index] or confidence or 0
 				if not isRuledOut(index)
 					and evidenceCompatible(index)
 					and confidence ~= nil
-					and currentScore > bestScore then
+					and (currentScore > bestScore or currentScore == bestScore
+						and (strength > bestStrength or strength == bestStrength
+							and bestIndex == indexes.Doppelganger and index ~= indexes.Doppelganger)) then
 					bestIndex = index
 					bestScore = currentScore
+					bestStrength = strength
 				end
 			end
 			bestIndex = bestIndex or soleRemainingIndex()

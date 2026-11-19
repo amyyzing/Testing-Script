@@ -5,7 +5,8 @@ function Wraith.new(dependencies)
 	local Processor = {Resolved = false}
 
 	local function verdict(signal, reason)
-		if Processor.Resolved then return end
+		if Processor.RuledOut or Processor.Resolved and signal ~= "RuleOut" then return end
+		if signal == "RuleOut" then Processor.RuledOut = true end
 		Processor.Resolved = true
 		Traffic(signal, {
 			Ghost = "Wraith",
@@ -17,7 +18,7 @@ function Wraith.new(dependencies)
 	end
 
 	Processor.Disconnect = Traffic:Receive("Wraith", function(signal, payload)
-		if Processor.Resolved or signal ~= "SaltStateAfterHit"
+		if signal ~= "SaltStateAfterHit"
 			or type(payload) ~= "table" then return end
 		if payload.State == "disturbed" then
 			verdict("RuleOut", "a directly observed salt hit produced disturbed salt")

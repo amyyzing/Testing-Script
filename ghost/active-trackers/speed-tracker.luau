@@ -8,6 +8,7 @@ return function(dependencies)
 	local Tracker = {
 		Kind = "active", Running = true,
 		hunting = nil, samples = {}, sampleMeta = {}, displayIndex = 0,
+		stableSpeeds = {},
 		pendingSalts = {},
 	}
 
@@ -25,7 +26,10 @@ return function(dependencies)
 		}):SendTo("GhostPatternLog", "Dullahan")
 		local point = {s = speed, v = visible == true}
 		table.insert(Tracker.samples, point)
-		table.insert(Tracker.sampleMeta, {source = source, time = clock(), change = speedChange})
+		table.insert(Tracker.sampleMeta, {source = source, time = clock(), change = speedChange,
+			beforeVisible = Tracker.stableSpeeds[true], beforeInvisible = Tracker.stableSpeeds[false]})
+		if source == "speed" then Tracker.acknowledgedSpeed = speed end
+		if speed == Tracker.acknowledgedSpeed then Tracker.stableSpeeds[point.v] = speed end
 		if Tracker.afterSalt then table.insert(Tracker.afterSalt, point) end
 		if Tracker.afterKill then table.insert(Tracker.afterKill, point) end
 		return point
@@ -63,6 +67,7 @@ return function(dependencies)
 		Traffic("KillSpeed", {
 			userId = Tracker.killUserId,
 			baselineKill = Tracker.killBaseline,
+			baselinesKill = Tracker.killBaselines,
 			SpeedChange = Tracker.killSpeedChange,
 			beforeKill = Tracker.beforeKill,
 			afterKill = Tracker.afterKill,
@@ -78,10 +83,12 @@ return function(dependencies)
 			Traffic("HuntSpeedEnded", {Count = Tracker.displayIndex}):SendTo("SpeedArrayLog")
 		end
 		Tracker.hunting, Tracker.samples, Tracker.sampleMeta = value, {}, {}
+		Tracker.stableSpeeds = {}
 		Tracker.displayIndex = 0
 		Tracker.beforeSalt, Tracker.afterSalt, Tracker.contact, Tracker.saltState = nil, nil, nil, nil
 		Tracker.beforeKill, Tracker.afterKill = nil, nil
 		Tracker.killUserId, Tracker.killBaseline, Tracker.killSpeedChange = nil, nil, nil
+		Tracker.killBaselines = nil
 		if value then Traffic("HuntSpeedReset", {}):SendTo("SpeedArrayLog") end
 		sample("state") -- once while non-hunting; hunt samples continue on visibility changes
 	end
@@ -131,6 +138,7 @@ return function(dependencies)
 			Tracker.killUserId = payload.userId
 			local splitIndex = #Tracker.samples
 			Tracker.killSpeedChange = nil
+			Tracker.killBaselines = nil
 			local killTime = tonumber(payload.Time) or clock()
 			for index = #Tracker.sampleMeta - 1, 1, -1 do
 				local meta = Tracker.sampleMeta[index]
@@ -140,6 +148,7 @@ return function(dependencies)
 					and (meta.change == nil or math.abs(meta.change) > 0.000001) then
 					splitIndex = index
 					Tracker.killSpeedChange = meta.change
+					Tracker.killBaselines = {[true] = meta.beforeVisible, [false] = meta.beforeInvisible}
 					break
 				end
 			end
@@ -151,6 +160,9 @@ return function(dependencies)
 					Tracker.killBaseline = point
 					break
 				end
+			end
+			if Tracker.killBaselines and Tracker.killBaselines[splitPoint.v] then
+				Tracker.killBaseline = {s = Tracker.killBaselines[splitPoint.v], v = splitPoint.v}
 			end
 			Tracker.beforeKill, Tracker.afterKill = {}, {}
 			for index = 1, splitIndex do table.insert(Tracker.beforeKill, Tracker.samples[index]) end
@@ -172,6 +184,7 @@ return function(dependencies)
 	local humanoid = Ghost:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		local previousSpeed = tonumber(humanoid.WalkSpeed)
+		Tracker.acknowledgedSpeed = previousSpeed
 		Tracker.SpeedConnection = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
 			local speed = tonumber(humanoid.WalkSpeed)
 			local change = speed and previousSpeed and speed - previousSpeed or nil
@@ -180,6 +193,8 @@ return function(dependencies)
 				sample("speed", change)
 				sendSalt(false)
 				sendKill(false)
+			else
+				Tracker.acknowledgedSpeed = speed
 			end
 		end)
 	end

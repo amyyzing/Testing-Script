@@ -17,10 +17,10 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Aswang | Five qualified salt-slowdown identifications; five native-confirmed solo post-kill classifications on c9ea459, including temporary slowdown and recovery | Three zero-kill setup failures were skipped. One private constant-speed assertion incorrectly rejected a correct prediction; its original failure and the reviewed native trace are preserved |
 | Banshee | Glass observations and native probability flag reviewed | Glass frequency is variable; no unique automatic identity claim |
 | Demon | Five floating-Cross identifications and ordinary-Cross comparison | Interrupted-Cross cancellation has engine/regression coverage, not a new five-game series |
-| Dullahan | Five earlier repeated micro-acceleration identifications; one flat-speed solo kill comparison produced no false kill-perk support | The new acceleration-plus-kill stress test did not qualify: two fixture deaths occurred before any speed ramp. That overlap is not claimed validated |
+| Dullahan | Five earlier micro-acceleration identifications; five native headless-flag classifications on a340495, all zero-kill, default/native matched, source99/effective65 and actual MEDIUM rows | The acceleration-plus-kill stress setup did not qualify. A regression now rejects small ramp steps as kill effects; that is not a claimed native combined-stress pass |
 | Dybbuk | Five corrected Music Box stun identifications at 0.5x, 1x and 2x; ordinary-ghost comparisons, including the actual detector at close range | Initial low-speed miss corrected; one disconnected return remains separately unverified. These are five qualifying confirmations, not five uninterrupted attempts. Corpse motion alone is unqualified |
 | Entity | Five origin-smoke/relocation identifications | Uncorroborated physics displacement is not unique |
-| Ghoul | One unattended-electronics counter-control, actual Ghoul | Default guess was Doppelganger; overlapping clues remain ambiguous, not a correct identity credit |
+| Ghoul | One unattended-electronics counter-control, actual Ghoul; direct three-clue/fake-Orb ranking corrected in regressions | The old default was Doppelganger. New direct-profile preference is tentative50, not certainty; fresh native ranking controls remain pending |
 | Keres | Five native-confirmed solo post-kill classifications on c9ea459, following replay of the original delayed-death detector miss | An earlier disconnected capture remains unverified after changing test accounts; it is not one of the five. Model gender is exclusion-only |
 | Leviathan | Five native glitch-attribute identifications | Ordinary switch frequency remains weak |
 | Nightmare | Current native probability modifiers reviewed | Random sounds or a single hunt do not identify it |
@@ -38,7 +38,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Vex | Five earlier flag identifications, one strong-signature confidence control, five native Mimicry challenge controls; ordinary solo kill comparison kept hunting for eight seconds without Revenant support | Flags are behavior observations, not an exhaustive proof that copying is impossible |
 | Wretch | Five Energy-speed-curve identifications with normal-ghost comparison | Candle proximity and eligible-versus-forced hunt conditions remain unqualified |
 | Wisp | Five burning-oil collision controls and a normal-ghost comparison | Inside-room hunt starts are not positive evidence; outside starts can exclude |
-| Wraith | Five salt controls; lifecycle cancellation covered separately | Original Doppelganger salt diagnostic still needs independent swept-contact geometry before its cause can be claimed |
+| Wraith | Five salt controls; lifecycle cancellation covered separately; late disturbance now overrides an earlier match in regressions and an isolated Roblox-engine property-signal fixture | Original Doppelganger salt diagnostic still needs independent contact geometry. The engine fixture is not a new native ghost identity control |
 
 ## Current shared checks
 
@@ -56,6 +56,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 
 Native artifacts remain in the executor's `DemonologyResearch` directory.
 Important recent records include `vex-mimicry-five-confirmed.json`,
+`dullahan-native-headless-five-confirmed.json`,
 `ghoul-electronics-counter-control-confirmed.json`,
 `specter-residence-policy-confirmed.json`, and the separately preserved initial
 Dybbuk low-speed miss. The corrected positive series is

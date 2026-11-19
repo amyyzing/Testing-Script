@@ -60,6 +60,10 @@ The test suite validates code contracts and representative observations. It is
 not a claim that all 25 ghosts have each been tested in a live round.
 
 Behavioral perk matches are treated as potentially copyable while Doppelganger fits the confirmed evidence. Their effective support is capped at 65 and qualifying rows are marked MEDIUM. Weak readings are not promoted. Independent evidence excluding Doppelganger releases the cap; clearing it restores the cap. High-confidence negative observations retain their existing gates.
+When effective scores tie, stronger underlying observations take precedence;
+this ranking does not raise the displayed confidence cap. A later native salt
+disturbance corrects an earlier Wraith match and cannot be undone by another
+undisturbed contact.
 
 Post-kill speed windows retain the actual per-property change. Steps up to
 0.05 also fit the measured Dullahan ramp, so those windows remain inconclusive

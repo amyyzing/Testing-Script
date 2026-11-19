@@ -27,4 +27,8 @@ verdict:RuleOut("Doppelganger", 99, "independent exclusion")
 assert(verdict.Confidence[25] == 99, "a hard independent exclusion must release the cap")
 verdict:Reset()
 assert(next(verdict.SourceConfidence) == nil, "reset must clear retained source confidence")
+traffic("Support", {Ghost = "Vex", Perk = "Invisible on LIDAR", Confidence = 99}):SendTo("Verdict")
+traffic("Support", {Ghost = "Banshee", Perk = "Glass burst", Confidence = 65}):SendTo("Verdict")
+assert(verdict.Selected[1] == 22 and verdict.Confidence[22] == 65,
+ "a weak burst must not outrank a stronger signature merely because both are capped at medium")
 print("perk-confidence.spec: copyable traits require independent Doppelganger exclusion")

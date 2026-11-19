@@ -34,6 +34,13 @@ function Keres.new(dependencies)
 			and type(baseline.s) == "number" and baseline.s > 0 then
 			baselines[baseline.v] = baseline.s
 		end
+		if type(data.baselinesKill) == "table" then
+			for _, state in ipairs({true, false}) do
+				local speed = data.baselinesKill[state]
+				if type(speed) ~= "number" or speed <= 0 then return end
+				baselines[state] = speed
+			end
+		end
 		for index = 2, #after do
 			local point = after[index]
 			if type(point.v) == "boolean" and type(point.s) == "number" and point.s > 0 then

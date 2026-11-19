@@ -90,7 +90,13 @@ local arrival = dependencies(arrivalWorld, true)
 arrival.Environment, arrival.ArrivalId = arrivalEnvironment, "arrival-one"
 arrival.Compile = function() return function() arrivalEnvironment.MCP_Loaded = true end end
 local beforeArrival = #queued
+local armedDuringDownload = false
+arrivalWorld.HttpGet = function(self, url)
+	armedDuringDownload = armedDuringDownload or #queued > beforeArrival
+	return world.HttpGet(self, url)
+end
 local arriving = createResume(arrival)
+assert(armedDuringDownload, "the next hop must be armed before connector downloads or retries can yield")
 assert(arriving.Recovered and #queued == beforeArrival + 1,
 	"an incoming recovery must enqueue exactly one next-hop bootstrap")
 

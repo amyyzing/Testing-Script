@@ -6052,6 +6052,7 @@ return function(dependencies)
 	local Tracker = {
 		Kind = "active", Running = true,
 		hunting = nil, samples = {}, sampleMeta = {}, displayIndex = 0,
+		stableSpeeds = {},
 		pendingSalts = {},
 	}
 
@@ -6069,7 +6070,10 @@ return function(dependencies)
 		}):SendTo("GhostPatternLog", "Dullahan")
 		local point = {s = speed, v = visible == true}
 		table.insert(Tracker.samples, point)
-		table.insert(Tracker.sampleMeta, {source = source, time = clock(), change = speedChange})
+		table.insert(Tracker.sampleMeta, {source = source, time = clock(), change = speedChange,
+			beforeVisible = Tracker.stableSpeeds[true], beforeInvisible = Tracker.stableSpeeds[false]})
+		if source == "speed" then Tracker.acknowledgedSpeed = speed end
+		if speed == Tracker.acknowledgedSpeed then Tracker.stableSpeeds[point.v] = speed end
 		if Tracker.afterSalt then table.insert(Tracker.afterSalt, point) end
 		if Tracker.afterKill then table.insert(Tracker.afterKill, point) end
 		return point
@@ -6107,6 +6111,7 @@ return function(dependencies)
 		Traffic("KillSpeed", {
 			userId = Tracker.killUserId,
 			baselineKill = Tracker.killBaseline,
+			baselinesKill = Tracker.killBaselines,
 			SpeedChange = Tracker.killSpeedChange,
 			beforeKill = Tracker.beforeKill,
 			afterKill = Tracker.afterKill,
@@ -6122,10 +6127,12 @@ return function(dependencies)
 			Traffic("HuntSpeedEnded", {Count = Tracker.displayIndex}):SendTo("SpeedArrayLog")
 		end
 		Tracker.hunting, Tracker.samples, Tracker.sampleMeta = value, {}, {}
+		Tracker.stableSpeeds = {}
 		Tracker.displayIndex = 0
 		Tracker.beforeSalt, Tracker.afterSalt, Tracker.contact, Tracker.saltState = nil, nil, nil, nil
 		Tracker.beforeKill, Tracker.afterKill = nil, nil
 		Tracker.killUserId, Tracker.killBaseline, Tracker.killSpeedChange = nil, nil, nil
+		Tracker.killBaselines = nil
 		if value then Traffic("HuntSpeedReset", {}):SendTo("SpeedArrayLog") end
 		sample("state") -- once while non-hunting; hunt samples continue on visibility changes
 	end
@@ -6175,6 +6182,7 @@ return function(dependencies)
 			Tracker.killUserId = payload.userId
 			local splitIndex = #Tracker.samples
 			Tracker.killSpeedChange = nil
+			Tracker.killBaselines = nil
 			local killTime = tonumber(payload.Time) or clock()
 			for index = #Tracker.sampleMeta - 1, 1, -1 do
 				local meta = Tracker.sampleMeta[index]
@@ -6184,6 +6192,7 @@ return function(dependencies)
 					and (meta.change == nil or math.abs(meta.change) > 0.000001) then
 					splitIndex = index
 					Tracker.killSpeedChange = meta.change
+					Tracker.killBaselines = {[true] = meta.beforeVisible, [false] = meta.beforeInvisible}
 					break
 				end
 			end
@@ -6195,6 +6204,9 @@ return function(dependencies)
 					Tracker.killBaseline = point
 					break
 				end
+			end
+			if Tracker.killBaselines and Tracker.killBaselines[splitPoint.v] then
+				Tracker.killBaseline = {s = Tracker.killBaselines[splitPoint.v], v = splitPoint.v}
 			end
 			Tracker.beforeKill, Tracker.afterKill = {}, {}
 			for index = 1, splitIndex do table.insert(Tracker.beforeKill, Tracker.samples[index]) end
@@ -6216,6 +6228,7 @@ return function(dependencies)
 	local humanoid = Ghost:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		local previousSpeed = tonumber(humanoid.WalkSpeed)
+		Tracker.acknowledgedSpeed = previousSpeed
 		Tracker.SpeedConnection = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
 			local speed = tonumber(humanoid.WalkSpeed)
 			local change = speed and previousSpeed and speed - previousSpeed or nil
@@ -6224,6 +6237,8 @@ return function(dependencies)
 				sample("speed", change)
 				sendSalt(false)
 				sendKill(false)
+			else
+				Tracker.acknowledgedSpeed = speed
 			end
 		end)
 	end
@@ -9610,6 +9625,13 @@ function Aswang.new(dependencies)
 				and type(baseline.s) == "number" and baseline.s > 0 then
 				baselines[baseline.v] = baseline.s
 			end
+			if type(data.baselinesKill) == "table" then
+				for _, state in ipairs({true, false}) do
+					local speed = data.baselinesKill[state]
+					if type(speed) ~= "number" or speed <= 0 then return end
+					baselines[state] = speed
+				end
+			end
 			for index = 2, #after do
 				local point = after[index]
 				if type(point.v) == "boolean" and type(point.s) == "number" and point.s > 0 then
@@ -9898,6 +9920,13 @@ function Keres.new(dependencies)
 		if type(baseline) == "table" and type(baseline.v) == "boolean"
 			and type(baseline.s) == "number" and baseline.s > 0 then
 			baselines[baseline.v] = baseline.s
+		end
+		if type(data.baselinesKill) == "table" then
+			for _, state in ipairs({true, false}) do
+				local speed = data.baselinesKill[state]
+				if type(speed) ~= "number" or speed <= 0 then return end
+				baselines[state] = speed
+			end
 		end
 		for index = 2, #after do
 			local point = after[index]
@@ -10416,7 +10445,8 @@ function Wraith.new(dependencies)
 	local Processor = {Resolved = false}
 
 	local function verdict(signal, reason)
-		if Processor.Resolved then return end
+		if Processor.RuledOut or Processor.Resolved and signal ~= "RuleOut" then return end
+		if signal == "RuleOut" then Processor.RuledOut = true end
 		Processor.Resolved = true
 		Traffic(signal, {
 			Ghost = "Wraith",
@@ -10428,7 +10458,7 @@ function Wraith.new(dependencies)
 	end
 
 	Processor.Disconnect = Traffic:Receive("Wraith", function(signal, payload)
-		if Processor.Resolved or signal ~= "SaltStateAfterHit"
+		if signal ~= "SaltStateAfterHit"
 			or type(payload) ~= "table" then return end
 		if payload.State == "disturbed" then
 			verdict("RuleOut", "a directly observed salt hit produced disturbed salt")
@@ -10875,6 +10905,7 @@ return function(dependencies)
 		refreshConfidence()
 		local bestIndex = resolvedEvidenceIndex()
 		local bestScore = -math.huge
+		local bestStrength = -math.huge
 		if bestIndex and isRuledOut(bestIndex) then
 			bestIndex = nil
 		end
@@ -10883,16 +10914,23 @@ return function(dependencies)
 			bestIndex = Verdict.ForcedIndex
 		elseif not bestIndex then
 			bestIndex = preferredEvidenceIndex()
-			if bestIndex then bestScore = math.max(0, 50 - (Verdict.NegativeConfidence[bestIndex] or 0)) end
+			if bestIndex then
+				bestScore = math.max(0, 50 - (Verdict.NegativeConfidence[bestIndex] or 0))
+				bestStrength = 50
+			end
 			for index in ipairs(GHOSTS) do
 				local confidence = Verdict.Confidence[index]
 				local currentScore = score(index)
+				local strength = Verdict.SourceConfidence[index] or confidence or 0
 				if not isRuledOut(index)
 					and evidenceCompatible(index)
 					and confidence ~= nil
-					and currentScore > bestScore then
+					and (currentScore > bestScore or currentScore == bestScore
+						and (strength > bestStrength or strength == bestStrength
+							and bestIndex == indexes.Doppelganger and index ~= indexes.Doppelganger)) then
 					bestIndex = index
 					bestScore = currentScore
+					bestStrength = strength
 				end
 			end
 			bestIndex = bestIndex or soleRemainingIndex()
@@ -12387,10 +12425,12 @@ return function(dependencies)
 			local resolved = Verdict:GetEvidenceResolvedGhost()
 			if resolved and (not allowed or allowed[resolved]) then return resolved, 100 end
 		end
-		local bestName, bestScore
+		local bestName, bestScore, bestStrength
 		if type(Verdict.GetEvidencePreferredGhost) == "function" then
 			local preferred, confidence = Verdict:GetEvidencePreferredGhost()
-			if preferred and (not allowed or allowed[preferred]) then bestName, bestScore = preferred, confidence end
+			if preferred and (not allowed or allowed[preferred]) then
+				bestName, bestScore, bestStrength = preferred, confidence, confidence
+			end
 		end
 		for index, name in ipairs(Verdict.Lists) do
 			if not isRuledOut(index)
@@ -12398,10 +12438,12 @@ return function(dependencies)
 				and Verdict.Confidence[index] ~= nil
 				and (not allowed or allowed[name]) then
 				local candidateScore = score(index)
+				local strength = Verdict.SourceConfidence and Verdict.SourceConfidence[index] or Verdict.Confidence[index]
 				if bestName == nil or candidateScore > bestScore
 					or (candidateScore == bestScore
-						and bestName == "Doppelganger" and name ~= "Doppelganger") then
-					bestName, bestScore = name, candidateScore
+						and (strength > bestStrength or strength == bestStrength
+							and bestName == "Doppelganger" and name ~= "Doppelganger")) then
+					bestName, bestScore, bestStrength = name, candidateScore, strength
 				end
 			end
 		end
@@ -14007,7 +14049,7 @@ end
 
 end)())
 modules["logic/mcp-teleport.luau"] = pack((function()
-local VERSION = 4
+local VERSION = 5
 return function(dependencies)
 	local environment = dependencies.Environment or (getgenv and getgenv()) or _G
 	local world = dependencies.Game or game
@@ -14099,6 +14141,7 @@ if not ok then error(failure, 0) end
 		local recovered = pcall(function()
 		environment.BridgeURL = bridge
 		environment.MCPAuthToken = credential
+		self:Arm()
 		local identity = table.concat({tostring(world.PlaceId), tostring(world.JobId), tostring(player and player.UserId or 0)}, ":")
 		if newArrival or environment.MCP_ClientIdentityKey ~= identity then
 			environment.MCP_Loaded, environment.MCP_Loading, environment.MCP_AutoLoading = nil, nil, nil

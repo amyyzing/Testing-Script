@@ -126,10 +126,12 @@ return function(dependencies)
 			local resolved = Verdict:GetEvidenceResolvedGhost()
 			if resolved and (not allowed or allowed[resolved]) then return resolved, 100 end
 		end
-		local bestName, bestScore
+		local bestName, bestScore, bestStrength
 		if type(Verdict.GetEvidencePreferredGhost) == "function" then
 			local preferred, confidence = Verdict:GetEvidencePreferredGhost()
-			if preferred and (not allowed or allowed[preferred]) then bestName, bestScore = preferred, confidence end
+			if preferred and (not allowed or allowed[preferred]) then
+				bestName, bestScore, bestStrength = preferred, confidence, confidence
+			end
 		end
 		for index, name in ipairs(Verdict.Lists) do
 			if not isRuledOut(index)
@@ -137,10 +139,12 @@ return function(dependencies)
 				and Verdict.Confidence[index] ~= nil
 				and (not allowed or allowed[name]) then
 				local candidateScore = score(index)
+				local strength = Verdict.SourceConfidence and Verdict.SourceConfidence[index] or Verdict.Confidence[index]
 				if bestName == nil or candidateScore > bestScore
 					or (candidateScore == bestScore
-						and bestName == "Doppelganger" and name ~= "Doppelganger") then
-					bestName, bestScore = name, candidateScore
+						and (strength > bestStrength or strength == bestStrength
+							and bestName == "Doppelganger" and name ~= "Doppelganger")) then
+					bestName, bestScore, bestStrength = name, candidateScore, strength
 				end
 			end
 		end
