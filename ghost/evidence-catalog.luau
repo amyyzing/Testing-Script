@@ -234,9 +234,11 @@ local Profiles = {
 	}, {}, {
 		note("A long cross-room jump without matching origin smoke is only a 50% negative. A matching signature supersedes tentative motion negatives; uncorroborated short movement stays inconclusive.", SOURCE.Entity, "live-game", true, "Caveat"),
 	})),
-	profile("Ghoul", {"FreezingTemperatures", "GhostOrb", "SpiritBox"}, "user-observed", perks({}, {}, {
+	profile("Ghoul", {"FreezingTemperatures", "GhostOrb", "SpiritBox"}, "user-observed", perks({
+		note("A true native CantDisableElectronics flag supports Ghoul.", SOURCE.Ghoul, "live-game", false, "Trait"),
+	}, {}, {
 		note("Electronics becoming disabled while every player is more than 15 studs away is a 99% negative for Ghoul.", SOURCE.Ghoul, "user-observed", false, "RuleOut"),
-		note("No positive automatic Ghoul observation is currently trusted.", SOURCE.Ghoul, "user-observed", false, "Caveat"),
+		note("A missing or false immunity flag is inconclusive.", SOURCE.Ghoul, "live-game", false, "Caveat"),
 	})),
 	profile("Keres", {"Handprints", "SpiritBox", "Wither"}, "user-observed", perks({
 		note("Stable hunting speed permanently decreases after a qualified unique player kill.", SOURCE.Keres, "user-observed", false, "Trait"),

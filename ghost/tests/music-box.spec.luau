@@ -74,7 +74,7 @@ reordered:Destroy()
 
 local ordinary = harness()
 ordinary:Play()
-ordinary:Step(5)
+for _ = 1, 40 do ordinary:Step(0.1) end
 assert(table.find(ordinary.Verdict.RuledOut,5), "in-range first play without a stun must exclude Dybbuk")
 assert(ordinary.Tracker.Result.InRange and ordinary.Tracker.Result.Stunned==false)
 ordinary:Destroy()
@@ -130,9 +130,13 @@ print("music-box.spec: timed first-play response, ordinary control and interrupt
 
 for _,range in ipairs({30, false})do
  local h=harness(21,range)
- h:Play() h:Step(5)
+ h:Play() for _=1,40 do h:Step(.1)end
  h:Unresolved("distant or unknown-range playback cannot exclude Dybbuk")
 end
 local leaves=harness()
 leaves:Play() leaves:Range(10) leaves:Step(.2) leaves:Range(1) leaves:Step(5)
 leaves:Unresolved("leaving range invalidates the no-stun test")
+
+local stalled = harness()
+stalled:Play() stalled:Step(5)
+stalled:Unresolved("a stalled client could miss the entire stun and cannot produce a no-stun negative")

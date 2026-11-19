@@ -8,7 +8,10 @@ return function(dependencies)
 	local testRange = tonumber(dependencies.TestRange) or 3
 	local readDistance = dependencies.ReadDistance or function(box)
 		if not box.GetPivot or not Ghost.GetPivot then return nil end
-		return (box:GetPivot().Position - Ghost:GetPivot().Position).Magnitude
+		local root = Ghost:FindFirstChild("HumanoidRootPart") or Ghost.PrimaryPart
+		local part = box.PrimaryPart or box:FindFirstChildWhichIsA("BasePart", true)
+		if not root or not root.Parent or not part or not part.Parent then return nil end
+		return (box:GetPivot().Position - root.Position).Magnitude
 	end
 	local tracker = {Kind = "dormant", Running = true, Speed = humanoid.WalkSpeed,
 		Hunting = Ghost:GetAttribute("Hunting") == true}
@@ -39,6 +42,8 @@ return function(dependencies)
 			or (Ghost:GetAttribute("Hunting") == true) ~= active.Hunting then cancel() return end
 		local speed = recordSpeed(now)
 		if not active.DropAt then
+			if now - active.LastObserved > 0.5 then active.NegativeEligible = false end
+			active.LastObserved = now
 			local distance = readDistance(active.Box)
 			if type(distance) ~= "number" or distance > testRange then active.NegativeEligible = false end
 			if isStun(speed, active.Baseline) then
@@ -93,7 +98,7 @@ return function(dependencies)
 		if baseline <= 0 then return end
 		local distance = readDistance(box)
 		local inRange = type(distance) == "number" and distance <= testRange
-		tracker.Active = {Box = box, PlayedAt = now, Baseline = baseline,
+		tracker.Active = {Box = box, PlayedAt = now, LastObserved = now, Baseline = baseline,
 			Distance = distance, InRange = inRange, NegativeEligible = inRange,
 			Hunting = Ghost:GetAttribute("Hunting") == true,
 			DropAt = recentDrop and change.Time or nil, Slow = recentDrop and speed or nil}
