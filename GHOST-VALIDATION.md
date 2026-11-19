@@ -20,7 +20,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Dullahan | Five earlier micro-acceleration identifications; five native headless-flag classifications on a340495, all zero-kill, default/native matched, source99/effective65 and actual MEDIUM rows | The acceleration-plus-kill stress setup did not qualify. A regression now rejects small ramp steps as kill effects; that is not a claimed native combined-stress pass |
 | Dybbuk | Five corrected Music Box stun identifications at 0.5x, 1x and 2x; ordinary-ghost comparisons, including the actual detector at close range | Initial low-speed miss corrected; one disconnected return remains separately unverified. These are five qualifying confirmations, not five uninterrupted attempts. Corpse motion alone is unqualified |
 | Entity | Five origin-smoke/relocation identifications | Uncorroborated physics displacement is not unique |
-| Ghoul | One earlier unattended-electronics counter-control; direct-profile ranking corrected in regressions; true CantDisableElectronics flag observed live and corroborated with the native camera controller | The positive-only flag and late-contradiction handling pass regressions. Five fresh native flag controls remain pending. Direct-profile preference is tentative50 and does not exclude Doppelganger |
+| Ghoul | Five fresh native flag classifications on 944e4c4: default/native Ghoul, zero kills, source99/effective65 and actual MEDIUM rows in every round. One separate full-profile ranking policy control also matched native Ghoul | The flag is positive-only; qualified later contradictions still exclude. Doppelganger remains possible. The full-profile preference is tentative50, not unique identity proof |
 | Keres | Five earlier c9ea459 solo classifications; five fresh specific kill-perk confirmations on 48c9685 at 0.5x, 0.75x, 1x, 1.5x and 2x | Fresh paired causal baselines survived the actual callback order; each default/native result matched with one real kill. Earlier disconnected captures remain unverified. Model gender is exclusion-only |
 | Leviathan | Five native glitch-attribute identifications | Ordinary switch frequency remains weak |
 | Nightmare | Current native probability modifiers reviewed | Random sounds or a single hunt do not identify it |
@@ -34,9 +34,9 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Specter | Five historical false-exclusion counter-controls; one corrected low-to-medium policy control | Residence never supplies definite identity; throwing rate is omitted |
 | Spirit | Five blue Holy Oil identifications | Blue candles are shared with Doppelganger; reparented oil requires a fresh stability window |
 | Umbra | Five exact CurrentSound absence controls plus ordinary-ghost comparisons | Missing root/loading gaps are not silence; late sound creation corrects the result |
-| Vesper | Native HuntBySound flag reviewed | Ordinary pursuit does not isolate auditory targeting |
+| Vesper | Native source/state inspection confirmed actual Vesper with zero kills; sound flags were absent on the replicated ghost before/during its natural hunt. Native speech probes were recorded from Base Camp and a distant room | Speech acceptance and causal targeting were not established; the inside-room trace crossed hunt end. These are research traces, not identity successes or negative Vesper evidence |
 | Vex | Five earlier flag identifications, one strong-signature confidence control, five native Mimicry challenge controls; ordinary solo kill comparison kept hunting for eight seconds without Revenant support | Flags are behavior observations, not an exhaustive proof that copying is impossible |
-| Wretch | Five Energy-speed-curve identifications with normal-ghost comparison | Candle proximity and eligible-versus-forced hunt conditions remain unqualified |
+| Wretch | Five earlier Energy-speed-curve identifications; one fresh native solo counter on 064407e held Energy50/speed11.5 across a real kill and eight seconds afterward, with no false Aswang/Keres/Revenant support | Energy did not change in that counter. Multiplayer Energy-change and candle/forced-hunt conditions remain unqualified |
 | Wisp | Five burning-oil collision controls and a normal-ghost comparison | Inside-room hunt starts are not positive evidence; outside starts can exclude |
 | Wraith | Five earlier provisional salt classifications; lifecycle cancellation and late-disturbance correction checked; exact-sensor geometry reproduced in an isolated Roblox-engine fixture | Positives now require a mature hunting crossing. Idle-model overlap is inconclusive. Fresh native identity controls on this stricter path remain pending; no-contact rounds and placement-fixture failures earn no credit. The original Doppelganger capture's cause remains unproven |
 
@@ -57,6 +57,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 Native artifacts remain in the executor's `DemonologyResearch` directory.
 Important recent records include `vex-mimicry-five-confirmed.json`,
 `dullahan-native-headless-five-confirmed.json`,
+`ghoul-native-electronics-flag-five-confirmed.json`,
 `ghoul-electronics-counter-control-confirmed.json`,
 `specter-residence-policy-confirmed.json`, and the separately preserved initial
 Dybbuk low-speed miss. The corrected positive series is
