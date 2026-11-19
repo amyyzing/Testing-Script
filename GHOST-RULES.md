@@ -69,6 +69,9 @@ Post-kill speed windows retain the actual per-property change. Steps up to
 0.05 also fit the measured Dullahan ramp, so those windows remain inconclusive
 for Aswang and Keres even when a delayed death notification arrives nearby.
 The native Aswang/Keres kill changes are larger at every offered speed scale.
+A true native Headless flag also keeps the kill-speed window inconclusive:
+its acceleration/reset can arrive in batches larger than the small-step gate.
+The kill marker and independent Dullahan observations remain active.
 
 In full-evidence rounds, a complete direct three-clue match wins a tie against
 tentative fake-Orb support. This is a 50-point preference, not a resolved

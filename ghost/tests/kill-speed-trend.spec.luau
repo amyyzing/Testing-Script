@@ -57,12 +57,16 @@ for _, direction in ipairs({1, -1}) do
 	tracker:Destroy() aswang:Destroy() keres:Destroy() dullahan:Destroy()
 end
 
-for _, direction in ipairs({1, -1}) do
+for _, case in ipairs({
+	{Direction = 1, Headless = false}, {Direction = -1, Headless = false},
+	{Direction = 1, Headless = true}, {Direction = -1, Headless = true},
+}) do
+	local direction, headless = case.Direction, case.Headless
 	local changed, visibility = signal(), signal()
 	local now = 0
 	local humanoid = {WalkSpeed = 10.5}
 	function humanoid:GetPropertyChangedSignal() return changed end
-	local ghost = {Transparency = 0}
+	local ghost = {Transparency = 0, Headless = headless}
 	function ghost:GetAttribute(name) return self[name] end
 	function ghost:FindFirstChildOfClass() return humanoid end
 	function ghost:GetAttributeChangedSignal() return visibility end
@@ -81,8 +85,14 @@ for _, direction in ipairs({1, -1}) do
 	now += 3.3
 	traffic("PlayerKilled", {Time = now, userId = 1}):SendTo("SpeedTracker")
 	for _, value in ipairs({1, 0, 1, 0}) do now += .2 ghost.Transparency = value visibility:Fire() end
-	assert(verdict.SourceConfidence[direction == 1 and 1 or 8] == 99,
-		"visibility-first replication must not overwrite either pre-change speed baseline")
+	if headless then
+		assert(verdict.SourceConfidence[1] == nil and verdict.SourceConfidence[8] == nil
+			and not table.find(verdict.RuledOut, 1) and not table.find(verdict.RuledOut, 8),
+			"a known headless acceleration/reset can coalesce into a large step; the kill inference remains inconclusive")
+	else
+		assert(verdict.SourceConfidence[direction == 1 and 1 or 8] == 99,
+			"visibility-first replication must not overwrite either pre-change speed baseline")
+	end
 	tracker:Destroy() aswang:Destroy() keres:Destroy()
 end
 

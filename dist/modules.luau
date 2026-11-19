@@ -6123,6 +6123,8 @@ return function(dependencies)
 
 	local function sendKill(completed)
 		if not Tracker.beforeKill then return end
+		-- Native headless acceleration/reset can arrive as a large batched step.
+		if Ghost:GetAttribute("Headless") == true then return end
 		Traffic("KillSpeed", {
 			userId = Tracker.killUserId,
 			baselineKill = Tracker.killBaseline,
