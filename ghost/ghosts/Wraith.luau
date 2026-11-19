@@ -24,7 +24,7 @@ function Wraith.new(dependencies)
 			verdict("RuleOut", "a directly observed salt hit produced disturbed salt")
 		elseif payload.State == "undisturbed" and payload.GraceComplete == true then
 			verdict("Support",
-				"a directly observed salt hit remained undisturbed after the four-second creation grace")
+				"a directly observed crossing after creation grace remained undisturbed")
 		end
 	end)
 

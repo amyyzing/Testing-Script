@@ -39,7 +39,9 @@ return function(dependencies)
 			State = disturbed and "disturbed" or "undisturbed",
 			ObservedFor = disturbed and math.max(0, clock() - probe.StartedAt)
 				or probe.WaitSeconds,
-			GraceComplete = graceComplete == true,
+			-- Waiting cannot retroactively qualify a crossing made during creation grace.
+			GraceComplete = graceComplete == true
+				and probe.StartedAt >= (tonumber(probe.Payload.SaltCreatedAt) or probe.StartedAt) + graceSeconds,
 		}):SendTo("SpeedTracker", "Wraith")
 	end
 

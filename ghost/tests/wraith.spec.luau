@@ -70,19 +70,20 @@ end
 
 local positive = harness()
 local clean = salt("SaltPile")
+positive.SetTime(4)
 positive.Traffic("SaltHit", {
 	ContactId = 1,
 	Salt = clean,
 	SaltCreatedAt = 0,
 }):SendTo("SaltStateAfterHit")
-expect(#positive.Delayed == 1 and positive.Delayed[1].Seconds == 4
+expect(#positive.Delayed == 1 and positive.Delayed[1].Seconds == 1.25
 	and positive.Verdict.Confidence[25] == nil,
-	"an undisturbed hit must not support Wraith before the creation grace ends")
-positive.SetTime(4)
+	"a mature salt crossing must still wait for the post-hit observation")
+positive.SetTime(5.25)
 positive.Delayed[1].Callback()
 expect((positive.Verdict.Confidence[25] == 65 and positive.Verdict.SourceConfidence[25] == 99)
 	and positive.Verdict.Selected[1] == 25,
-	"a directly hit salt remaining undisturbed through the grace should support Wraith")
+	"a mature direct crossing remaining undisturbed should support Wraith")
 positive.Traffic("SaltStateAfterHit", {State = "disturbed", ContactId = 1}):SendTo("Wraith")
 expect(table.find(positive.Verdict.RuledOut, 25),
 	"a later native disturbance must correct a provisional undisturbed-salt match")
@@ -90,6 +91,14 @@ positive.Traffic("SaltStateAfterHit", {State = "undisturbed", GraceComplete = tr
 expect(table.find(positive.Verdict.RuledOut, 25),
 	"another undisturbed contact must not resurrect a contradicted Wraith match")
 positive.Destroy()
+
+local early = harness()
+early.Traffic("SaltHit", {ContactId = 1, Salt = salt("SaltPile"), SaltCreatedAt = 0}):SendTo("SaltStateAfterHit")
+early.SetTime(4)
+early.Delayed[1].Callback()
+expect(early.Verdict.Confidence[25] == nil,
+	"waiting four seconds cannot turn a crossing during creation grace into a qualified Wraith match")
+early.Destroy()
 
 local negative = harness()
 local disturbed = salt("SaltPile")

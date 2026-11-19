@@ -89,3 +89,5 @@ Undisturbed-salt contact uses the native `GhostTracker` part and the ghost root,
 without padding or whole-model bounds. Ground decoration and costume overlap
 cannot start that test. A native disturbed-salt rename/attribute remains
 authoritative even when no physical contact was observed locally.
+The crossing itself must occur after creation grace; an early crossing stays
+inconclusive even if the pile is still clean four seconds later.
