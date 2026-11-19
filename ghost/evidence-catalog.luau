@@ -158,7 +158,7 @@ local SOURCE = {
 	Spirit = "https://demonology.fandom.com/wiki/Spirit",
 	Wisp = "https://demonology.fandom.com/wiki/The_Wisp",
 	Umbra = "https://demonology.fandom.com/wiki/Umbra",
-	Vesper = "https://demonology.fandom.com/wiki/Vesper",
+	Vesper = "live-game:ReplicatedStorage.Modules.GhostTypes.Vesper",
 	Vex = "https://demonology.fandom.com/wiki/Vex",
 	Wretch = "live-game:ReplicatedStorage.Modules.GhostTypes.Wretch",
 	Wraith = "https://demonology.fandom.com/wiki/Wraith",
@@ -213,11 +213,7 @@ local Profiles = {
 		note("A qualified hunting salt contact with no temporary slowdown is a 99% negative; a qualified unique kill with no permanent rise is also a 99% negative.", SOURCE.Aswang, "user-observed", false, "RuleOut"),
 		note("Salt contact outside a hunt can identify Wraith behavior but cannot identify Aswang.", SOURCE.Aswang, "user-observed", false, "Caveat"),
 	})),
-	profile("Banshee", {"FreezingTemperatures", "GhostOrb", "Handprints"}, "user-observed", perks({
-		note("At least two new BrokenGlass models appear within one five-second window.", SOURCE.Banshee, "user-observed", false, "Trait"),
-	}, {}, {
-		note("The absence of a glass burst is not a Banshee negative.", SOURCE.Banshee, "user-observed", false, "Caveat"),
-	})),
+	profile("Banshee", {"FreezingTemperatures", "GhostOrb", "Handprints"}, "evidence-only", perks()),
 	profile("Demon", {"EMFLevel5", "FreezingTemperatures", "Handprints"}, "user-observed", perks({
 		note("An eligible burning Cross floats and rotates.", SOURCE.Demon, "user-observed", false, "Weakness"),
 	}, {}, {
@@ -254,9 +250,7 @@ local Profiles = {
 	}, {}, {
 		note("One isolated toggle or an automation-caused toggle is not Leviathan evidence.", SOURCE.Leviathan, "user-observed", true, "Caveat"),
 	})),
-	profile("Nightmare", {"EMFLevel5", "GhostOrb", "SpiritBox"}, "tracker-pending", perks({}, {}, {
-		note("The current ability plays false throw or glass-shatter sounds; dark rooms increase hunt probability. Neither one sound nor one hunt is a reliable automatic identification.", SOURCE.Nightmare, "live-game", false, "Caveat"),
-	})),
+	profile("Nightmare", {"EMFLevel5", "GhostOrb", "SpiritBox"}, "evidence-only", perks()),
 	profile("Oni", {"FreezingTemperatures", "LaserProjector", "SpiritBox"}, "user-observed", perks({
 		note("The current WalkSpeedDuringHunts flag is 14. A matching flat hunting window supports Oni but can also match Wretch's low-Energy speed.", SOURCE.Oni, "live-game", false, "Trait"),
 	}, {}, {
@@ -312,9 +306,7 @@ local Profiles = {
 	}, {}, {
 		note("A root Sound named CurrentSound contradicts silent footsteps; other Sound names do not.", SOURCE.Umbra, "user-observed", false, "RuleOut"),
 	})),
-	profile("Vesper", {"GhostWriting", "Handprints", "Wither"}, "tracker-pending", perks({}, {}, {
-		note("The current HuntBySound and HearsVoicesAnywhere flags confirm sound-based hunting through walls. Ordinary pursuit alone cannot identify Vesper.", SOURCE.Vesper, "live-game", false, "Caveat"),
-	})),
+	profile("Vesper", {"GhostWriting", "Handprints", "Wither"}, "evidence-only", perks()),
 	profile("Vex", {"FreezingTemperatures", "GhostOrb", "Wither"}, "user-observed", perks({
 		note("The replicated InvisibleOnLIDAR flag is true. Late-arriving values are observed.", SOURCE.Vex, "live-game", false, "Trait"),
 	}, {}, {

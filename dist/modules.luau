@@ -5634,11 +5634,11 @@ return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "native-events requires Traffic")
 	local World = dependencies.Workspace or workspace
 	local clock = dependencies.Clock or os.clock
-	local tracker = {Connections = {}, Bound = {}, Glass = {}, Running = true}
+	local tracker = {Connections = {}, Bound = {}, Running = true}
 	local function connect(signal, callback)
 		table.insert(tracker.Connections, signal:Connect(callback))
 	end
-	local function bind(object, added)
+	local function bind(object)
 		local name = string.lower(object.Name)
 		local eligible = object:GetAttribute("ItemName") ~= nil
 			or (object.HasTag and (object:HasTag("Candle") or object:HasTag("Lantern")))
@@ -5646,9 +5646,7 @@ return function(dependencies)
 			or object:GetAttribute("LeviathanGlitch") ~= nil
 			or (object.Parent and object.Parent.Name == "Items")
 			or name:find("candle", 1, true) or name:find("lantern", 1, true)
-		local glass = object:IsA("Model") and object.Name == "BrokenGlass"
-			and object.Parent and object.Parent.Name == "BrokenGlass"
-		if not eligible and not glass then return end
+		if not eligible then return end
 		if tracker.Bound[object] then
 			tracker.Bound[object]()
 			return
@@ -5680,19 +5678,9 @@ return function(dependencies)
 			connect(object:GetAttributeChangedSignal("HasBeenPlayed"), function() update(true) end)
 			update()
 		end
-		if added and glass then
-			local now = clock()
-			local recent = {}
-			for _, time in ipairs(tracker.Glass) do
-				if now - time <= 5 then table.insert(recent, time) end
-			end
-			table.insert(recent, now)
-			tracker.Glass = recent
-			if #recent >= 2 then Traffic("GlassBurst", {Count = #recent}):SendTo("Banshee") end
-		end
 	end
-	for _, object in ipairs(World:GetDescendants()) do bind(object, false) end
-	connect(World.DescendantAdded, function(object) bind(object, true) end)
+	for _, object in ipairs(World:GetDescendants()) do bind(object) end
+	connect(World.DescendantAdded, bind)
 	function tracker:Destroy()
 		self.Running = false
 		for _, connection in ipairs(self.Connections) do connection:Disconnect() end
@@ -8295,7 +8283,7 @@ local SOURCE = {
 	Spirit = "https://demonology.fandom.com/wiki/Spirit",
 	Wisp = "https://demonology.fandom.com/wiki/The_Wisp",
 	Umbra = "https://demonology.fandom.com/wiki/Umbra",
-	Vesper = "https://demonology.fandom.com/wiki/Vesper",
+	Vesper = "live-game:ReplicatedStorage.Modules.GhostTypes.Vesper",
 	Vex = "https://demonology.fandom.com/wiki/Vex",
 	Wretch = "live-game:ReplicatedStorage.Modules.GhostTypes.Wretch",
 	Wraith = "https://demonology.fandom.com/wiki/Wraith",
@@ -8350,11 +8338,7 @@ local Profiles = {
 		note("A qualified hunting salt contact with no temporary slowdown is a 99% negative; a qualified unique kill with no permanent rise is also a 99% negative.", SOURCE.Aswang, "user-observed", false, "RuleOut"),
 		note("Salt contact outside a hunt can identify Wraith behavior but cannot identify Aswang.", SOURCE.Aswang, "user-observed", false, "Caveat"),
 	})),
-	profile("Banshee", {"FreezingTemperatures", "GhostOrb", "Handprints"}, "user-observed", perks({
-		note("At least two new BrokenGlass models appear within one five-second window.", SOURCE.Banshee, "user-observed", false, "Trait"),
-	}, {}, {
-		note("The absence of a glass burst is not a Banshee negative.", SOURCE.Banshee, "user-observed", false, "Caveat"),
-	})),
+	profile("Banshee", {"FreezingTemperatures", "GhostOrb", "Handprints"}, "evidence-only", perks()),
 	profile("Demon", {"EMFLevel5", "FreezingTemperatures", "Handprints"}, "user-observed", perks({
 		note("An eligible burning Cross floats and rotates.", SOURCE.Demon, "user-observed", false, "Weakness"),
 	}, {}, {
@@ -8391,9 +8375,7 @@ local Profiles = {
 	}, {}, {
 		note("One isolated toggle or an automation-caused toggle is not Leviathan evidence.", SOURCE.Leviathan, "user-observed", true, "Caveat"),
 	})),
-	profile("Nightmare", {"EMFLevel5", "GhostOrb", "SpiritBox"}, "tracker-pending", perks({}, {}, {
-		note("The current ability plays false throw or glass-shatter sounds; dark rooms increase hunt probability. Neither one sound nor one hunt is a reliable automatic identification.", SOURCE.Nightmare, "live-game", false, "Caveat"),
-	})),
+	profile("Nightmare", {"EMFLevel5", "GhostOrb", "SpiritBox"}, "evidence-only", perks()),
 	profile("Oni", {"FreezingTemperatures", "LaserProjector", "SpiritBox"}, "user-observed", perks({
 		note("The current WalkSpeedDuringHunts flag is 14. A matching flat hunting window supports Oni but can also match Wretch's low-Energy speed.", SOURCE.Oni, "live-game", false, "Trait"),
 	}, {}, {
@@ -8449,9 +8431,7 @@ local Profiles = {
 	}, {}, {
 		note("A root Sound named CurrentSound contradicts silent footsteps; other Sound names do not.", SOURCE.Umbra, "user-observed", false, "RuleOut"),
 	})),
-	profile("Vesper", {"GhostWriting", "Handprints", "Wither"}, "tracker-pending", perks({}, {}, {
-		note("The current HuntBySound and HearsVoicesAnywhere flags confirm sound-based hunting through walls. Ordinary pursuit alone cannot identify Vesper.", SOURCE.Vesper, "live-game", false, "Caveat"),
-	})),
+	profile("Vesper", {"GhostWriting", "Handprints", "Wither"}, "evidence-only", perks()),
 	profile("Vex", {"FreezingTemperatures", "GhostOrb", "Wither"}, "user-observed", perks({
 		note("The replicated InvisibleOnLIDAR flag is true. Late-arriving values are observed.", SOURCE.Vex, "live-game", false, "Trait"),
 	}, {}, {
@@ -9707,28 +9687,6 @@ end
 return Aswang
 
 end)())
-modules["ghost/ghosts/Banshee.luau"] = pack((function()
-local Banshee = {Name = "Banshee", Index = 2}
-
-function Banshee.new(dependencies)
-	local Traffic = assert(dependencies.Traffic, "Banshee requires Traffic")
-	local processor = {}
-	processor.Disconnect = Traffic:Receive("Banshee", function(signal, payload)
-		if signal ~= "GlassBurst" or type(payload) ~= "table"
-			or (tonumber(payload.Count) or 0) < 2 then return end
-		Traffic("Support", {
-			Ghost = "Banshee", Confidence = 65,
-			Perk = "Glass burst", Observation = "Multiple glass breaks",
-			Reason = "multiple new broken-glass models appeared within five seconds; supporting rather than unique evidence",
-		}):SendTo("Verdict")
-	end)
-	function processor:Destroy() self.Disconnect() end
-	return processor
-end
-
-return Banshee
-
-end)())
 modules["ghost/ghosts/Demon.luau"] = pack((function()
 local Demon = {Name = "Demon", Index = 3}
 
@@ -10049,9 +10007,6 @@ function Leviathan.new(dependencies)
 end
 
 return Leviathan
-
-end)())
-modules["ghost/ghosts/Nightmare.luau"] = pack((function()
 
 end)())
 modules["ghost/ghosts/Oni.luau"] = pack((function()
@@ -10422,9 +10377,6 @@ function Umbra.new(dependencies)
 end
 
 return Umbra
-
-end)())
-modules["ghost/ghosts/Vesper.luau"] = pack((function()
 
 end)())
 modules["ghost/ghosts/Vex.luau"] = pack((function()

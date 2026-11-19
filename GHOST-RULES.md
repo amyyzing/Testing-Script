@@ -31,7 +31,7 @@ negatives remain exclusions; timeout choices use the challenge-compatible pool.
 | Ghost | Current source behavior | Automatic handling and limits |
 | --- | --- | --- |
 | Aswang | Salt slowdown, speed increase after kills | Qualified salt/kill speed windows; pre-animation baseline survives the measured delay before the death flag |
-| Banshee | Breaks 1–3 glass objects, custom wail | New glass bursts provide support, not certainty |
+| Banshee | Freezing, Orb and Handprints evidence | Evidence-only; glass frequency and wails do not generate perk guesses |
 | Demon | Spins burning crosses, increased cross range | Qualified cross motion; removing or reparenting the Cross or tracked part cancels the observation without a negative |
 | Dullahan | Native Headless flag and LOS acceleration 0.1/s | The root flag is positive-only and remains medium while Doppelganger fits; cosmetic missing heads do not count. The independent three-ramp check remains available |
 | Dybbuk | Throws corpses; journal describes Music Box stun | Fresh HasBeenPlayed transition plus a deep speed drop and three-second recovery; ordinary, late and interrupted responses stay inconclusive. No idle Heartbeat. Corpse motion alone is not a ghost throw |
@@ -39,7 +39,7 @@ negatives remain exclusions; timeout choices use the challenge-compatible pool.
 | Ghoul | Native CantDisableElectronics flag; reacts to chat | The true root flag is positive-only and remains medium while Doppelganger fits. A later qualified disabling observation still excludes Ghoul. Missing/false flags, unknown player positions and automation mutation windows are inconclusive. Its three clues also fit fake-Orb Doppelganger |
 | Keres | Speed drops after kills, targets lowest Energy | Paired pre-animation/post-kill speeds; native solo trace confirmed 21 to 19 before the delayed death flag. Model gender is exclusion-only |
 | Leviathan | Native `LeviathanGlitch` item attribute | Direct glitch signal is strong; ordinary switch bursts are weak |
-| Nightmare | False throw/shatter sounds, increased dark-room hunt chance | Evidence matching; isolated sounds/hunts cannot identify it |
+| Nightmare | EMF 5, Orb and Spirit Box evidence | Evidence-only; random sounds and hunt probability do not generate perk guesses |
 | Oni | Hunt speed 14 | Known scale and two hunts required; substantial Energy separates its base 14 from Wretch |
 | Phantom | Faster while invisible, blink speed 13.5 | Seven stable pairs compare invisible and visible speed; a drifting baseline stays inconclusive |
 | Ravager | Multiple throws, hunting item vortex | Sustained multi-object orbit qualification passed five native-confirmed Ravager rounds; an absent vortex stays inconclusive |
@@ -50,7 +50,7 @@ negatives remain exclusions; timeout choices use the challenge-compatible pool.
 | Specter | Roam probability coefficient 0 | Timed non-hunting residence gives low-to-medium support only; one sustained known departure from an unchanged favourite room excludes. Same-room movement is permitted; unknown rooms, favourite-room changes and hunts reset the timing. Throwing frequency is omitted |
 | Spirit | Blue flames and SpiritCandle ability | Qualified oil gradients; candle flag alone is shared with Doppelganger |
 | Umbra | No footsteps, lit-room speed coefficient 0.8 | A root Sound named CurrentSound excludes, regardless of playback, volume or asset. Its absence after a two-second loading grace supports. Other names are ignored; late CurrentSound creation corrects absence. Automatic completion waits while Doppelganger fits confirmed evidence |
-| Vesper | Hunts by sound, hears voices anywhere | Evidence matching; unqualified pursuit does not prove auditory targeting |
+| Vesper | Writing, Handprints and Wither evidence | Evidence-only by design; no sound, pursuit or through-wall perk tracking |
 | Vex | Invisible on LIDAR, walks through walls | True replicated flag supports; late values are watched and absence is inconclusive |
 | Wretch | Energy-dependent speed 9–14; native CantHuntNearLitCandle flag | Known scale requires meaningful Energy change; unknown scale requires three Energy levels sharing one scale. Post-kill samples are ignored. Missing hunts near candles never support it; candle exclusion awaits qualified native proximity and hunt conditions |
 | Wisp | Hunt starts in favourite room, ignores oil, lights candles | Hunt location is negative-only: an outside start excludes, while repeated inside starts add no support. Read GhostWall.CanCollide only after Holy Oil is burning; default unlit walls are non-collidable for other ghosts too |

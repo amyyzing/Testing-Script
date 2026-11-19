@@ -17,10 +17,11 @@ assert(bundle.__compiled == true, "bundle should contain initialized modules")
 assert(type(bundle["logic/movement.luau"]) == "function", "movement module missing")
 assert(type(bundle["ghost/verdict.luau"]) == "function", "verdict module missing")
 assert(bundle.__nil ~= nil, "nil module sentinel missing")
-assert(type(bundle["ghost/ghosts/Banshee.luau"]) == "table", "Banshee processor missing")
+assert(bundle["ghost/ghosts/Banshee.luau"] == nil, "retired Banshee processor must not ship")
 assert(type(bundle["ghost/ghosts/Dybbuk.luau"]) == "table", "Dybbuk processor missing")
 assert(type(bundle["ghost/dormant-trackers/music-box-stun.luau"]) == "function", "Music Box tracker missing")
-assert(bundle["ghost/ghosts/Nightmare.luau"] == bundle.__nil, "nil module was not bundled")
+assert(bundle["ghost/ghosts/Nightmare.luau"] == nil and bundle["ghost/ghosts/Vesper.luau"] == nil,
+ "evidence-only ghosts must not ship empty perk modules")
 print("module-bundle.spec: compiled bundle passed")
 '@
 

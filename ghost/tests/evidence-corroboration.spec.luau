@@ -193,4 +193,17 @@ local timeoutChoice = EvidenceCatalog.SelectHighestConfidenceGuess({
 expect(timeoutChoice == "Banshee",
 	"the timed random fallback must remove evidence-incompatible ghosts before ranking")
 
+for _, name in ipairs({"Banshee", "Nightmare", "Vesper"}) do
+	local profile = EvidenceCatalog.Find(name)
+	for _, entries in pairs(profile.Perks) do
+		expect(#entries == 0, name .. " must not advertise ambiguous perks")
+	end
+	local evidenceOnly = createVerdict({Traffic = createTraffic(), EvidenceCatalog = EvidenceCatalog,
+		ReadEvidenceLimit = function() return 3 end})
+	for _, clue in ipairs(profile.Evidence) do evidenceOnly:SetEvidence(clue, true) end
+	expect(evidenceOnly:GetEvidenceResolvedGhost() == name
+		and evidenceOnly.Lists[evidenceOnly.Selected[1]] == name,
+		"removing perks must preserve independent evidence identification for " .. name)
+end
+
 print("evidence-corroboration.spec: evidence gates trait selection and Journal choice")

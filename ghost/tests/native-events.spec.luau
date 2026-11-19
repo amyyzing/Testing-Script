@@ -1,7 +1,6 @@
 local createTraffic = require("../traffic")
 local createVerdict = require("../verdict")
 local createTracker = require("../active-trackers/native-events")
-local Banshee = require("../ghosts/Banshee")
 local Leviathan = require("../ghosts/Leviathan")
 local Spirit = require("../ghosts/Spirit")
 local Doppelganger = require("../ghosts/Doppelganger")
@@ -45,11 +44,13 @@ object("BrokenGlass", glassFolder)
 local box = object("Box", {Name = "Items"}, {ItemName = "Spirit Box"})
 local traffic = createTraffic()
 local verdict = createVerdict({Traffic = traffic})
-local glassResult
+local glassResult, glassSignals
+glassSignals = 0
+traffic:Receive("Banshee", function() glassSignals += 1 end)
 traffic:Receive("Verdict", function(signal, payload)
 	if signal == "Support" and payload.Ghost == "Banshee" then glassResult = payload end
 end)
-local processors = {Banshee.new({Traffic = traffic}), Leviathan.new({Traffic = traffic}),
+local processors = {Leviathan.new({Traffic = traffic}),
 	Spirit.new({Traffic = traffic}), Doppelganger.new({Traffic = traffic})}
 local now = 0
 local tracker = createTracker({Traffic = traffic, Workspace = world, Clock = function() return now end})
@@ -77,9 +78,8 @@ added:Fire(object("BrokenGlass", glassFolder))
 assert(verdict.Confidence[2] == nil, "one new glass model is not a burst")
 now = 1
 added:Fire(object("BrokenGlass", glassFolder))
-assert(verdict.Confidence[2] == 65, "two fresh glass models provide qualified supporting evidence")
-assert(glassResult.Perk == "Glass burst" and glassResult.Certainty == "Medium",
-	"glass-burst support needs named medium metadata so the perk log can display it")
+assert(verdict.Confidence[2] == nil and glassResult == nil and glassSignals == 0,
+	"repeated broken glass must not publish a Banshee guess or perk")
 box:SetAttribute("LeviathanGlitch", 123)
 assert((verdict.Confidence[9] == 65 and verdict.SourceConfidence[9] == 99), "native glitch must reach the Leviathan processor")
 local candle = object("Lantern", {Name = "Interactables"})
@@ -112,4 +112,4 @@ assert(glitchEvents == 2, "re-entry must retain one live listener for later nati
 disconnectCandle()disconnectGlitch()
 tracker:Destroy()
 for _, processor in ipairs(processors) do processor:Destroy() end
-print("native-events.spec: new glass, native glitch, and shared candle observations passed")
+print("native-events.spec: ambiguous glass ignored; native glitch and shared candle observations passed")

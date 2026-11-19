@@ -2,11 +2,11 @@ return function(dependencies)
 	local Traffic = assert(dependencies.Traffic, "native-events requires Traffic")
 	local World = dependencies.Workspace or workspace
 	local clock = dependencies.Clock or os.clock
-	local tracker = {Connections = {}, Bound = {}, Glass = {}, Running = true}
+	local tracker = {Connections = {}, Bound = {}, Running = true}
 	local function connect(signal, callback)
 		table.insert(tracker.Connections, signal:Connect(callback))
 	end
-	local function bind(object, added)
+	local function bind(object)
 		local name = string.lower(object.Name)
 		local eligible = object:GetAttribute("ItemName") ~= nil
 			or (object.HasTag and (object:HasTag("Candle") or object:HasTag("Lantern")))
@@ -14,9 +14,7 @@ return function(dependencies)
 			or object:GetAttribute("LeviathanGlitch") ~= nil
 			or (object.Parent and object.Parent.Name == "Items")
 			or name:find("candle", 1, true) or name:find("lantern", 1, true)
-		local glass = object:IsA("Model") and object.Name == "BrokenGlass"
-			and object.Parent and object.Parent.Name == "BrokenGlass"
-		if not eligible and not glass then return end
+		if not eligible then return end
 		if tracker.Bound[object] then
 			tracker.Bound[object]()
 			return
@@ -48,19 +46,9 @@ return function(dependencies)
 			connect(object:GetAttributeChangedSignal("HasBeenPlayed"), function() update(true) end)
 			update()
 		end
-		if added and glass then
-			local now = clock()
-			local recent = {}
-			for _, time in ipairs(tracker.Glass) do
-				if now - time <= 5 then table.insert(recent, time) end
-			end
-			table.insert(recent, now)
-			tracker.Glass = recent
-			if #recent >= 2 then Traffic("GlassBurst", {Count = #recent}):SendTo("Banshee") end
-		end
 	end
-	for _, object in ipairs(World:GetDescendants()) do bind(object, false) end
-	connect(World.DescendantAdded, function(object) bind(object, true) end)
+	for _, object in ipairs(World:GetDescendants()) do bind(object) end
+	connect(World.DescendantAdded, bind)
 	function tracker:Destroy()
 		self.Running = false
 		for _, connection in ipairs(self.Connections) do connection:Disconnect() end
