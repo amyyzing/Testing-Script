@@ -17,8 +17,8 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Aswang | Five earlier salt controls and five c9ea459 solo classifications; five fresh specific kill-perk confirmations on 48c9685 at 0.5x, 0.75x, 1x, 1.5x and 2x | The fresh series requires the actual kill-perk Support, not overall confidence from salt. One zero-kill exit-opening fixture was skipped. Older assertion failures and the interrupted visibility-first trace remain separately preserved |
 | Banshee | Evidence-only by user decision: Freezing, Orb and Handprints. Glass-burst processor, timer and perk entries removed | Random glass frequency and wails are excluded from guessing, not pending perk work |
 | Demon | Five floating-Cross identifications and ordinary-Cross comparison | Interrupted-Cross cancellation has engine/regression coverage, not a new five-game series |
-| Dullahan | Headless flag only by user decision. Five native pre-photo controls on a340495 observed the root flag with automation off in about 0.185 seconds; five later native headless kill controls remained correct without false Aswang/Keres support | Acceleration guessing and its unused observation feed are removed. Shared kill-confound guards remain because Dullahan movement can imitate kill effects. Missing/false Headless is inconclusive |
-| Dybbuk | Five earlier corrected Music Box stun identifications; close ordinary-ghost comparisons. New no-stun negatives require a first play that stays within a conservative three-stud test range for 3.5 seconds, unchanged baseline speed, and uninterrupted observations | Three studs is a conservative test radius, not an asserted maximum native radius. Unknown range, missing parts, hunt/ancestry changes, other speed changes, or client stalls remain inconclusive. New negative-path native validation is in progress |
+| Dullahan | Headless flag only by user decision. Five native pre-photo controls on a340495; a fresh exact-de488fc check again observed the root flag with automation off in 0.1866 seconds, default/native Dullahan and zero kills. Five earlier native headless kill controls remained correct without false Aswang/Keres support | Acceleration guessing and its unused observation feed are removed. Shared kill-confound guards remain because Dullahan movement can imitate kill effects. Missing/false Headless is inconclusive |
+| Dybbuk | Five earlier corrected Music Box stun identifications; close ordinary-ghost comparisons. New no-stun negatives require a first play that stays within a conservative three-stud test range for 3.5 seconds, unchanged baseline speed, and uninterrupted observations | Three studs is a conservative test radius, not an asserted maximum native radius. Unknown range, missing parts, hunt/ancestry changes, other speed changes, or client stalls remain inconclusive. Five new Dybbuk positives and five Vex no-stun negatives passed on 8c2bd05 with correct default/native results and zero kills. A further exact-de488fc native Vex control passed with the observation-gap guard |
 | Entity | Five origin-smoke/relocation identifications | Uncorroborated physics displacement is not unique |
 | Ghoul | Five fresh native flag classifications on 944e4c4: default/native Ghoul, zero kills, source99/effective65 and actual MEDIUM rows in every round. One separate full-profile ranking policy control also matched native Ghoul | The flag is positive-only; qualified later contradictions still exclude. Doppelganger remains possible. The full-profile preference is tentative50, not unique identity proof |
 | Keres | Five earlier c9ea459 solo classifications; five later specific kill-perk confirmations on 48c9685 across difficulty multipliers. Kill-related slowdown remains positive support | By user decision the only Keres negative is a verified male model. No slowdown or a recovered speed no longer excludes Keres; female gender is not positive evidence |
@@ -35,7 +35,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Spirit | Five blue Holy Oil identifications | Blue candles are shared with Doppelganger; reparented oil requires a fresh stability window |
 | Umbra | Five exact CurrentSound absence controls plus ordinary-ghost comparisons | Missing root/loading gaps are not silence; late sound creation corrects the result |
 | Vesper | Evidence-only by user decision: Writing, Handprints and Wither. No perk processor or sound/through-wall perk entries are shipped | Earlier auditory research remains archived and uncredited. Sound, pursuit and through-wall behavior are deliberately outside the detector's scope, not pending features |
-| Vex | Five earlier native flag identifications and five Mimicry challenge controls. A true native InvisibleOnLIDAR flag supports Vex; an explicit false flag now excludes it, even after earlier support | Missing or malformed flags remain unknown. Native visibility during the new Music Box comparison is being recorded; no native true-to-false Vex transition has been established |
+| Vex | Five earlier native flag identifications and five Mimicry challenge controls. A true native InvisibleOnLIDAR flag supports Vex; an explicit false flag now excludes it, even after earlier support | Missing or malformed flags remain unknown. All sampled visibility flags remained true during the five new native Vex Music Box controls. False-flag exclusions and late true-to-false handling have regression coverage; no native true-to-false Vex transition was observed |
 | Wretch | Five earlier Energy curves; five fresh map-scaled identifications on efa5f59 across Medium/Large at custom0.5/1/1.5/2/0.75. Each default/native result was Wretch, zero kills, source95/effective65 and two matched hunting snapshots at Energy75/100. One separate changing-Energy kill counter suppressed false Aswang/Keres support; five no-kill controls rejected continuous live inference | The fresh series contains five qualifying confirmations across ten attempts: four fixture skips and one unverified interruption earn no credit. The kill counter is not exhaustive multiplayer coverage. Only qualified hunt transitions feed the curve classifier. Candle/forced-hunt eligibility remains unqualified |
 | Wisp | Five earlier burning-oil collision controls; a fresh native Oni/Wisp timing pair; five consecutive Wisp default/native matches on efa5f59 across Medium/Large at custom0.5/1/1.5/2/0.75. Each had zero kills, source99/effective65 and a stable non-collidable wall while hunting and burning. The same build passed five Oni counter-controls with collidable walls | A separate Oni round received false Wisp support from the old immediate check. Its cause did not reproduce in the paired timing control. The new guard requires an active hunt and a stable burning-wall collision state; the successful controls do not prove every replication schedule. Inside-room hunt starts are not positive evidence; outside starts can exclude |
 | Wraith | Five fresh mature hunting-salt classifications on 944e4c4: default/native Wraith, zero kills, source99/effective65 and actual MEDIUM rows. Five native Vex hunting-salt comparisons excluded Wraith without even transient positive support. Lifecycle cancellation, late-disturbance correction and strict sensor geometry also have regression/engine coverage | These are qualifying controls, not uninterrupted attempts. Exact root Touched events were recorded; immediate overlap queries were already empty. Idle contacts remained inconclusive. No-contact rounds, setup failures and the interrupted Vex attempt earn no credit. The original Doppelganger capture's cause remains unproven |
@@ -149,3 +149,28 @@ the full-event replay includes the longer-animation miss that required the
 bounded five-second speed correlation window. The earlier miss is uncredited.
 No hidden ghost type, synthetic evidence, fabricated
 kill or manually chosen answer is fed into the detector to earn trial credit.
+
+## Simplified perk checks
+
+The current rules keep Keres negatives to verified male models and Dullahan
+support to the native Headless flag. The headless flag is available before
+photography; neither a missing nor a false flag excludes Dullahan. Vex is
+excluded only by an explicit false InvisibleOnLIDAR value, including after
+earlier support; missing or malformed values stay unknown.
+
+Dybbuk no-stun negatives require a fresh native first play, the actual ghost
+root and box part, continuously known distance within the conservative
+three-stud test range, unchanged speed, and 3.5 seconds of observations.
+A gap over 0.5 seconds, an ancestry/hunt change, another speed change or a
+range gap invalidates the negative. The fixed-speed-2 stun and approximately
+three-second recovery still provide positive support.
+
+Native 8c2bd05 archives contain five Dybbuk positives and five Vex no-stun
+negatives, all default/native matches and zero kills:
+`dybbuk-range-stun-five-confirmed.json`,
+`dybbuk-range-no-stun-vex-five-confirmed.json`, and
+`simple-perk-music-ten-confirmed.json`. The final de488fc build has additional
+native controls in `final-no-stun-build-native-confirmed.json` (Vex,
+CreatedAt1795109720) and `final-prephoto-headless-native-confirmed.json`
+(Dullahan, CreatedAt1795109827). No visibility contradiction was observed on
+Vex; explicit-false and delayed-false behavior is regression-tested.
