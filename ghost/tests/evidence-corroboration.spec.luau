@@ -195,6 +195,8 @@ expect(timeoutChoice == "Banshee",
 
 for _, name in ipairs({"Banshee", "Nightmare", "Vesper"}) do
 	local profile = EvidenceCatalog.Find(name)
+	expect(EvidenceCatalog.PerkConfidence[name] == nil and EvidenceCatalog.PerkTTL[name] == nil,
+		name .. " must not retain retired perk defaults")
 	for _, entries in pairs(profile.Perks) do
 		expect(#entries == 0, name .. " must not advertise ambiguous perks")
 	end

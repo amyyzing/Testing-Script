@@ -350,7 +350,6 @@ end
 -- Conservative defaults for detections without independent corroboration.
 local PerkConfidence = {
 	Aswang = 65,
-	Banshee = 65,
 	Demon = 65,
 	Dullahan = 65,
 	Dybbuk = 65,
@@ -374,7 +373,6 @@ local PerkConfidence = {
 }
 
 local PerkTTL = {
-	Banshee = 30,
 	Dullahan = 25,
 	Dybbuk = 120,
 	Entity = 30,
