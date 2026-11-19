@@ -102,10 +102,14 @@ return function(dependencies)
 			return
 		end
 		self.Bound[part] = true
+		-- The native line has a dedicated elevated trigger. Its ground mesh and
+		-- Center are not contact sensors, and costume parts are not the ghost root.
+		if part.Name ~= "GhostTracker" then return end
 		local salt = saltObject(part)
-		self.PendingSpatial[salt] = self.PendingSpatial[salt] or part
+		self.PendingSpatial[salt] = part
 		table.insert(self.Connections, part.Touched:Connect(function(hit)
-			if self.Running and hit and hit:IsDescendantOf(Ghost) then
+			local root = Ghost:FindFirstChild("HumanoidRootPart") or Ghost.PrimaryPart
+			if self.Running and root and hit == root then
 				self:Report(part)
 			end
 		end))
@@ -115,23 +119,23 @@ return function(dependencies)
 	if not queryGhost then
 		local overlap = (dependencies.NewOverlapParams or OverlapParams.new)()
 		overlap.FilterType = dependencies.IncludeFilterType or Enum.RaycastFilterType.Include
-		overlap.FilterDescendantsInstances = {Ghost}
 		overlap.MaxParts = 1
-		queryGhost = function(salt, part)
-			local cframe, size = part.CFrame, part.Size
-			if salt:IsA("Model") then cframe, size = salt:GetBoundingBox() end
+		queryGhost = function(_, part)
+			local root = Ghost:FindFirstChild("HumanoidRootPart") or Ghost.PrimaryPart
+			if not root or not root.Parent then return false end
+			overlap.FilterDescendantsInstances = {root}
 			return #World:GetPartBoundsInBox(
-				cframe,
-				size + Vector3.new(0.6, 1, 0.6),
+				part.CFrame,
+				part.Size,
 				overlap
 			) > 0
 		end
 	end
 
 	local function replacementPart(salt)
-		if salt:IsA("BasePart") then return salt end
+		if salt:IsA("BasePart") and salt.Name == "GhostTracker" then return salt end
 		for _, object in ipairs(salt:GetDescendants()) do
-			if object:IsA("BasePart") then return object end
+			if object:IsA("BasePart") and object.Name == "GhostTracker" then return object end
 		end
 		return nil
 	end

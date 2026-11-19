@@ -64,8 +64,9 @@ local SaltFolder = instance("SaltPiles", "Folder")
 SaltFolder.DescendantAdded = signal()
 local salt = instance("SaltPile", "Model", SaltFolder)
 local saltPart = instance("Salt", "BasePart", salt)
-salt.Descendants = {saltPart}
-SaltFolder.Descendants = {salt, saltPart}
+local saltSensor = instance("GhostTracker", "BasePart", salt)
+salt.Descendants = {saltPart, saltSensor}
+SaltFolder.Descendants = {salt, saltPart, saltSensor}
 
 local Ghost = instance("Ghost", "Model")
 Ghost.Hunting = true
@@ -75,6 +76,8 @@ local Humanoid = {WalkSpeed = 22}
 function Humanoid:GetPropertyChangedSignal() return speedChanged end
 function Ghost:FindFirstChildOfClass() return Humanoid end
 function Ghost:FindFirstChild() return nil end
+local ghostRoot = instance("HumanoidRootPart", "BasePart", Ghost)
+Ghost.PrimaryPart = ghostRoot
 local RunService = {Heartbeat = signal()}
 local Traffic = createTraffic()
 local Verdict = createVerdict({Traffic = Traffic})
@@ -104,13 +107,18 @@ local tracker = createSaltHit({
 local cleanSalt = instance("SaltPile2", "Model", SaltFolder)
 local cleanPartA = instance("SaltA", "BasePart", cleanSalt)
 local cleanPartB = instance("SaltB", "BasePart", cleanSalt)
-cleanSalt.Descendants = {cleanPartA, cleanPartB}
+local cleanSensor = instance("GhostTracker", "BasePart", cleanSalt)
+cleanSalt.Descendants = {cleanPartA, cleanPartB, cleanSensor}
 SaltFolder.DescendantAdded:Fire(cleanSalt)
 SaltFolder.DescendantAdded:Fire(cleanPartA)
 SaltFolder.DescendantAdded:Fire(cleanPartB)
+SaltFolder.DescendantAdded:Fire(cleanSensor)
 RunService.Heartbeat:Fire(0.1)
 expect(spatialQueries == 2,
 	"spatial contact fallback should query once per salt pile, not once per part")
+saltPart.Touched:Fire(ghostRoot)
+saltSensor.Touched:Fire(instance("Hat", "BasePart", Ghost))
+expect(#received == 0, "ground decoration and ghost cosmetics must not qualify a salt hit")
 
 Humanoid.WalkSpeed = 16.5
 speedChanged:Fire()
@@ -136,7 +144,7 @@ expect(#received == 4 and received[3].name == "SaltHit"
 	and received[4].payload.State == "disturbed",
 	"a newly replicated DisturbedSaltPile should use the same signal path")
 
-tracker:Report(cleanPartA)
+cleanSensor.Touched:Fire(ghostRoot)
 local contact = received[#received].payload.ContactId
 local count = #received
 cleanSalt:Rename("DisturbedSaltLine")
@@ -148,4 +156,35 @@ expect(#received == count + 1 and received[#received].name == "SaltStateAfterHit
 tracker:Destroy()
 speedTracker:Destroy()
 aswang:Destroy()
+
+-- Exercise the real query path, rather than only the injected contact result.
+local params, queries = {}, 0
+local exactCF, exactSize = {}, {}
+saltSensor.CFrame, saltSensor.Size = exactCF, exactSize
+local exactTraffic = createTraffic()
+local contacts = 0
+exactTraffic:Receive("SaltStateAfterHit", function(name)
+	if name == "SaltHit" then contacts += 1 end
+end)
+local exact = createSaltHit({
+	Traffic = exactTraffic, Ghost = Ghost, SaltFolder = SaltFolder,
+	RunService = RunService, Clock = function() return 12 end,
+	NewOverlapParams = function() return params end, IncludeFilterType = "Include",
+	Workspace = {GetPartBoundsInBox = function(_, cf, size, filter)
+		queries += 1
+		expect(cf == exactCF and size == exactSize, "use the sensor's exact box, without model bounds or padding")
+		expect(filter.FilterDescendantsInstances[1] == ghostRoot,
+			"cosmetic ghost parts must be excluded from the spatial fallback")
+		return {ghostRoot}
+	end},
+})
+-- The earlier rename was deliberately retained; actual disturbance stays authoritative.
+salt.Name = "SaltLine"
+exact.Disturbed[salt] = nil
+exact.PendingSpatial[salt] = saltSensor
+RunService.Heartbeat:Fire(.1)
+expect(queries == 1 and contacts == 1, "a sensor/root overlap must produce one direct contact")
+RunService.Heartbeat:Fire(.1)
+expect(queries == 1 and contacts == 1, "a contact must not be reported every heartbeat")
+exact:Destroy()
 print("salt-hit.spec: DisturbedSaltLine rename reaches the Aswang verdict")

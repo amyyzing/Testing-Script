@@ -84,3 +84,8 @@ matches impossible to copy, so the conservative confidence cap remains.
 
 The ghost log shows positive, negative, explicitly MEDIUM shared-perk results,
 and explicitly LOW qualified cues. Raw readings and unqualified findings stay internal.
+
+Undisturbed-salt contact uses the native `GhostTracker` part and the ghost root,
+without padding or whole-model bounds. Ground decoration and costume overlap
+cannot start that test. A native disturbed-salt rename/attribute remains
+authoritative even when no physical contact was observed locally.
