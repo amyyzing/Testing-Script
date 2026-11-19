@@ -30,13 +30,13 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Revenant | Five native-confirmed solo LOW35 policy controls on c9ea459; hunt stops were about 0.64 to 0.67 seconds after death. The live log explicitly rendered LOW | These are policy controls, not five unique-identity proofs. Settings or ordinary round ending can imitate the cue |
 | Shadow | Native cooling coefficient and signed-temperature windows reviewed; weak cue also observed on other ghosts | Uncalibrated cooling cannot identify or exclude Shadow |
 | Siren | Five exact native humming-response identifications | Pursuit slowdown was also observed on Revenant and is not unique |
-| Doppelganger | Five shared native blue-candle policy controls; prior copied-salt diagnostic retained | Exhaustive mimic roster is unresolved; finish its comprehensive audit last |
+| Doppelganger | Five earlier shared blue-candle policy controls; five fresh zero-evidence Orb-policy controls on 6518773; five fresh full-evidence classifications on 6518773, all default/resolved/native Doppelganger with Writing, Spirit Box, Freezing and Orb observed, zero kills and Mimicry off. Recorded snapshots did not resolve before all three real clues | The zero-evidence rounds validate tentative Orb handling, not every strong copied perk. Full-evidence identifications are not unique-perk proof. One interrupted full-evidence return remains unverified and uncredited. Exposed module flags were absent from the sampled live root; the exhaustive server-side mimic roster and earlier copied-salt diagnostic remain unresolved |
 | Specter | Five historical false-exclusion counter-controls; one corrected low-to-medium policy control | Residence never supplies definite identity; throwing rate is omitted |
 | Spirit | Five blue Holy Oil identifications | Blue candles are shared with Doppelganger; reparented oil requires a fresh stability window |
 | Umbra | Five exact CurrentSound absence controls plus ordinary-ghost comparisons | Missing root/loading gaps are not silence; late sound creation corrects the result |
 | Vesper | Native source/state inspection confirmed actual Vesper with zero kills; sound flags were absent on the replicated ghost before/during its natural hunt. Native speech probes were recorded from Base Camp and a distant room | Speech acceptance and causal targeting were not established; the inside-room trace crossed hunt end. These are research traces, not identity successes or negative Vesper evidence |
 | Vex | Five earlier flag identifications, one strong-signature confidence control, five native Mimicry challenge controls; ordinary solo kill comparison kept hunting for eight seconds without Revenant support | Flags are behavior observations, not an exhaustive proof that copying is impossible |
-| Wretch | Five earlier Energy-speed-curve identifications; one fresh native solo counter on 064407e held Energy50/speed11.5 across a real kill and eight seconds afterward, with no false Aswang/Keres/Revenant support | Energy did not change in that counter. Multiplayer Energy-change and candle/forced-hunt conditions remain unqualified |
+| Wretch | Five earlier Energy-speed-curve identifications; a constant-Energy solo counter on 064407e; one changing-Energy native kill counter on 6518773 used a real Energy Drink, observed Energy50–55 in the kill window, and suppressed all kill-speed packets without false Aswang/Keres support | The new result is one policy counter, not five new identity wins or all multiplayer Energy transitions. The earlier constant-Energy counter did not exercise this guard. Candle/forced-hunt conditions remain unqualified |
 | Wisp | Five burning-oil collision controls and a normal-ghost comparison | Inside-room hunt starts are not positive evidence; outside starts can exclude |
 | Wraith | Five fresh mature hunting-salt classifications on 944e4c4: default/native Wraith, zero kills, source99/effective65 and actual MEDIUM rows. Five native Vex hunting-salt comparisons excluded Wraith without even transient positive support. Lifecycle cancellation, late-disturbance correction and strict sensor geometry also have regression/engine coverage | These are qualifying controls, not uninterrupted attempts. Exact root Touched events were recorded; immediate overlap queries were already empty. Idle contacts remained inconclusive. No-contact rounds, setup failures and the interrupted Vex attempt earn no credit. The original Doppelganger capture's cause remains unproven |
 
@@ -58,6 +58,9 @@ Native artifacts remain in the executor's `DemonologyResearch` directory.
 Important recent records include `vex-mimicry-five-confirmed.json`,
 `dullahan-native-headless-five-confirmed.json`,
 `headless-native-kill-guard-five-confirmed.json`,
+`wretch-native-changing-energy-kill-counter-confirmed.json`,
+`doppel-native-zero-evidence-policy-five-confirmed.json`,
+`doppel-native-full-evidence-five-confirmed.json`,
 `ghoul-native-electronics-flag-five-confirmed.json`,
 `wraith-mature-hunting-salt-five-confirmed.json`,
 `vex-hunting-salt-counter-five-confirmed.json`,
@@ -78,7 +81,11 @@ these controls. They do not establish safety against changing-Energy
 windows or every combination of overlapping perks. A regression now reproduces
 false kill support from Wretch-shaped Energy changes in both directions. The
 guard withholds those known-confounded windows while retaining later stable
-windows; a changing-Energy native kill series is not yet claimed.
+windows. One native Wretch control on 6518773 then used a real drink and one
+real solo kill: the recorded five-second window spanned Energy50–55, no
+kill-speed packets were emitted, and no false Aswang/Keres support appeared.
+Earlier timing/setup attempts remain separate and uncredited; this is not an
+exhaustive multiplayer series.
 The Revenant series is `revenant-solo-low-policy-five-confirmed.json`.
 The ordinary solo comparison is `vex-solo-kill-counter-confirmed.json`;
 the complete checkpoint is `solo-kill-v2-complete-confirmed.json`.
