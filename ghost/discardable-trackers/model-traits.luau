@@ -8,6 +8,7 @@ return function(dependencies)
 		Running = true,
 		Gender = gender,
 		VisualModel = visualModel,
+		Connections = {},
 	}
 	if gender == "Male" then
 		Traffic("ModelGender", {
@@ -15,18 +16,22 @@ return function(dependencies)
 			VisualModel = visualModel,
 		}):SendTo("Keres", "Siren")
 	end
-	local function headless()
-		if not Tracker.Running then return end
-		local value = Ghost:GetAttribute("Headless")
-		Traffic("HeadlessState", {Exists = value ~= nil, Value = value}):SendTo("Dullahan")
+	local function watch(attribute, signal, target)
+		local function changed()
+			if not Tracker.Running then return end
+			local value = Ghost:GetAttribute(attribute)
+			Traffic(signal, {Exists = value ~= nil, Value = value}):SendTo(target)
+		end
+		if Ghost.GetAttributeChangedSignal then
+			table.insert(Tracker.Connections, Ghost:GetAttributeChangedSignal(attribute):Connect(changed))
+		end
+		changed()
 	end
-	if Ghost.GetAttributeChangedSignal then
-		Tracker.Connection = Ghost:GetAttributeChangedSignal("Headless"):Connect(headless)
-	end
-	headless()
+	watch("Headless", "HeadlessState", "Dullahan")
+	watch("CantDisableElectronics", "ElectronicsImmunityState", "Ghoul")
 	function Tracker:Destroy()
 		self.Running = false
-		if self.Connection then self.Connection:Disconnect() end
+		for _, connection in ipairs(self.Connections) do connection:Disconnect() end
 	end
 	return Tracker
 end

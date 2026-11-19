@@ -6700,6 +6700,7 @@ return function(dependencies)
 		Running = true,
 		Gender = gender,
 		VisualModel = visualModel,
+		Connections = {},
 	}
 	if gender == "Male" then
 		Traffic("ModelGender", {
@@ -6707,18 +6708,22 @@ return function(dependencies)
 			VisualModel = visualModel,
 		}):SendTo("Keres", "Siren")
 	end
-	local function headless()
-		if not Tracker.Running then return end
-		local value = Ghost:GetAttribute("Headless")
-		Traffic("HeadlessState", {Exists = value ~= nil, Value = value}):SendTo("Dullahan")
+	local function watch(attribute, signal, target)
+		local function changed()
+			if not Tracker.Running then return end
+			local value = Ghost:GetAttribute(attribute)
+			Traffic(signal, {Exists = value ~= nil, Value = value}):SendTo(target)
+		end
+		if Ghost.GetAttributeChangedSignal then
+			table.insert(Tracker.Connections, Ghost:GetAttributeChangedSignal(attribute):Connect(changed))
+		end
+		changed()
 	end
-	if Ghost.GetAttributeChangedSignal then
-		Tracker.Connection = Ghost:GetAttributeChangedSignal("Headless"):Connect(headless)
-	end
-	headless()
+	watch("Headless", "HeadlessState", "Dullahan")
+	watch("CantDisableElectronics", "ElectronicsImmunityState", "Ghoul")
 	function Tracker:Destroy()
 		self.Running = false
-		if self.Connection then self.Connection:Disconnect() end
+		for _, connection in ipairs(self.Connections) do connection:Disconnect() end
 	end
 	return Tracker
 end
@@ -9879,8 +9884,18 @@ function Ghoul.new(dependencies)
 	local Processor = {Resolved = false}
 
 	Processor.Disconnect = Traffic:Receive("Ghoul", function(signal, payload)
-		if Processor.Resolved or signal ~= "ItemDisabledAwayFromPlayers"
-			or type(payload) ~= "table" then return end
+		if Processor.Resolved or type(payload) ~= "table" then return end
+		if signal == "ElectronicsImmunityState" then
+			if payload.Value ~= true or Processor.FlagReported then return end
+			Processor.FlagReported = true
+			Traffic("Support", {
+				Ghost = "Ghoul", Perk = "Electronics immunity",
+				Observation = "Electronics interference disabled", Confidence = 99,
+				Reason = "the native ghost has CantDisableElectronics enabled",
+			}):SendTo("Verdict")
+			return
+		end
+		if signal ~= "ItemDisabledAwayFromPlayers" then return end
 		Processor.Resolved = true
 		Traffic("RuleOut", {
 			Ghost = "Ghoul",

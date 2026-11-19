@@ -5,8 +5,18 @@ function Ghoul.new(dependencies)
 	local Processor = {Resolved = false}
 
 	Processor.Disconnect = Traffic:Receive("Ghoul", function(signal, payload)
-		if Processor.Resolved or signal ~= "ItemDisabledAwayFromPlayers"
-			or type(payload) ~= "table" then return end
+		if Processor.Resolved or type(payload) ~= "table" then return end
+		if signal == "ElectronicsImmunityState" then
+			if payload.Value ~= true or Processor.FlagReported then return end
+			Processor.FlagReported = true
+			Traffic("Support", {
+				Ghost = "Ghoul", Perk = "Electronics immunity",
+				Observation = "Electronics interference disabled", Confidence = 99,
+				Reason = "the native ghost has CantDisableElectronics enabled",
+			}):SendTo("Verdict")
+			return
+		end
+		if signal ~= "ItemDisabledAwayFromPlayers" then return end
 		Processor.Resolved = true
 		Traffic("RuleOut", {
 			Ghost = "Ghoul",

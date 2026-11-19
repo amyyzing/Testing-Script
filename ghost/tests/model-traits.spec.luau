@@ -9,7 +9,8 @@ local function fixture(initial)
 	local ghost = {Headless = initial}
 	function ghost:GetAttribute(name) return self[name] end
 	function ghost:GetAttributeChangedSignal(name)
-		assert(name == "Headless")
+		assert(name == "Headless" or name == "CantDisableElectronics")
+		if name ~= "Headless" then return {Connect = function() return {Disconnect = function() end} end} end
 		return {Connect = function(_, callback)
 			callbacks[callback] = true
 			return {Disconnect = function() callbacks[callback] = nil end}
