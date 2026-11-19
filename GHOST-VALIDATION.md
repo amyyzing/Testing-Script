@@ -117,6 +117,16 @@ prove continuous Energy-driven updates. The experimental live observer was
 reverted in f9fb7ea; these controls reject that hypothesis rather than adding
 five identification successes.
 
+One fresh map-scaled Wretch identification on efa5f59 is confirmed:
+Medium/custom0.5, Energy75 speed5.3812499046 followed by Energy100
+speed4.7249999046 in a separate hunt after a real Energy Drink. The default
+guess and native result were Wretch, zero kills, source95/effective65
+(job f9890eb2-cd2f-4186-a6f2-dfe1c3be6ace, CreatedAt1795103933).
+These exact native floats are retained in a regression. Two Large-map
+attempts stopped on drink-pickup setup and remain skipped fixtures; the
+subsequent retry lost its connection before its result could be retrieved.
+There is no five-round claim for this new map-scaled Wretch series.
+
 The Revenant series is `revenant-solo-low-policy-five-confirmed.json`.
 The ordinary solo comparison is `vex-solo-kill-counter-confirmed.json`;
 the complete checkpoint is `solo-kill-v2-complete-confirmed.json`.

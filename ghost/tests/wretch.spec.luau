@@ -8,7 +8,7 @@ local function expect(condition, message)
 	if not condition then error(message, 2) end
 end
 
-local function harness(energies, mapSize, speed, unknown)
+local function harness(energies, mapSize, speed, unknown, customMultiplier)
 	local players = {}
 	for index in ipairs(energies) do
 		table.insert(players, {GetAttribute = function(_, name)
@@ -30,7 +30,7 @@ local function harness(energies, mapSize, speed, unknown)
 	end)
 	local Verdict = createVerdict({Traffic = Traffic})
 	local processor = Wretch.new({Traffic = Traffic})
-	local filter = createSpeedFilter({Traffic = Traffic, Workspace = World, ReadScale = function() return {Known = not unknown, CustomMultiplier = not unknown and 2 or nil} end})
+	local filter = createSpeedFilter({Traffic = Traffic, Workspace = World, ReadScale = function() return {Known = not unknown, CustomMultiplier = not unknown and (customMultiplier or 2) or nil} end})
 	local tracker = createWretchSpeed({
 		Traffic = Traffic,
 		Players = Players,
@@ -112,6 +112,22 @@ hunting.RunDelayed()
 expect(hunting.Verdict.Confidence[23] == 35,
 	"average Energy 40 should map to base 12 and accept a configured hunting multiplier")
 hunting:Destroy()
+
+local nativeEnergy = {75}
+local nativeMedium = harness(nativeEnergy, "Medium", 5.381249904632568, false, 0.5)
+nativeMedium.Traffic:Broadcast("HuntingState", {Hunting = false})
+nativeMedium.Traffic:Broadcast("HuntingState", {Hunting = true})
+nativeMedium.RunDelayed()
+expect(nativeMedium.Verdict.SourceConfidence[23] == 35,
+	"the recorded Medium-map first hunt must remain weak until Energy changes")
+nativeMedium.Traffic:Broadcast("HuntingState", {Hunting = false})
+nativeMedium.RunDelayed()
+nativeEnergy[1], nativeMedium.Humanoid.WalkSpeed = 100, 4.724999904632568
+nativeMedium.Traffic:Broadcast("HuntingState", {Hunting = true})
+nativeMedium.RunDelayed()
+expect(nativeMedium.Verdict.SourceConfidence[23] == 95 and nativeMedium.Verdict.Confidence[23] == 65,
+	"native Energy75/100 snapshots at Medium/custom0.5 must corroborate without float-rounding errors")
+nativeMedium:Destroy()
 
 local energies = {100}
 local changing = harness(energies, "Small", 18)
