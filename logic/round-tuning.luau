@@ -57,7 +57,8 @@ return function(dependencies)
 		local mapFactor = size == "Large" and 1.1 or size == "Medium" and 1.05 or 1
 		return {CustomMultiplier = custom, MapMultiplier = mapFactor,
 			EvidenceLimit = evidenceLimit,
-			Known = type(custom) == "number" and size == "Small",
+			Known = type(custom) == "number" and custom > 0
+				and (size == "Small" or size == "Medium" or size == "Large"),
 			TemperatureMode = self.Data and self.Data.GhostLowerTemperatureRange}
 	end
 	if native and Player.OnTeleport then

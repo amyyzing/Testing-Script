@@ -24,7 +24,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Keres | Five earlier c9ea459 solo classifications; five fresh specific kill-perk confirmations on 48c9685 at 0.5x, 0.75x, 1x, 1.5x and 2x | Fresh paired causal baselines survived the actual callback order; each default/native result matched with one real kill. Earlier disconnected captures remain unverified. Model gender is exclusion-only |
 | Leviathan | Five native glitch-attribute identifications | Ordinary switch frequency remains weak |
 | Nightmare | Evidence-only by user decision: EMF 5, Orb and Spirit Box. No perk module or pending sound/hunt-probability entries are shipped | Random sounds and hunt probability are excluded from guessing, not pending perk work |
-| Oni | Five stable-base-speed identifications with Energy controls | Absolute-speed inference requires captured custom tuning and a Small map. Medium/Large map factors remain unverified; the queued native map controls have no retrieved result yet. Low-Energy Wretch must remain distinguishable |
+| Oni | Five stable-base-speed identifications with Energy controls; native Medium/Large map controls confirmed factors 1.05 and 1.10, respectively, with actual Oni and zero kills | Absolute-speed inference requires captured custom tuning and a recognized map grade. The factor controls measured mechanics, not successful default guesses; fresh classifier controls on larger maps remain pending. Low-Energy Wretch must remain distinguishable |
 | Phantom | Five repeated blink-speed identifications; one native solo kill comparison exercised 21/27 speed states without false Aswang/Keres/Revenant support | The comparison's default guess was Specter, so it is not a new identity success. Unstable speed windows remain inconclusive |
 | Ravager | Five qualified multi-assembly vortex identifications | Missing random activation is not a negative |
 | Revenant | Five native-confirmed solo LOW35 policy controls on c9ea459; hunt stops were about 0.64 to 0.67 seconds after death. The live log explicitly rendered LOW | These are policy controls, not five unique-identity proofs. Settings or ordinary round ending can imitate the cue |
@@ -42,6 +42,14 @@ the table does not imply five fresh games on the latest build for every ghost.
 
 ## Current shared checks
 
+- The native Lilim Lane and School speed controls each recorded 39 samples
+  across both visibility states: constant 14.6999998093 and 15.3999996185 at
+  custom1/Energy75. Fresh native results confirmed Oni with zero kills in both
+  rounds (CreatedAt 1795068300 and 1795068386). Their old default guesses were
+  Specter while scale was withheld, so neither is credited as an identity win.
+  `native-medium-large-speed-controls-confirmed.json` retains both complete
+  traces. Small, Medium and Large now qualify captured tuning; unknown map
+  grades and absent/nonpositive custom multipliers remain unqualified.
 - All 25 native evidence profiles are checked against one extra Mimicry clue
   versus two incompatible extra clues in regressions. Native Vex challenge
   controls observed actual extra Laser Projector, Spirit Box and EMF 5 clues.

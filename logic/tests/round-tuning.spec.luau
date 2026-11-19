@@ -35,6 +35,16 @@ native=false
 local round=create(deps)
 assert(round:GetScale().Known and round:GetScale().CustomMultiplier==2 and stored==false)
 assert(round:GetScale().EvidenceLimit==2, "the native evidence limit must survive the lobby handoff")
+for size, factor in pairs({Small=1,Medium=1.05,Large=1.1,Unknown=1}) do
+ deps.Workspace.FindFirstChild=function()return {GetAttribute=function()return size end}end
+ local scale=round:GetScale()
+ assert(scale.MapMultiplier==factor and scale.Known==(size~="Unknown"),
+  "only native map-size grades with measured factors may supply a known scale")
+end
+deps.Workspace.FindFirstChild=function()return {GetAttribute=function()return "Small"end}end
+round.Data.GhostWalkSpeedMultiplier=0
+assert(not round:GetScale().Known, "nonpositive custom scales cannot qualify speed inference")
+round.Data.GhostWalkSpeedMultiplier=2
 assert(not create(deps):GetScale().Known, "a fresh unrelated load cannot inherit consumed tuning")
 stored={GameId=99,Time=100,GhostWalkSpeedMultiplier=2}
 assert(not create(deps):GetScale().Known, "foreign game settings must be rejected")
