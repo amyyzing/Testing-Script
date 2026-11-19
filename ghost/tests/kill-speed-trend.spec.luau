@@ -96,4 +96,45 @@ for _, case in ipairs({
 	tracker:Destroy() aswang:Destroy() keres:Destroy()
 end
 
-print("kill-speed-trend.spec: ramp rejection and visibility-first kill changes passed")
+for _, energyAfter in ipairs({40, 80}) do
+	local changed, visibility = signal(), signal()
+	local now, energy = 0, 60
+	local humanoid = {WalkSpeed = 14 - energy * .05}
+	function humanoid:GetPropertyChangedSignal() return changed end
+	local ghost = {Transparency = 0}
+	function ghost:GetAttribute(name) return self[name] end
+	function ghost:FindFirstChildOfClass() return humanoid end
+	function ghost:GetAttributeChangedSignal() return visibility end
+	local traffic = createTraffic()
+	local verdict = createVerdict({Traffic = traffic})
+	local aswang, keres = Aswang.new({Traffic = traffic}), Keres.new({Traffic = traffic})
+	local tracker = createTracker({Traffic = traffic, Ghost = ghost, Clock = function() return now end,
+		Workspace = {GetAttribute = function() return energy end}})
+	traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
+	for _, value in ipairs({1, 0, 1, 0}) do now += .2 ghost.Transparency = value visibility:Fire() end
+	-- Wretch's native Energy curve produces a one-stud step without a kill bonus.
+	now += .2 energy = energyAfter humanoid.WalkSpeed = 14 - energy * .05
+	ghost.Transparency = 1 visibility:Fire()
+	ghost.Transparency = 0 visibility:Fire()
+	changed:Fire()
+	now += 3.3
+	traffic("PlayerKilled", {Time = now, userId = 1}):SendTo("SpeedTracker")
+	for _, value in ipairs({1, 0, 1, 0}) do now += .2 ghost.Transparency = value visibility:Fire() end
+	traffic("HuntingState", {Hunting = false}):SendTo("SpeedTracker")
+	assert(verdict.SourceConfidence[1] == nil and verdict.SourceConfidence[8] == nil
+		and not table.find(verdict.RuledOut, 1) and not table.find(verdict.RuledOut, 8),
+		"changing Energy around a kill can imitate Wretch's speed curve; kill-only verdicts must stay inconclusive")
+	-- An earlier confound must not poison a fresh hunt with constant Energy.
+	now += 6
+	traffic("HuntingState", {Hunting = true}):SendTo("SpeedTracker")
+	for _, value in ipairs({1, 0, 1, 0}) do now += .2 ghost.Transparency = value visibility:Fire() end
+	now += .2 humanoid.WalkSpeed += 1 changed:Fire()
+	now += 3.3
+	traffic("PlayerKilled", {Time = now, userId = 2}):SendTo("SpeedTracker")
+	for _, value in ipairs({1, 0, 1, 0}) do now += .2 ghost.Transparency = value visibility:Fire() end
+	assert(verdict.SourceConfidence[1] == 99,
+		"a later constant-Energy kill window must still detect a real speed step")
+	tracker:Destroy() aswang:Destroy() keres:Destroy()
+end
+
+print("kill-speed-trend.spec: ramp, Energy and visibility-first kill changes passed")

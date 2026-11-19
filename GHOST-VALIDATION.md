@@ -17,7 +17,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Aswang | Five earlier salt controls and five c9ea459 solo classifications; five fresh specific kill-perk confirmations on 48c9685 at 0.5x, 0.75x, 1x, 1.5x and 2x | The fresh series requires the actual kill-perk Support, not overall confidence from salt. One zero-kill exit-opening fixture was skipped. Older assertion failures and the interrupted visibility-first trace remain separately preserved |
 | Banshee | Glass observations and native probability flag reviewed | Glass frequency is variable; no unique automatic identity claim |
 | Demon | Five floating-Cross identifications and ordinary-Cross comparison | Interrupted-Cross cancellation has engine/regression coverage, not a new five-game series |
-| Dullahan | Five earlier micro-acceleration identifications; five native headless-flag classifications on a340495, all zero-kill, default/native matched, source99/effective65 and actual MEDIUM rows | The acceleration-plus-kill stress setup did not qualify. Regressions reject small ramp steps and large batched steps when Headless is already true; normal recorded kill traces still pass. This is not a claimed native combined-stress pass |
+| Dullahan | Five earlier micro-acceleration identifications; five zero-kill headless-flag classifications on a340495; five native headless kill controls on 78708a4, each default/native Dullahan, one real kill, source99/effective65, zero kill-speed packets and no false Aswang/Keres support | The older acceleration-plus-kill stress setup did not qualify. The fresh kill series validates the known-headless policy, not every coalesced-network ramp combination. Regressions reject small ramps and large batched steps; normal recorded kill traces still pass |
 | Dybbuk | Five corrected Music Box stun identifications at 0.5x, 1x and 2x; ordinary-ghost comparisons, including the actual detector at close range | Initial low-speed miss corrected; one disconnected return remains separately unverified. These are five qualifying confirmations, not five uninterrupted attempts. Corpse motion alone is unqualified |
 | Entity | Five origin-smoke/relocation identifications | Uncorroborated physics displacement is not unique |
 | Ghoul | Five fresh native flag classifications on 944e4c4: default/native Ghoul, zero kills, source99/effective65 and actual MEDIUM rows in every round. One separate full-profile ranking policy control also matched native Ghoul | The flag is positive-only; qualified later contradictions still exclude. Doppelganger remains possible. The full-profile preference is tentative50, not unique identity proof |
@@ -38,7 +38,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Vex | Five earlier flag identifications, one strong-signature confidence control, five native Mimicry challenge controls; ordinary solo kill comparison kept hunting for eight seconds without Revenant support | Flags are behavior observations, not an exhaustive proof that copying is impossible |
 | Wretch | Five earlier Energy-speed-curve identifications; one fresh native solo counter on 064407e held Energy50/speed11.5 across a real kill and eight seconds afterward, with no false Aswang/Keres/Revenant support | Energy did not change in that counter. Multiplayer Energy-change and candle/forced-hunt conditions remain unqualified |
 | Wisp | Five burning-oil collision controls and a normal-ghost comparison | Inside-room hunt starts are not positive evidence; outside starts can exclude |
-| Wraith | Five fresh mature hunting-salt classifications on 944e4c4: default/native Wraith, zero kills, source99/effective65 and actual MEDIUM rows. One native Vex hunting-salt comparison excluded Wraith without even transient positive support. Lifecycle cancellation, late-disturbance correction and strict sensor geometry also have regression/engine coverage | These are five qualifying Wraith controls, not five uninterrupted attempts. Exact root Touched events were recorded; immediate overlap queries were already empty. Idle contacts remained inconclusive. No-contact rounds and setup failures earn no credit. Broader ordinary-ghost comparisons remain in progress; the original Doppelganger capture's cause remains unproven |
+| Wraith | Five fresh mature hunting-salt classifications on 944e4c4: default/native Wraith, zero kills, source99/effective65 and actual MEDIUM rows. Five native Vex hunting-salt comparisons excluded Wraith without even transient positive support. Lifecycle cancellation, late-disturbance correction and strict sensor geometry also have regression/engine coverage | These are qualifying controls, not uninterrupted attempts. Exact root Touched events were recorded; immediate overlap queries were already empty. Idle contacts remained inconclusive. No-contact rounds, setup failures and the interrupted Vex attempt earn no credit. The original Doppelganger capture's cause remains unproven |
 
 ## Current shared checks
 
@@ -57,8 +57,10 @@ the table does not imply five fresh games on the latest build for every ghost.
 Native artifacts remain in the executor's `DemonologyResearch` directory.
 Important recent records include `vex-mimicry-five-confirmed.json`,
 `dullahan-native-headless-five-confirmed.json`,
+`headless-native-kill-guard-five-confirmed.json`,
 `ghoul-native-electronics-flag-five-confirmed.json`,
 `wraith-mature-hunting-salt-five-confirmed.json`,
+`vex-hunting-salt-counter-five-confirmed.json`,
 `ghoul-electronics-counter-control-confirmed.json`,
 `specter-residence-policy-confirmed.json`, and the separately preserved initial
 Dybbuk low-speed miss. The corrected positive series is
@@ -73,7 +75,10 @@ The stricter scale series on 48c9685 is archived as
 `kill-step-scales-v2-complete-confirmed.json`. Each recorded the specific
 kill-perk Support before the native result; AverageEnergy stayed zero in
 these controls. They do not establish safety against changing-Energy
-windows or every combination of overlapping perks.
+windows or every combination of overlapping perks. A regression now reproduces
+false kill support from Wretch-shaped Energy changes in both directions. The
+guard withholds those known-confounded windows while retaining later stable
+windows; a changing-Energy native kill series is not yet claimed.
 The Revenant series is `revenant-solo-low-policy-five-confirmed.json`.
 The ordinary solo comparison is `vex-solo-kill-counter-confirmed.json`;
 the complete checkpoint is `solo-kill-v2-complete-confirmed.json`.

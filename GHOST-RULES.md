@@ -72,6 +72,10 @@ The native Aswang/Keres kill changes are larger at every offered speed scale.
 A true native Headless flag also keeps the kill-speed window inconclusive:
 its acceleration/reset can arrive in batches larger than the small-step gate.
 The kill marker and independent Dullahan observations remain active.
+Known AverageEnergy changes within the five-second kill correlation window
+also keep speed-only kill verdicts inconclusive. Wretch can otherwise imitate
+either direction. This deliberately withholds some genuine kill perks when
+Energy changes overlap them; it does not infer a ghost from that ambiguity.
 
 In full-evidence rounds, a complete direct three-clue match wins a tie against
 tentative fake-Orb support. This is a 50-point preference, not a resolved

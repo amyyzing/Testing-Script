@@ -6079,13 +6079,14 @@ return function(dependencies)
 		local visible = type(transparency) == "boolean"
 			and not transparency
 			or type(transparency) == "number" and transparency < 0.5
+		local energy = World and World:GetAttribute("AverageEnergy")
 		Traffic("GhostSpeedObserved", {Speed = speed, Visible = visible == true,
 			Hunting = Tracker.hunting == true,
-			AverageEnergy = World and World:GetAttribute("AverageEnergy"), Source = source, Time = clock(),
+			AverageEnergy = energy, Source = source, Time = clock(),
 		}):SendTo("GhostPatternLog", "Dullahan")
 		local point = {s = speed, v = visible == true}
 		table.insert(Tracker.samples, point)
-		table.insert(Tracker.sampleMeta, {source = source, time = clock(), change = speedChange,
+		table.insert(Tracker.sampleMeta, {source = source, time = clock(), change = speedChange, energy = energy,
 			beforeVisible = Tracker.stableSpeeds[true], beforeInvisible = Tracker.stableSpeeds[false]})
 		if source == "speed" then Tracker.acknowledgedSpeed = speed end
 		if speed == Tracker.acknowledgedSpeed then Tracker.stableSpeeds[point.v] = speed end
@@ -6125,6 +6126,14 @@ return function(dependencies)
 		if not Tracker.beforeKill then return end
 		-- Native headless acceleration/reset can arrive as a large batched step.
 		if Ghost:GetAttribute("Headless") == true then return end
+		local energy = World and World:GetAttribute("AverageEnergy")
+		if type(energy) == "number" and type(Tracker.killEnergy) == "number"
+			and clock() - (Tracker.killAt or clock()) <= killMatchWindow
+			and math.abs(energy - Tracker.killEnergy) > .001 then
+			Tracker.killEnergyChanged = true
+		end
+		-- Wretch's Energy curve can imitate either direction of a kill speed step.
+		if Tracker.killEnergyChanged then return end
 		Traffic("KillSpeed", {
 			userId = Tracker.killUserId,
 			baselineKill = Tracker.killBaseline,
@@ -6201,6 +6210,19 @@ return function(dependencies)
 			Tracker.killSpeedChange = nil
 			Tracker.killBaselines = nil
 			local killTime = tonumber(payload.Time) or clock()
+			Tracker.killAt = killTime
+			Tracker.killEnergy, Tracker.killEnergyChanged = nil, false
+			for index = #Tracker.sampleMeta, 1, -1 do
+				local meta = Tracker.sampleMeta[index]
+				local age = killTime - meta.time
+				if age > killMatchWindow then break end
+				if age >= 0 and type(meta.energy) == "number" then
+					Tracker.killEnergy = Tracker.killEnergy or meta.energy
+					if math.abs(meta.energy - Tracker.killEnergy) > .001 then
+						Tracker.killEnergyChanged = true
+					end
+				end
+			end
 			for index = #Tracker.sampleMeta - 1, 1, -1 do
 				local meta = Tracker.sampleMeta[index]
 				local age = killTime - meta.time
