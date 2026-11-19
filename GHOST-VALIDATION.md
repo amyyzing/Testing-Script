@@ -1,6 +1,6 @@
 # Native ghost validation
 
-Updated 2026-11-18. A qualifying identity control records the script's default
+Updated 2026-11-19. A qualifying identity control records the script's default
 prediction before submission, then compares it with a fresh native job result.
 Unobserved perks, fixture failures, uncontrolled deaths and ambiguous
 counter-controls are not credited as successful identifications. Intentional
@@ -24,7 +24,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Keres | Five earlier c9ea459 solo classifications; five fresh specific kill-perk confirmations on 48c9685 at 0.5x, 0.75x, 1x, 1.5x and 2x | Fresh paired causal baselines survived the actual callback order; each default/native result matched with one real kill. Earlier disconnected captures remain unverified. Model gender is exclusion-only |
 | Leviathan | Five native glitch-attribute identifications | Ordinary switch frequency remains weak |
 | Nightmare | Evidence-only by user decision: EMF 5, Orb and Spirit Box. No perk module or pending sound/hunt-probability entries are shipped | Random sounds and hunt probability are excluded from guessing, not pending perk work |
-| Oni | Five stable-base-speed identifications with Energy controls | Low-Energy Wretch and unknown difficulty scale must remain distinguishable |
+| Oni | Five stable-base-speed identifications with Energy controls | Absolute-speed inference requires captured custom tuning and a Small map. Medium/Large map factors remain unverified; the queued native map controls have no retrieved result yet. Low-Energy Wretch must remain distinguishable |
 | Phantom | Five repeated blink-speed identifications; one native solo kill comparison exercised 21/27 speed states without false Aswang/Keres/Revenant support | The comparison's default guess was Specter, so it is not a new identity success. Unstable speed windows remain inconclusive |
 | Ravager | Five qualified multi-assembly vortex identifications | Missing random activation is not a negative |
 | Revenant | Five native-confirmed solo LOW35 policy controls on c9ea459; hunt stops were about 0.64 to 0.67 seconds after death. The live log explicitly rendered LOW | These are policy controls, not five unique-identity proofs. Settings or ordinary round ending can imitate the cue |
@@ -36,7 +36,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Umbra | Five exact CurrentSound absence controls plus ordinary-ghost comparisons | Missing root/loading gaps are not silence; late sound creation corrects the result |
 | Vesper | Evidence-only by user decision: Writing, Handprints and Wither. No perk processor or sound/through-wall perk entries are shipped | Earlier auditory research remains archived and uncredited. Sound, pursuit and through-wall behavior are deliberately outside the detector's scope, not pending features |
 | Vex | Five earlier flag identifications, one strong-signature confidence control, five native Mimicry challenge controls; ordinary solo kill comparison kept hunting for eight seconds without Revenant support | Flags are behavior observations, not an exhaustive proof that copying is impossible |
-| Wretch | Five earlier Energy-speed-curve identifications; a constant-Energy solo counter on 064407e; one changing-Energy native kill counter on 6518773 used a real Energy Drink, observed Energy50–55 in the kill window, and suppressed all kill-speed packets without false Aswang/Keres support | The new result is one policy counter, not five new identity wins or all multiplayer Energy transitions. The earlier constant-Energy counter did not exercise this guard. Candle/forced-hunt conditions remain unqualified |
+| Wretch | Five earlier Energy-speed-curve identifications; a constant-Energy solo counter on 064407e; one changing-Energy native kill counter on 6518773 used a real Energy Drink, observed Energy50–55 in the kill window, and suppressed all kill-speed packets without false Aswang/Keres support. Five later no-kill controls rejected continuous live Energy-to-speed inference; the experimental observer was removed | The kill counter is one policy control, not five new identity wins or all multiplayer Energy transitions. Energy restoration alone did not refresh hunting speed; qualified hunt-transition snapshots remain the classifier input. The five no-kill controls earn no identity credit. Candle/forced-hunt conditions remain unqualified |
 | Wisp | Five burning-oil collision controls and a normal-ghost comparison | Inside-room hunt starts are not positive evidence; outside starts can exclude |
 | Wraith | Five fresh mature hunting-salt classifications on 944e4c4: default/native Wraith, zero kills, source99/effective65 and actual MEDIUM rows. Five native Vex hunting-salt comparisons excluded Wraith without even transient positive support. Lifecycle cancellation, late-disturbance correction and strict sensor geometry also have regression/engine coverage | These are qualifying controls, not uninterrupted attempts. Exact root Touched events were recorded; immediate overlap queries were already empty. Idle contacts remained inconclusive. No-contact rounds, setup failures and the interrupted Vex attempt earn no credit. The original Doppelganger capture's cause remains unproven |
 
@@ -86,6 +86,16 @@ real solo kill: the recorded five-second window spanned Energy50–55, no
 kill-speed packets were emitted, and no false Aswang/Keres support appeared.
 Earlier timing/setup attempts remain separate and uncredited; this is not an
 exhaustive multiplayer series.
+
+The separate no-kill experiment is archived as
+`wretch-native-no-kill-refresh-boundary-five.json`. Across five actual Wretch
+rounds, restoring Energy from 0 toward 25 left hunting speed at 7 with a 0.5x
+custom multiplier. On the final recorded hunt end, speed refreshed to 6.375 at
+Energy25. The earlier mid-hunt speed change was adjacent to a kill and did not
+prove continuous Energy-driven updates. The experimental live observer was
+reverted in f9fb7ea; these controls reject that hypothesis rather than adding
+five identification successes.
+
 The Revenant series is `revenant-solo-low-policy-five-confirmed.json`.
 The ordinary solo comparison is `vex-solo-kill-counter-confirmed.json`;
 the complete checkpoint is `solo-kill-v2-complete-confirmed.json`.
