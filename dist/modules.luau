@@ -10845,6 +10845,19 @@ return function(dependencies)
 		return math.max(0,
 			(Verdict.Confidence[index] or 0) - (Verdict.NegativeConfidence[index] or 0))
 	end
+	local function preferredEvidenceIndex()
+		if type(EvidenceCatalog) ~= "table" or mimicryActive() then return nil end
+		local count = 0
+		for _ in pairs(Verdict.Evidence) do count += 1 end
+		if count ~= 3 then return nil end
+		local limit = dependencies.ReadEvidenceLimit and dependencies.ReadEvidenceLimit()
+		if EvidenceCatalog.ClassifyOrbCombination(Verdict.Evidence, limit).EvidenceLimit ~= 3 then return nil end
+		local exact = EvidenceCatalog.FilterCandidates(Verdict.Evidence, {}, {
+			NamesOnly = true, RealOnly = true, IncludeFalseEvidence = false,
+		})
+		local index = #exact == 1 and indexes[exact[1]] or nil
+		return index and not isRuledOut(index) and evidenceCompatible(index) and index or nil
+	end
 
 	local function doppelgangerPossible()
 		return evidenceCompatible(indexes.Doppelganger) and not isRuledOut(indexes.Doppelganger)
@@ -10869,6 +10882,8 @@ return function(dependencies)
 			and evidenceCompatible(Verdict.ForcedIndex) then
 			bestIndex = Verdict.ForcedIndex
 		elseif not bestIndex then
+			bestIndex = preferredEvidenceIndex()
+			if bestIndex then bestScore = math.max(0, 50 - (Verdict.NegativeConfidence[bestIndex] or 0)) end
 			for index in ipairs(GHOSTS) do
 				local confidence = Verdict.Confidence[index]
 				local currentScore = score(index)
@@ -10993,6 +11008,12 @@ return function(dependencies)
 
 	function Verdict:GetDisprovedEvidence()
 		return table.clone(self.DisprovedEvidence)
+	end
+
+	function Verdict:GetEvidencePreferredGhost()
+		local index = preferredEvidenceIndex()
+		if not index then return nil end
+		return GHOSTS[index], math.max(0, 50 - (self.NegativeConfidence[index] or 0))
 	end
 
 	function Verdict:GetEvidenceResolvedGhost()
@@ -12367,6 +12388,10 @@ return function(dependencies)
 			if resolved and (not allowed or allowed[resolved]) then return resolved, 100 end
 		end
 		local bestName, bestScore
+		if type(Verdict.GetEvidencePreferredGhost) == "function" then
+			local preferred, confidence = Verdict:GetEvidencePreferredGhost()
+			if preferred and (not allowed or allowed[preferred]) then bestName, bestScore = preferred, confidence end
+		end
 		for index, name in ipairs(Verdict.Lists) do
 			if not isRuledOut(index)
 				and (type(Verdict.IsCompatible) ~= "function" or Verdict:IsCompatible(name))

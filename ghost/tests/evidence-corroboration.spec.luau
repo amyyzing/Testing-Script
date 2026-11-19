@@ -49,6 +49,20 @@ for key, compatible in pairs({FreezingTemperatures = true, GhostWriting = true, 
 	end
 end
 local clearOrb = createVerdict({Traffic = createTraffic(), EvidenceCatalog = EvidenceCatalog})
+local completeGhoul = createVerdict({Traffic = createTraffic(), EvidenceCatalog = EvidenceCatalog,
+	ReadEvidenceLimit = function() return 3 end})
+for _, clue in ipairs({"FreezingTemperatures", "SpiritBox", "GhostOrb"}) do completeGhoul:SetEvidence(clue, true) end
+expect(completeGhoul.Selected[1] == 7 and completeGhoul:GetEvidenceResolvedGhost() == nil
+	and completeGhoul:IsCompatible("Doppelganger"),
+	"a full direct Ghoul match should win the Maybe tie without excluding fake-Orb Doppelganger")
+local preferred, preferredScore = completeGhoul:GetEvidencePreferredGhost()
+expect(preferred == "Ghoul" and preferredScore == 50,
+	"the preference remains tentative and must not become automatic certainty")
+expect(limitedVerdict:GetEvidencePreferredGhost() == nil,
+	"the direct three-real-clue preference is invalid in a two-evidence round")
+completeGhoul:Support("Doppelganger", 60, "shared candle", nil, true)
+expect(completeGhoul.Selected[1] == 17,
+	"a tentative evidence preference must not override a stronger compatible behavioral cue")
 clearOrb:SetEvidence("GhostOrb", true)
 clearOrb:SetEvidence("GhostOrb", nil)
 expect(clearOrb.Confidence[17] == nil, "removing Orb must remove its Maybe support")

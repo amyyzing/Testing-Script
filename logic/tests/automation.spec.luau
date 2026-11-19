@@ -67,6 +67,7 @@ local roundStarted = {
 	end,
 }
 local mimicry = false
+local uniqueEvidence, preferEvidence = true, false
 local controller = createAutomation({
 	Services = {Workspace = {}, RunService = nil},
 	Player = {FindFirstChildOfClass = function() return nil end},
@@ -80,7 +81,8 @@ local controller = createAutomation({
 		IsMimicryActive = function() return mimicry end,
 		IsCompatible = function(_, name) return name == "Wraith" end,
 		GetConfirmedEvidence = function() return {GhostOrb = true} end,
-		GetEvidenceResolvedGhost = function() return "Wraith" end,
+		GetEvidenceResolvedGhost = function() return uniqueEvidence and "Wraith" or nil end,
+		GetEvidencePreferredGhost = function() if preferEvidence then return "Wraith", 50 end end,
 		ForceSelect = function() return true end,
 	},
 	Movement = movement,
@@ -172,6 +174,11 @@ expect(perkStateSeen.currentGhostGuess == "Wraith"
 	"automation must treat unique evidence as Certain and expose confirmed evidence")
 expect(detectionsSeen.Wraith.NetConfidence == 35,
 	"timeout weighting should expose evidence-compatible net confidence")
+uniqueEvidence, preferEvidence = false, true
+expect(perkStateSeen.currentGhostGuess == "Wraith" and perkStateSeen.currentGhostGuessScore == 50
+	and perkStateSeen.currentGhostGuessCertain == false,
+	"automation must follow tentative evidence ranking without treating it as Certain")
+uniqueEvidence, preferEvidence = true, false
 ghost.Hunting = true
 huntSignal:Fire()
 expect(fastEscapes == 1 and stateSeen.phase == "Hunt escape",

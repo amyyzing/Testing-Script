@@ -127,6 +127,10 @@ return function(dependencies)
 			if resolved and (not allowed or allowed[resolved]) then return resolved, 100 end
 		end
 		local bestName, bestScore
+		if type(Verdict.GetEvidencePreferredGhost) == "function" then
+			local preferred, confidence = Verdict:GetEvidencePreferredGhost()
+			if preferred and (not allowed or allowed[preferred]) then bestName, bestScore = preferred, confidence end
+		end
 		for index, name in ipairs(Verdict.Lists) do
 			if not isRuledOut(index)
 				and (type(Verdict.IsCompatible) ~= "function" or Verdict:IsCompatible(name))

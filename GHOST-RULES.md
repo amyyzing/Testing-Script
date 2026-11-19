@@ -66,6 +66,12 @@ Post-kill speed windows retain the actual per-property change. Steps up to
 for Aswang and Keres even when a delayed death notification arrives nearby.
 The native Aswang/Keres kill changes are larger at every offered speed scale.
 
+In full-evidence rounds, a complete direct three-clue match wins a tie against
+tentative fake-Orb support. This is a 50-point preference, not a resolved
+identity: Doppelganger stays compatible, stronger behavior can override it,
+and automation does not treat it as certain. The preference is disabled for
+Mimicry and reduced-evidence rounds.
+
 The current replicated `GhostTypes.Doppelganger` module directly lists room
 teleporting, switching off a room light and SpiritCandle abilities, plus fake-Orb,
 custom-wail and wall-walking flags. That exposed module is not an exhaustive
