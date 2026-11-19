@@ -14,14 +14,14 @@ the table does not imply five fresh games on the latest build for every ghost.
 
 | Ghost | Native coverage | Remaining limitation |
 | --- | --- | --- |
-| Aswang | Five qualified salt-slowdown identifications; five native-confirmed solo post-kill classifications on c9ea459, including temporary slowdown and recovery | Three zero-kill setup failures were skipped. One private constant-speed assertion incorrectly rejected a correct prediction; its original failure and the reviewed native trace are preserved |
+| Aswang | Five earlier salt controls and five c9ea459 solo classifications; five fresh specific kill-perk confirmations on 48c9685 at 0.5x, 0.75x, 1x, 1.5x and 2x | The fresh series requires the actual kill-perk Support, not overall confidence from salt. One zero-kill exit-opening fixture was skipped. Older assertion failures and the interrupted visibility-first trace remain separately preserved |
 | Banshee | Glass observations and native probability flag reviewed | Glass frequency is variable; no unique automatic identity claim |
 | Demon | Five floating-Cross identifications and ordinary-Cross comparison | Interrupted-Cross cancellation has engine/regression coverage, not a new five-game series |
 | Dullahan | Five earlier micro-acceleration identifications; five native headless-flag classifications on a340495, all zero-kill, default/native matched, source99/effective65 and actual MEDIUM rows | The acceleration-plus-kill stress setup did not qualify. A regression now rejects small ramp steps as kill effects; that is not a claimed native combined-stress pass |
 | Dybbuk | Five corrected Music Box stun identifications at 0.5x, 1x and 2x; ordinary-ghost comparisons, including the actual detector at close range | Initial low-speed miss corrected; one disconnected return remains separately unverified. These are five qualifying confirmations, not five uninterrupted attempts. Corpse motion alone is unqualified |
 | Entity | Five origin-smoke/relocation identifications | Uncorroborated physics displacement is not unique |
 | Ghoul | One unattended-electronics counter-control, actual Ghoul; direct three-clue/fake-Orb ranking corrected in regressions | The old default was Doppelganger. New direct-profile preference is tentative50, not certainty; fresh native ranking controls remain pending |
-| Keres | Five native-confirmed solo post-kill classifications on c9ea459, following replay of the original delayed-death detector miss | An earlier disconnected capture remains unverified after changing test accounts; it is not one of the five. Model gender is exclusion-only |
+| Keres | Five earlier c9ea459 solo classifications; five fresh specific kill-perk confirmations on 48c9685 at 0.5x, 0.75x, 1x, 1.5x and 2x | Fresh paired causal baselines survived the actual callback order; each default/native result matched with one real kill. Earlier disconnected captures remain unverified. Model gender is exclusion-only |
 | Leviathan | Five native glitch-attribute identifications | Ordinary switch frequency remains weak |
 | Nightmare | Current native probability modifiers reviewed | Random sounds or a single hunt do not identify it |
 | Oni | Five stable-base-speed identifications with Energy controls | Low-Energy Wretch and unknown difficulty scale must remain distinguishable |
@@ -65,6 +65,13 @@ is `vex-latest-music-counter-control-confirmed.json`.
 The post-kill Aswang series is `aswang-solo-kill-five-confirmed.json`.
 The Keres series is `keres-solo-kill-five-confirmed.json`; only results
 confirmed for the same test account were credited.
+The stricter scale series on 48c9685 is archived as
+`aswang-kill-step-scales-five-confirmed.json`,
+`keres-kill-step-scales-five-confirmed.json` and
+`kill-step-scales-v2-complete-confirmed.json`. Each recorded the specific
+kill-perk Support before the native result; AverageEnergy stayed zero in
+these controls. They do not establish safety against changing-Energy
+windows or every combination of overlapping perks.
 The Revenant series is `revenant-solo-low-policy-five-confirmed.json`.
 The ordinary solo comparison is `vex-solo-kill-counter-confirmed.json`;
 the complete checkpoint is `solo-kill-v2-complete-confirmed.json`.
