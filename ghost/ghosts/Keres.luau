@@ -18,6 +18,7 @@ function Keres.new(dependencies)
 			return
 		end
 		if signal ~= "KillSpeed" then return end
+		if type(data.SpeedChange) == "number" and math.abs(data.SpeedChange) <= 0.05 then return end
 		local before = data.beforeKill
 		local after = data.afterKill or {}
 		if type(before) ~= "table" or #after < 3 then return end

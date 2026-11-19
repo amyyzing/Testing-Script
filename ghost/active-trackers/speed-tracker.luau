@@ -11,7 +11,7 @@ return function(dependencies)
 		pendingSalts = {},
 	}
 
-	local function sample(source)
+	local function sample(source, speedChange)
 		local humanoid = Ghost:FindFirstChildOfClass("Humanoid")
 		local speed = humanoid and tonumber(humanoid.WalkSpeed)
 		if not speed then return end
@@ -25,7 +25,7 @@ return function(dependencies)
 		}):SendTo("GhostPatternLog", "Dullahan")
 		local point = {s = speed, v = visible == true}
 		table.insert(Tracker.samples, point)
-		table.insert(Tracker.sampleMeta, {source = source, time = clock()})
+		table.insert(Tracker.sampleMeta, {source = source, time = clock(), change = speedChange})
 		if Tracker.afterSalt then table.insert(Tracker.afterSalt, point) end
 		if Tracker.afterKill then table.insert(Tracker.afterKill, point) end
 		return point
@@ -63,6 +63,7 @@ return function(dependencies)
 		Traffic("KillSpeed", {
 			userId = Tracker.killUserId,
 			baselineKill = Tracker.killBaseline,
+			SpeedChange = Tracker.killSpeedChange,
 			beforeKill = Tracker.beforeKill,
 			afterKill = Tracker.afterKill,
 			completed = completed == true,
@@ -80,7 +81,7 @@ return function(dependencies)
 		Tracker.displayIndex = 0
 		Tracker.beforeSalt, Tracker.afterSalt, Tracker.contact, Tracker.saltState = nil, nil, nil, nil
 		Tracker.beforeKill, Tracker.afterKill = nil, nil
-		Tracker.killUserId, Tracker.killBaseline = nil, nil
+		Tracker.killUserId, Tracker.killBaseline, Tracker.killSpeedChange = nil, nil, nil
 		if value then Traffic("HuntSpeedReset", {}):SendTo("SpeedArrayLog") end
 		sample("state") -- once while non-hunting; hunt samples continue on visibility changes
 	end
@@ -129,13 +130,16 @@ return function(dependencies)
 			sendKill(true)
 			Tracker.killUserId = payload.userId
 			local splitIndex = #Tracker.samples
+			Tracker.killSpeedChange = nil
 			local killTime = tonumber(payload.Time) or clock()
 			for index = #Tracker.sampleMeta - 1, 1, -1 do
 				local meta = Tracker.sampleMeta[index]
 				local age = killTime - meta.time
 				if age > killMatchWindow then break end
-				if age >= 0 and meta.source == "speed" then
+				if age >= 0 and meta.source == "speed"
+					and (meta.change == nil or math.abs(meta.change) > 0.000001) then
 					splitIndex = index
+					Tracker.killSpeedChange = meta.change
 					break
 				end
 			end
@@ -167,9 +171,13 @@ return function(dependencies)
 	end)
 	local humanoid = Ghost:FindFirstChildOfClass("Humanoid")
 	if humanoid then
+		local previousSpeed = tonumber(humanoid.WalkSpeed)
 		Tracker.SpeedConnection = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+			local speed = tonumber(humanoid.WalkSpeed)
+			local change = speed and previousSpeed and speed - previousSpeed or nil
+			previousSpeed = speed
 			if Tracker.hunting then
-				sample("speed")
+				sample("speed", change)
 				sendSalt(false)
 				sendKill(false)
 			end

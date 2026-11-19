@@ -43,6 +43,8 @@ function Aswang.new(dependencies)
 				}, before)
 			end
 		elseif signal == "KillSpeed" then
+			-- These small steps also fit the measured Dullahan ramp, not a discrete kill effect.
+			if type(data.SpeedChange) == "number" and math.abs(data.SpeedChange) <= 0.05 then return end
 			local before = data.beforeKill or {}
 			local after = data.afterKill or {}
 			if #after < 3 then return end

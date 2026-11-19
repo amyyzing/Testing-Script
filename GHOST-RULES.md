@@ -61,6 +61,11 @@ not a claim that all 25 ghosts have each been tested in a live round.
 
 Behavioral perk matches are treated as potentially copyable while Doppelganger fits the confirmed evidence. Their effective support is capped at 65 and qualifying rows are marked MEDIUM. Weak readings are not promoted. Independent evidence excluding Doppelganger releases the cap; clearing it restores the cap. High-confidence negative observations retain their existing gates.
 
+Post-kill speed windows retain the actual per-property change. Steps up to
+0.05 also fit the measured Dullahan ramp, so those windows remain inconclusive
+for Aswang and Keres even when a delayed death notification arrives nearby.
+The native Aswang/Keres kill changes are larger at every offered speed scale.
+
 The current replicated `GhostTypes.Doppelganger` module directly lists room
 teleporting, switching off a room light and SpiritCandle abilities, plus fake-Orb,
 custom-wail and wall-walking flags. That exposed module is not an exhaustive
