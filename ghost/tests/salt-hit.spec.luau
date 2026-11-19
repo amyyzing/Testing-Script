@@ -159,6 +159,7 @@ aswang:Destroy()
 
 -- Exercise the real query path, rather than only the injected contact result.
 local params, queries = {}, 0
+local queryNow, rootInside = 12, true
 local exactCF, exactSize = {}, {}
 saltSensor.CFrame, saltSensor.Size = exactCF, exactSize
 local exactTraffic = createTraffic()
@@ -168,14 +169,14 @@ exactTraffic:Receive("SaltStateAfterHit", function(name)
 end)
 local exact = createSaltHit({
 	Traffic = exactTraffic, Ghost = Ghost, SaltFolder = SaltFolder,
-	RunService = RunService, Clock = function() return 12 end,
+	RunService = RunService, Clock = function() return queryNow end,
 	NewOverlapParams = function() return params end, IncludeFilterType = "Include",
 	Workspace = {GetPartBoundsInBox = function(_, cf, size, filter)
 		queries += 1
 		expect(cf == exactCF and size == exactSize, "use the sensor's exact box, without model bounds or padding")
 		expect(filter.FilterDescendantsInstances[1] == ghostRoot,
 			"cosmetic ghost parts must be excluded from the spatial fallback")
-		return {ghostRoot}
+		return rootInside and {ghostRoot} or {}
 	end},
 })
 -- The earlier rename was deliberately retained; actual disturbance stays authoritative.
@@ -185,6 +186,17 @@ exact.PendingSpatial[salt] = saltSensor
 RunService.Heartbeat:Fire(.1)
 expect(queries == 1 and contacts == 1, "a sensor/root overlap must produce one direct contact")
 RunService.Heartbeat:Fire(.1)
-expect(queries == 1 and contacts == 1, "a contact must not be reported every heartbeat")
+expect(contacts == 1, "a continuous early overlap must not be reported every heartbeat")
+queryNow = 17
+RunService.Heartbeat:Fire(.1)
+expect(contacts == 1, "waiting inside a young pile must not manufacture a mature crossing")
+rootInside = false
+RunService.Heartbeat:Fire(.1)
+rootInside = true
+RunService.Heartbeat:Fire(.1)
+expect(contacts == 2, "a fresh crossing of the same pile after grace must be observable")
+local matureQueries = queries
+RunService.Heartbeat:Fire(.1)
+expect(contacts == 2 and queries == matureQueries, "a mature contact should stop spatial polling")
 exact:Destroy()
 print("salt-hit.spec: DisturbedSaltLine rename reaches the Aswang verdict")

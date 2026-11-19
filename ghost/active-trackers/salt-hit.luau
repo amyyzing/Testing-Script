@@ -5,6 +5,7 @@ return function(dependencies)
 	local World = dependencies.Workspace or workspace
 	local RunService = assert(dependencies.RunService, "salt-hit requires RunService")
 	local clock = dependencies.Clock or os.clock
+	local creationGrace = tonumber(dependencies.CreationGrace) or 4
 	local Tracker = {
 		Kind = "active",
 		Running = true,
@@ -55,8 +56,8 @@ return function(dependencies)
 	function Tracker:Report(part)
 		local salt = saltObject(part)
 		if self.Touched[salt] then return end
-		self.PendingSpatial[salt] = nil
 		local payload = payloadFor(self, salt)
+		if payload.Time - payload.SaltCreatedAt >= creationGrace then self.PendingSpatial[salt] = nil end
 		self.Touched[salt] = payload
 		Traffic("SaltHit", payload):SendTo("SaltStateAfterHit", "SpeedTracker")
 	end
@@ -147,14 +148,22 @@ return function(dependencies)
 		if elapsed < 0.1 then return end
 		elapsed = 0
 		for salt, part in pairs(Tracker.PendingSpatial) do
-			if not salt.Parent or Tracker.Touched[salt] or Tracker.Disturbed[salt] then
+			if not salt.Parent or Tracker.Disturbed[salt] then
 				Tracker.PendingSpatial[salt] = nil
 			else
 				if not part.Parent then
 					part = replacementPart(salt)
 					Tracker.PendingSpatial[salt] = part
 				end
-				if part and queryGhost(salt, part) then Tracker:Report(part) end
+				if part then
+					if queryGhost(salt, part) then
+						Tracker:Report(part)
+					else
+						-- An early crossing stays unqualified. Re-arm only after an
+						-- actual exit, so a later mature crossing can be observed.
+						Tracker.Touched[salt] = nil
+					end
+				end
 			end
 		end
 	end))
