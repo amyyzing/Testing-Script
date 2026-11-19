@@ -10477,9 +10477,10 @@ function Wraith.new(dependencies)
 			or type(payload) ~= "table" then return end
 		if payload.State == "disturbed" then
 			verdict("RuleOut", "a directly observed salt hit produced disturbed salt")
-		elseif payload.State == "undisturbed" and payload.GraceComplete == true then
+		elseif payload.State == "undisturbed" and payload.GraceComplete == true
+			and payload.HuntingAtHit == true then
 			verdict("Support",
-				"a directly observed crossing after creation grace remained undisturbed")
+				"a hunting ghost crossed mature salt and it remained undisturbed")
 		end
 	end)
 

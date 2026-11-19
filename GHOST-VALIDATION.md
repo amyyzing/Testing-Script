@@ -38,7 +38,7 @@ the table does not imply five fresh games on the latest build for every ghost.
 | Vex | Five earlier flag identifications, one strong-signature confidence control, five native Mimicry challenge controls; ordinary solo kill comparison kept hunting for eight seconds without Revenant support | Flags are behavior observations, not an exhaustive proof that copying is impossible |
 | Wretch | Five Energy-speed-curve identifications with normal-ghost comparison | Candle proximity and eligible-versus-forced hunt conditions remain unqualified |
 | Wisp | Five burning-oil collision controls and a normal-ghost comparison | Inside-room hunt starts are not positive evidence; outside starts can exclude |
-| Wraith | Five earlier salt controls; lifecycle cancellation and late-disturbance correction checked; sensor geometry reproduced in an isolated Roblox-engine fixture | The old padded whole-model query falsely hit a root outside the native sensor. The new exact GhostTracker/root query rejected it and accepted an actual overlap. Fresh native identity controls on the stricter contact path remain pending; the fixture does not establish the original Doppelganger capture's cause |
+| Wraith | Five earlier provisional salt classifications; lifecycle cancellation and late-disturbance correction checked; exact-sensor geometry reproduced in an isolated Roblox-engine fixture | Positives now require a mature hunting crossing. Idle-model overlap is inconclusive. Fresh native identity controls on this stricter path remain pending; no-contact rounds and placement-fixture failures earn no credit. The original Doppelganger capture's cause remains unproven |
 
 ## Current shared checks
 

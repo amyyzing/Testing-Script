@@ -75,6 +75,7 @@ positive.Traffic("SaltHit", {
 	ContactId = 1,
 	Salt = clean,
 	SaltCreatedAt = 0,
+	Hunting = true,
 }):SendTo("SaltStateAfterHit")
 expect(#positive.Delayed == 1 and positive.Delayed[1].Seconds == 1.25
 	and positive.Verdict.Confidence[25] == nil,
@@ -99,6 +100,16 @@ early.Delayed[1].Callback()
 expect(early.Verdict.Confidence[25] == nil,
 	"waiting four seconds cannot turn a crossing during creation grace into a qualified Wraith match")
 early.Destroy()
+
+local idle = harness()
+idle.SetTime(4)
+idle.Traffic("SaltHit", {ContactId = 1, Salt = salt("SaltPile"), SaltCreatedAt = 0,
+	Hunting = false}):SendTo("SaltStateAfterHit")
+idle.SetTime(5.25)
+idle.Delayed[1].Callback()
+expect(idle.Verdict.SourceConfidence[25] == nil,
+	"an idle-model overlap is not a qualified hunting salt crossing")
+idle.Destroy()
 
 local negative = harness()
 local disturbed = salt("SaltPile")

@@ -93,3 +93,5 @@ The crossing itself must occur after creation grace; an early crossing stays
 inconclusive even if the pile is still clean four seconds later.
 A fresh exit and re-entry can qualify the same pile later; remaining inside
 until the grace expires cannot manufacture another crossing.
+Positive Wraith support additionally requires a hunting crossing. Idle-model
+overlap is inconclusive; an actual disturbance still excludes Wraith immediately.
