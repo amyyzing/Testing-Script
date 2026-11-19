@@ -57,7 +57,9 @@ return function(dependencies)
 		local salt = saltObject(part)
 		if self.Touched[salt] then return end
 		local payload = payloadFor(self, salt)
-		if payload.Time - payload.SaltCreatedAt >= creationGrace then self.PendingSpatial[salt] = nil end
+		if payload.Hunting and payload.Time - payload.SaltCreatedAt >= creationGrace then
+			self.PendingSpatial[salt] = nil
+		end
 		self.Touched[salt] = payload
 		Traffic("SaltHit", payload):SendTo("SaltStateAfterHit", "SpeedTracker")
 	end
@@ -159,7 +161,7 @@ return function(dependencies)
 					if queryGhost(salt, part) then
 						Tracker:Report(part)
 					else
-						-- An early crossing stays unqualified. Re-arm only after an
+						-- An early or idle crossing stays unqualified. Re-arm after an
 						-- actual exit, so a later mature crossing can be observed.
 						Tracker.Touched[salt] = nil
 					end

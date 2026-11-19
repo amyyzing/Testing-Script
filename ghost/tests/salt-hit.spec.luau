@@ -163,6 +163,7 @@ local queryNow, rootInside = 12, true
 local exactCF, exactSize = {}, {}
 saltSensor.CFrame, saltSensor.Size = exactCF, exactSize
 local exactTraffic = createTraffic()
+Ghost.Hunting = false
 local contacts = 0
 exactTraffic:Receive("SaltStateAfterHit", function(name)
 	if name == "SaltHit" then contacts += 1 end
@@ -195,8 +196,16 @@ RunService.Heartbeat:Fire(.1)
 rootInside = true
 RunService.Heartbeat:Fire(.1)
 expect(contacts == 2, "a fresh crossing of the same pile after grace must be observable")
+Ghost.Hunting = true
+RunService.Heartbeat:Fire(.1)
+expect(contacts == 2, "starting a hunt while already inside salt is not another crossing")
+rootInside = false
+RunService.Heartbeat:Fire(.1)
+rootInside = true
+RunService.Heartbeat:Fire(.1)
+expect(contacts == 3, "an idle contact must not suppress a later real hunting crossing")
 local matureQueries = queries
 RunService.Heartbeat:Fire(.1)
-expect(contacts == 2 and queries == matureQueries, "a mature contact should stop spatial polling")
+expect(contacts == 3 and queries == matureQueries, "a mature hunting contact should stop spatial polling")
 exact:Destroy()
 print("salt-hit.spec: DisturbedSaltLine rename reaches the Aswang verdict")
