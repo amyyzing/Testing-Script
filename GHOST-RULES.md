@@ -102,11 +102,3 @@ A fresh exit and re-entry can qualify the same pile later; remaining inside
 until the grace expires cannot manufacture another crossing.
 Positive Wraith support additionally requires a hunting crossing. Idle-model
 overlap is inconclusive; an actual disturbance still excludes Wraith immediately.
-
-Wretch also observes in-hunt Energy changes. A live pair must keep the same
-speed and Energy through both visible and invisible states for five seconds,
-so delayed death notifications can cancel it. Known headless acceleration is
-excluded. Known-scale mismatches remain inconclusive on this live path;
-unknown scale needs three stable Energy levels sharing one relative scale,
-with no negative result from inconsistent live samples. The existing settled
-hunt-transition checks remain independent.

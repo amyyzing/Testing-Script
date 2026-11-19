@@ -32,12 +32,6 @@ return function(dependencies)
 	end
 
 	Tracker.Disconnect = Traffic:Receive("WretchSpeed", function(signal, payload)
-		if signal == "GhostSpeedObserved" and type(payload) == "table" then
-			if Tracker.Started and (not payload.Hunting or Tracker.LastHunting) then
-				Traffic("WretchLiveSpeedObserved", payload):SendTo("Wretch")
-			end
-			return
-		end
 		if signal ~= "HuntingState" or type(payload) ~= "table"
 			or type(payload.Hunting) ~= "boolean" then return end
 		local hunting = payload.Hunting

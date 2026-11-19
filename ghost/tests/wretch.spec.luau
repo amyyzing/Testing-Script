@@ -199,84 +199,24 @@ expect(interrupted.Verdict.Confidence[23] == nil and #interrupted.Display == 1,
 	"a hunt ending before samples settle must cancel them even when Energy becomes unavailable")
 interrupted:Destroy()
 
-local function live(h, energy, speed, time, visible, headless)
-	h.Traffic("GhostSpeedObserved", {Hunting = true, AverageEnergy = energy,
-		Speed = speed, Time = time, Visible = visible, Headless = headless}):SendTo("WretchSpeed")
+local restoredEnergy = {0}
+local restored = harness(restoredEnergy, "Small", 28)
+restored.Traffic:Broadcast("HuntingState", {Hunting = false})
+restored.Traffic:Broadcast("HuntingState", {Hunting = true})
+restored.RunDelayed()
+restoredEnergy[1] = 25
+for time = 1, 8 do
+	restored.Traffic("GhostSpeedObserved", {Hunting = true, AverageEnergy = 25,
+		Speed = 28, Time = time, Visible = time % 2 == 0}):SendTo("WretchSpeed")
 end
-local liveCurve = harness({100}, "Small", 18)
-liveCurve.Traffic:Broadcast("HuntingState", {Hunting = false})
-liveCurve.Traffic:Broadcast("HuntingState", {Hunting = true})
-liveCurve.RunDelayed()
-for index, energy in ipairs({90, 80}) do
-	live(liveCurve, energy, 18, index * 10, true)
-	live(liveCurve, energy, 18, index * 10 + 6, false)
-end
-expect(not table.find(liveCurve.Verdict.RuledOut, 23),
-	"temporarily mismatched live Energy and speed must not exclude Wretch")
-live(liveCurve, 80, 20, 30, true)
-live(liveCurve, 80, 20, 31, false)
-expect(liveCurve.Verdict.SourceConfidence[23] ~= 95,
-	"live corroboration must wait out delayed native kill notifications")
-live(liveCurve, 80, 20, 36, true)
-expect(liveCurve.Verdict.SourceConfidence[23] == 95 and liveCurve.Verdict.Confidence[23] == 65,
-	"a stable in-hunt Energy change with both visibility states must corroborate the curve")
-liveCurve:Destroy()
-
-local blinking = harness({100}, "Small", 18)
-blinking.Traffic:Broadcast("HuntingState", {Hunting = false})
-blinking.Traffic:Broadcast("HuntingState", {Hunting = true})
-blinking.RunDelayed()
-for index = 1, 8 do live(blinking, 80, index % 2 == 0 and 20 or 26, index, index % 2 == 0) end
-expect(blinking.Verdict.SourceConfidence[23] ~= 95,
-	"different visible/invisible speeds must not become a live Wretch curve match")
-live(blinking, 80, 20, 20, true, true)
-live(blinking, 80, 20, 26, false, true)
-expect(blinking.Verdict.SourceConfidence[23] ~= 95, "known headless acceleration remains confounded")
-blinking:Destroy()
-
-local liveKilled = harness({100}, "Small", 18)
-liveKilled.Traffic:Broadcast("HuntingState", {Hunting = false})
-liveKilled.Traffic:Broadcast("HuntingState", {Hunting = true})
-liveKilled.RunDelayed()
-live(liveKilled, 80, 20, 1, true)
-liveKilled.Traffic("PlayerKilled", {}):SendTo("Wretch")
-live(liveKilled, 80, 20, 7, false)
-expect(liveKilled.Verdict.SourceConfidence[23] ~= 95, "a delayed kill must cancel live corroboration")
-liveKilled:Destroy()
-
-local relativeLive = harness({100}, "Small", 13.5, true)
-relativeLive.Traffic:Broadcast("HuntingState", {Hunting = false})
-relativeLive.Traffic:Broadcast("HuntingState", {Hunting = true})
-relativeLive.RunDelayed()
-for index, energy in ipairs({100, 60, 20}) do
-	local speed = (14 - energy * .05) * 1.5
-	live(relativeLive, energy, speed, index * 10, true)
-	live(relativeLive, energy, speed, index * 10 + 6, false)
-end
-expect(relativeLive.Verdict.SourceConfidence[23] == 95,
-	"unknown scale needs three stable live Energy levels sharing one relative scale")
-relativeLive:Destroy()
-
-local uncertainLive = harness({100}, "Small", 21, true)
-uncertainLive.Traffic:Broadcast("HuntingState", {Hunting = false})
-uncertainLive.Traffic:Broadcast("HuntingState", {Hunting = true})
-uncertainLive.RunDelayed()
-for index, energy in ipairs({100, 60, 20}) do
-	live(uncertainLive, energy, 21, index * 10, true)
-	live(uncertainLive, energy, 21, index * 10 + 6, false)
-end
-expect(uncertainLive.Verdict.SourceConfidence[23] == nil
-	and not table.find(uncertainLive.Verdict.RuledOut, 23),
-	"inconsistent live relative scales must remain inconclusive")
-uncertainLive:Destroy()
-
-local endedLive = harness({100}, "Small", 18)
-endedLive.Traffic:Broadcast("HuntingState", {Hunting = false})
-endedLive.Traffic:Broadcast("HuntingState", {Hunting = true})
-endedLive.RunDelayed()
-live(endedLive, 80, 20, 1, true)
-endedLive.Traffic("GhostSpeedObserved", {Hunting = false}):SendTo("WretchSpeed")
-live(endedLive, 80, 20, 7, false)
-expect(endedLive.Verdict.SourceConfidence[23] ~= 95,
-	"a live curve window must not bridge a hunt ending")
-endedLive:Destroy()
+expect(restored.Verdict.SourceConfidence[23] ~= 95 and not table.find(restored.Verdict.RuledOut, 23),
+	"native Energy restoration without a speed refresh must not identify or exclude Wretch")
+restored.Humanoid.WalkSpeed = 25.5
+restored.Traffic:Broadcast("HuntingState", {Hunting = false})
+restored.RunDelayed()
+expect(restored.Verdict.SourceConfidence[23] ~= 95, "a non-hunting refresh is not corroboration")
+restored.Traffic:Broadcast("HuntingState", {Hunting = true})
+restored.RunDelayed()
+expect(restored.Verdict.SourceConfidence[23] == 95,
+	"the next actual hunting refresh must still corroborate the changed Energy curve")
+restored:Destroy()
